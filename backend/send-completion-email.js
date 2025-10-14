@@ -2,6 +2,10 @@
 
 const fs = require('fs').promises;
 const path = require('path');
+
+// Load environment variables
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+
 const CompletionEmailService = require('./utils/completionEmail');
 
 async function sendCompletionEmail() {

@@ -3,7 +3,9 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const path = require('path');
-require('dotenv').config();
+
+// Load environment variables from .env file in project root
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 // Import routes
 const eventsRouter = require('./routes/events');

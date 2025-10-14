@@ -4,6 +4,9 @@ const fs = require('fs').promises;
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
+// Load environment variables
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+
 const EVENTS_DIR = path.join(__dirname, '../data/events');
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3001';
 

@@ -14,13 +14,13 @@ let emailService;
 try {
   emailService = new EmailService();
   emailService.testConnection().then(() => {
-    console.log('✅ MSMTP email service initialized successfully');
+    console.log('✅ SMTP email service initialized successfully');
   }).catch((error) => {
-    console.warn('⚠️ MSMTP email service not configured:', error.message);
-    console.warn('Please configure ~/.msmtprc with your email credentials');
+    console.warn('⚠️ SMTP email service not configured:', error.message);
+    console.warn('   Please configure SMTP settings in .env file');
   });
 } catch (error) {
-  console.warn('Email service initialization failed:', error.message);
+  console.warn('⚠️ Email service initialization failed:', error.message);
 }
 
 // Ensure tokens file exists

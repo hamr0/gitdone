@@ -1,11 +1,58 @@
-const { exec } = require('child_process');
+const nodemailer = require('nodemailer');
 const fs = require('fs').promises;
 const path = require('path');
 
 class EmailService {
   constructor() {
-    this.msmtpPath = '/usr/bin/msmtp';
+    this.transporter = null;
     this.tempDir = path.join(__dirname, '../../data/temp');
+    this.initTransporter();
+  }
+
+  initTransporter() {
+    // Check if SMTP is configured
+    const smtpConfigured =
+      process.env.SMTP_HOST &&
+      process.env.SMTP_PORT &&
+      process.env.SMTP_USER &&
+      process.env.SMTP_PASS;
+
+    if (!smtpConfigured) {
+      console.warn('⚠️  SMTP not configured. Email functionality will not work.');
+      console.warn('   Please configure SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASS in .env');
+      return;
+    }
+
+    try {
+      // Check if using Gmail (use service shorthand for better compatibility)
+      const isGmail = process.env.SMTP_HOST === 'smtp.gmail.com';
+
+      const transportConfig = isGmail ? {
+        service: 'gmail',
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        }
+      } : {
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT, 10),
+        secure: parseInt(process.env.SMTP_PORT, 10) === 465, // true for 465, false for other ports
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        },
+        tls: {
+          rejectUnauthorized: true,
+          minVersion: 'TLSv1.2'
+        }
+      };
+
+      this.transporter = nodemailer.createTransport(transportConfig);
+
+      console.log('✅ SMTP email service configured');
+    } catch (error) {
+      console.error('❌ Failed to initialize SMTP transporter:', error.message);
+    }
   }
 
   async ensureTempDir() {
@@ -17,57 +64,35 @@ class EmailService {
   }
 
   async sendEmail(to, subject, htmlBody, textBody = null) {
-    try {
-      await this.ensureTempDir();
-      
-      // Create email content
-      const emailContent = this.createEmailContent(to, subject, htmlBody, textBody);
-      
-      // Write email to temporary file
-      const tempFile = path.join(this.tempDir, `email_${Date.now()}.txt`);
-      await fs.writeFile(tempFile, emailContent);
-      
-      // Send email using msmtp
-      return new Promise((resolve, reject) => {
-        exec(`${this.msmtpPath} -t < ${tempFile}`, (error, stdout, stderr) => {
-          // Clean up temp file
-          fs.unlink(tempFile).catch(() => {});
-          
-          if (error) {
-            console.error('MSMTP Error:', error);
-            reject(new Error(`Failed to send email: ${error.message}`));
-          } else {
-            console.log('Email sent successfully to:', to);
-            resolve({ success: true, message: 'Email sent successfully' });
-          }
-        });
-      });
-    } catch (error) {
-      console.error('Email service error:', error);
-      throw error;
+    if (!this.transporter) {
+      throw new Error('SMTP not configured. Please set SMTP environment variables in .env');
     }
-  }
 
-  createEmailContent(to, subject, htmlBody, textBody) {
-    const textContent = textBody || this.htmlToText(htmlBody);
-    
-    return `To: ${to}
-Subject: ${subject}
-MIME-Version: 1.0
-Content-Type: multipart/alternative; boundary="boundary123"
+    try {
+      const fromEmail = process.env.SMTP_FROM || process.env.SMTP_USER;
+      const textContent = textBody || this.htmlToText(htmlBody);
 
---boundary123
-Content-Type: text/plain; charset=UTF-8
+      const mailOptions = {
+        from: `"GitDone" <${fromEmail}>`,
+        to: to,
+        subject: subject,
+        text: textContent,
+        html: htmlBody,
+      };
 
-${textContent}
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log('✅ Email sent successfully to:', to);
+      console.log('   Message ID:', info.messageId);
 
---boundary123
-Content-Type: text/html; charset=UTF-8
-
-${htmlBody}
-
---boundary123--
-`;
+      return {
+        success: true,
+        message: 'Email sent successfully',
+        messageId: info.messageId
+      };
+    } catch (error) {
+      console.error('❌ Email service error:', error);
+      throw new Error(`Failed to send email: ${error.message}`);
+    }
   }
 
   htmlToText(html) {
@@ -83,19 +108,26 @@ ${htmlBody}
   }
 
   async testConnection() {
+    if (!this.transporter) {
+      throw new Error('SMTP not configured. Please set SMTP environment variables in .env');
+    }
+
     try {
-      return new Promise((resolve, reject) => {
-        exec(`${this.msmtpPath} --version`, (error, stdout, stderr) => {
-          if (error) {
-            reject(new Error(`MSMTP not available: ${error.message}`));
-          } else {
-            console.log('MSMTP version:', stdout.trim());
-            resolve({ success: true, version: stdout.trim() });
-          }
-        });
-      });
+      await this.transporter.verify();
+      console.log('✅ SMTP connection test successful');
+      return {
+        success: true,
+        message: 'SMTP server is ready to send emails',
+        config: {
+          host: process.env.SMTP_HOST,
+          port: process.env.SMTP_PORT,
+          user: process.env.SMTP_USER,
+          from: process.env.SMTP_FROM || process.env.SMTP_USER
+        }
+      };
     } catch (error) {
-      throw new Error(`MSMTP test failed: ${error.message}`);
+      console.error('❌ SMTP connection test failed:', error.message);
+      throw new Error(`SMTP test failed: ${error.message}`);
     }
   }
 }

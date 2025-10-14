@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 
+const path = require('path');
+
+// Load environment variables
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+
 console.log('🧪 Testing GitDone Fixes\n');
 
 // Test 1: Verify Event Creation Email Service

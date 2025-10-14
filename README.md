@@ -116,7 +116,7 @@ npm run dev
 - **Frontend**: Next.js 15 + TypeScript + Tailwind CSS
 - **Backend**: Node.js + Express
 - **Storage**: JSON files + Git repositories
-- **Email**: Nodemailer + Gmail SMTP
+- **Email**: SMTP via Nodemailer (Gmail, Outlook, SendGrid, etc.)
 - **Auth**: JWT magic links
 - **File Processing**: Sharp (images) + fluent-ffmpeg (videos)
 
@@ -170,10 +170,14 @@ gitdone/
 PORT=3001
 NODE_ENV=development
 BASE_URL=http://localhost:3000
+FRONTEND_URL=http://localhost:3000
 
-# Email (Gmail SMTP)
+# Email (SMTP Configuration)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
 SMTP_USER=your@gmail.com
-SMTP_PASS=your-app-specific-password
+SMTP_PASS=your-app-password
+SMTP_FROM=your@gmail.com
 
 # Security
 JWT_SECRET=your-super-secret-jwt-key
@@ -182,13 +186,38 @@ ENCRYPTION_KEY=your-encryption-key
 # File Limits
 MAX_FILE_SIZE=26214400  # 25MB
 MAX_FILES_PER_REQUEST=10
+
+# Data Storage
+DATA_PATH=./data
+EVENTS_PATH=./data/events
+UPLOADS_PATH=./data/uploads
+GIT_REPOS_PATH=./data/git_repos
 ```
 
-### Email Setup (Gmail)
+### Email Setup
+
+**Option 1: Gmail (Recommended for Development)**
 
 1. Enable 2-factor authentication on your Gmail account
-2. Generate an "App Password" for GitDone
-3. Use the app password in `SMTP_PASS`
+2. Generate an "App Password" at https://myaccount.google.com/apppasswords
+3. Update `.env`:
+   ```bash
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USER=your@gmail.com
+   SMTP_PASS=your-16-char-app-password  # No spaces
+   SMTP_FROM=your@gmail.com
+   ```
+4. Test: `cd backend && node test-email.js`
+
+**Option 2: Other Providers**
+
+- **Outlook**: `smtp-mail.outlook.com:587`
+- **Yahoo**: `smtp.mail.yahoo.com:587`
+- **SendGrid**: `smtp.sendgrid.net:587` (recommended for production)
+- **Custom SMTP**: Any SMTP server with TLS support
+
+📧 **See [EMAIL_SETUP.md](EMAIL_SETUP.md) for detailed configuration guide**
 
 ## 🎮 Usage Examples
 
@@ -257,6 +286,27 @@ Git repositories are stored in `data/git_repos/{eventId}/` and can be:
 
 ## 🚀 Deployment
 
+### VPS Deployment
+
+**Prerequisites:**
+- Ubuntu 20.04+ or similar Linux distribution
+- Node.js 18+ installed
+- Domain name pointed to your VPS (optional)
+
+**Quick VPS Setup:**
+```bash
+# 1. Clone repository on VPS
+git clone <your-repo> /var/www/gitdone
+cd /var/www/gitdone
+
+# 2. Copy .env file from local to VPS
+# On local machine:
+scp .env user@your-vps:/var/www/gitdone/.env
+
+# 3. Run quick-start on VPS
+./quick-start.sh
+```
+
 ### Production Setup
 
 1. **Environment Configuration**
@@ -264,6 +314,13 @@ Git repositories are stored in `data/git_repos/{eventId}/` and can be:
 NODE_ENV=production
 BASE_URL=https://your-domain.com
 FRONTEND_URL=https://your-domain.com
+
+# Email (Consider using SendGrid or transactional email service)
+SMTP_HOST=smtp.sendgrid.net
+SMTP_PORT=587
+SMTP_USER=apikey
+SMTP_PASS=your-sendgrid-api-key
+SMTP_FROM=noreply@yourdomain.com
 ```
 
 2. **Build Frontend**
@@ -285,6 +342,8 @@ pm2 startup
 # Build and run with Docker Compose
 docker-compose up -d
 ```
+
+📖 **See [DEPLOYMENT.md](DEPLOYMENT.md) for comprehensive deployment guide**
 
 ## 🧪 Testing
 
@@ -318,9 +377,12 @@ curl -X POST http://localhost:3001/api/events \
 - Check environment variables
 
 **Email not sending**
-- Verify Gmail app password is correct
-- Check SMTP_USER and SMTP_PASS in .env
-- Test with a simple email first
+- Verify SMTP credentials are correct (use app password for Gmail, not regular password)
+- Check all SMTP_* variables in .env (HOST, PORT, USER, PASS, FROM)
+- Ensure 2FA is enabled for Gmail accounts
+- Clear shell environment variables: `unset SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS SMTP_FROM`
+- Test with: `cd backend && node test-email.js`
+- Check EMAIL_SETUP.md for detailed troubleshooting
 
 **File uploads failing**
 - Check file size limits in .env

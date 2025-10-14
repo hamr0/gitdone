@@ -33,9 +33,14 @@ echo -e "${GREEN}✅ Node.js $(node -v) detected${NC}"
 
 # Setup environment
 echo -e "${YELLOW}⚙️  Setting up environment...${NC}"
+
+# Clear any existing SMTP environment variables to prevent conflicts with .env file
+unset SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS SMTP_FROM 2>/dev/null || true
+
 if [ ! -f ".env" ]; then
     cp .env.example .env
     echo -e "${GREEN}✅ .env file created${NC}"
+    echo -e "${YELLOW}⚠️  Please update .env with your SMTP credentials${NC}"
 fi
 
 mkdir -p data/events data/uploads data/git_repos
