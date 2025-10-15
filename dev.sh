@@ -74,7 +74,17 @@ check_prerequisites() {
 # Setup environment
 setup_environment() {
     echo -e "${YELLOW}⚙️  Setting up environment...${NC}"
-    
+
+    # Export SMTP credentials from pass
+    if command -v pass &> /dev/null; then
+        export SMTP_USER=$(pass show gitdone/email/smtp_user)
+        export SMTP_PASS=$(pass show gitdone/email/smtp_pass)
+        export SMTP_FROM=$(pass show gitdone/email/smtp_from)
+        echo -e "${GREEN}✅ SMTP credentials loaded from pass${NC}"
+    else
+        echo -e "${YELLOW}⚠️  'pass' command not found, using .env credentials${NC}"
+    fi
+
     # Create .env if it doesn't exist
     if [ ! -f ".env" ]; then
         echo -e "${YELLOW}📝 Creating .env file from template...${NC}"
@@ -83,7 +93,7 @@ setup_environment() {
         echo -e "${YELLOW}⚠️  Please edit .env file with your email configuration${NC}"
         echo "   Especially SMTP_USER and SMTP_PASS for email functionality"
     fi
-    
+
     # Create data directories
     echo -e "${YELLOW}📁 Creating data directories...${NC}"
     mkdir -p data/events data/uploads data/git_repos

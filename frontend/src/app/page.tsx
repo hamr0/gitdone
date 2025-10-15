@@ -197,111 +197,111 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-4">
       <div className="max-w-4xl mx-auto px-4">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">
+        <div className="text-center mb-4">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">
             GitDone Workflow Manager
           </h1>
-          <p className="text-lg text-gray-600">
+          <p className="text-sm text-gray-600">
             Create new workflows or edit existing ones
           </p>
         </div>
 
         {/* Edit Existing Event Section */}
-        <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
-          <h2 className="text-2xl font-semibold text-gray-900 flex items-center mb-6">
-            <Edit3 className="mr-3 h-6 w-6 text-green-600" />
+        <div className="bg-white rounded-lg shadow p-4 mb-4">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center mb-3">
+            <Edit3 className="mr-2 h-5 w-5 text-green-600" />
             Edit Existing Event
           </h2>
-          <p className="text-gray-600 mb-6">
+          <p className="text-sm text-gray-600 mb-3">
             Already have an event? Enter your email to get management links for all your events.
           </p>
-          
+
           <div className="max-w-md">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-xs font-medium text-gray-700 mb-1">
               Your Email *
             </label>
             <input
               type="email"
               value={editOwnerEmail}
               onChange={(e) => setEditOwnerEmail(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
               placeholder="planner@email.com"
             />
           </div>
 
-          <div className="mt-6">
+          <div className="mt-3">
             <button
               onClick={sendEditLink}
               disabled={sendingEditLink}
-              className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 disabled:bg-gray-400 flex items-center text-sm font-medium"
+              className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:bg-gray-400 flex items-center text-xs font-medium"
             >
-              <Mail className="mr-2 h-4 w-4" />
+              <Mail className="mr-2 h-3 w-3" />
               {sendingEditLink ? 'Sending...' : 'Send Management Link'}
             </button>
           </div>
         </div>
 
         {/* Divider */}
-        <div className="flex items-center my-8">
+        <div className="flex items-center my-4">
           <div className="flex-1 border-t border-gray-300"></div>
-          <span className="px-4 text-gray-500 font-medium">OR</span>
+          <span className="px-3 text-sm text-gray-500 font-medium">OR</span>
           <div className="flex-1 border-t border-gray-300"></div>
         </div>
-        
-        <div className="bg-white rounded-xl shadow-lg p-8 space-y-8">
+
+        <div className="bg-white rounded-lg shadow p-4 space-y-4">
           {/* Event Basic Info */}
-          <div className="space-y-6">
-            <h2 className="text-2xl font-semibold text-gray-900 flex items-center">
-              <Calendar className="mr-3 h-6 w-6 text-blue-600" />
+          <div className="space-y-3">
+            <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+              <Calendar className="mr-2 h-5 w-5 text-blue-600" />
               Create New Event
             </h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
                   Event Name *
                 </label>
                 <input
                   type="text"
                   value={eventName}
                   onChange={(e) => setEventName(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="e.g., Sarah's Wedding, Kitchen Renovation"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
                   Your Email *
                 </label>
                 <input
                   type="email"
                   value={ownerEmail}
                   onChange={(e) => setOwnerEmail(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="planner@email.com"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-xs font-medium text-gray-700 mb-1">
                 Flow Type
               </label>
               <select
                 value={flowType}
                 onChange={(e) => setFlowType(e.target.value as any)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="sequential">Sequential (A → B → C)</option>
                 <option value="non_sequential">Non-Sequential (A, B, C in any order)</option>
                 <option value="hybrid">Hybrid (Custom sequencing: 1, 1, 2, 3, 4, 5, 5, 6, 7)</option>
               </select>
-              <p className="mt-2 text-sm text-gray-500">
-                {flowType === 'sequential' 
-                  ? 'Steps must be completed in order' 
+              <p className="mt-1 text-xs text-gray-500">
+                {flowType === 'sequential'
+                  ? 'Steps must be completed in order'
                   : flowType === 'non_sequential'
                   ? 'Steps can be completed independently'
                   : 'Steps can have custom sequence numbers (e.g., 1, 1, 2, 3, 4, 5, 5, 6, 7)'
@@ -311,70 +311,70 @@ export default function Home() {
           </div>
 
           {/* Steps */}
-          <div className="space-y-6">
+          <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-semibold text-gray-900 flex items-center">
-                <Users className="mr-3 h-6 w-6 text-green-600" />
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+                <Users className="mr-2 h-5 w-5 text-green-600" />
                 Steps & Vendors
               </h2>
               <button
                 type="button"
                 onClick={addStep}
-                className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 flex items-center"
+                className="bg-green-500 text-white px-3 py-1.5 text-xs rounded-lg hover:bg-green-600 flex items-center"
               >
-                <Plus className="mr-2 h-4 w-4" />
+                <Plus className="mr-1 h-3 w-3" />
                 Add Step
               </button>
             </div>
-            
+
             {steps.map((step, index) => (
-              <div key={index} className="border border-gray-200 rounded-lg p-6 space-y-4">
+              <div key={index} className="border border-gray-200 rounded-lg p-3 space-y-2">
                 <div className="flex justify-between items-center">
-                  <h3 className="font-semibold text-lg text-gray-900">
+                  <h3 className="font-semibold text-sm text-gray-900">
                     Step {index + 1}
                   </h3>
                   {steps.length > 1 && (
                     <button
                       type="button"
                       onClick={() => removeStep(index)}
-                      className="text-red-500 hover:text-red-700 flex items-center"
+                      className="text-red-500 hover:text-red-700 flex items-center text-xs"
                     >
-                      <Trash2 className="mr-1 h-4 w-4" />
+                      <Trash2 className="mr-1 h-3 w-3" />
                       Remove
                     </button>
                   )}
                 </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
                       Step Name *
                     </label>
                     <input
                       type="text"
                       value={step.name}
                       onChange={(e) => updateStep(index, 'name', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="e.g., Venue Setup, Catering Ready"
                     />
                   </div>
-                  
+
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
                       Vendor Email *
                     </label>
                     <input
                       type="email"
                       value={step.vendor_email}
                       onChange={(e) => updateStep(index, 'vendor_email', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="vendor@email.com"
                     />
                   </div>
 
                   {flowType === 'hybrid' && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
                         Sequence Number *
                       </label>
                       <input
@@ -382,37 +382,37 @@ export default function Home() {
                         min="1"
                         value={step.sequence || ''}
                         onChange={(e) => updateStep(index, 'sequence', parseInt(e.target.value) || 1)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="1"
                       />
-                      <p className="text-xs text-gray-500 mt-1">Order of execution (1, 1, 2, 3, 4, 5, 5, 6, 7)</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Order of execution (1, 1, 2, 3, 4, 5, 5, 6, 7)</p>
                     </div>
                   )}
                 </div>
-                
+
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
                     Description
                   </label>
                   <textarea
                     value={step.description}
                     onChange={(e) => updateStep(index, 'description', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="What needs to be done?"
-                    rows={3}
+                    rows={2}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
-                    <Clock className="mr-2 h-4 w-4" />
+                  <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center">
+                    <Clock className="mr-1 h-3 w-3" />
                     Time Limit (Optional)
                   </label>
-                  <div className="space-y-2">
+                  <div className="space-y-1">
                     <select
                       value={step.time_limit || ''}
                       onChange={(e) => updateStep(index, 'time_limit', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
                       <option value="">No time limit</option>
                       <option value="30m">30 minutes</option>
@@ -431,7 +431,7 @@ export default function Home() {
                       type="text"
                       value={step.time_limit || ''}
                       onChange={(e) => updateStep(index, 'time_limit', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="Or enter custom: 2024-12-25, Dec 25 2024 2:00 PM"
                     />
                   </div>
@@ -440,11 +440,11 @@ export default function Home() {
             ))}
           </div>
 
-          <div className="pt-6 border-t border-gray-200">
+          <div className="pt-3 border-t border-gray-200">
             <button
               onClick={createEvent}
               disabled={loading}
-              className="w-full bg-blue-600 text-white py-4 rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-lg"
+              className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
             >
               {loading ? 'Creating Event...' : 'Create Event & Send Invitations'}
             </button>

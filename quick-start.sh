@@ -34,8 +34,15 @@ echo -e "${GREEN}✅ Node.js $(node -v) detected${NC}"
 # Setup environment
 echo -e "${YELLOW}⚙️  Setting up environment...${NC}"
 
-# Clear any existing SMTP environment variables to prevent conflicts with .env file
-unset SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS SMTP_FROM 2>/dev/null || true
+# Export SMTP credentials from pass
+if command -v pass &> /dev/null; then
+    export SMTP_USER=$(pass show gitdone/email/smtp_user)
+    export SMTP_PASS=$(pass show gitdone/email/smtp_pass)
+    export SMTP_FROM=$(pass show gitdone/email/smtp_from)
+    echo -e "${GREEN}✅ SMTP credentials loaded from pass${NC}"
+else
+    echo -e "${YELLOW}⚠️  'pass' command not found, using .env credentials${NC}"
+fi
 
 if [ ! -f ".env" ]; then
     cp .env.example .env

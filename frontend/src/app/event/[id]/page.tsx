@@ -181,83 +181,83 @@ export default function EventPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-gray-50 py-4">
       <div className="max-w-6xl mx-auto px-4">
         {/* Header */}
-        <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
-          <div className="flex justify-between items-start mb-6">
+        <div className="bg-white rounded-lg shadow p-4 mb-4">
+          <div className="flex justify-between items-start mb-3">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">{event.name}</h1>
-              <div className="flex items-center space-x-4 text-sm text-gray-600">
+              <h1 className="text-xl font-bold text-gray-900 mb-1">{event.name}</h1>
+              <div className="flex items-center space-x-3 text-xs text-gray-600">
                 <span className="flex items-center">
-                  <Calendar className="mr-2 h-4 w-4" />
+                  <Calendar className="mr-1 h-3 w-3" />
                   Created: {new Date(event.created_at).toLocaleDateString()}
                 </span>
                 <span className="flex items-center">
-                  <Users className="mr-2 h-4 w-4" />
-                  {event.flow_type === 'sequential' ? 'Sequential' : 
+                  <Users className="mr-1 h-3 w-3" />
+                  {event.flow_type === 'sequential' ? 'Sequential' :
                    event.flow_type === 'non_sequential' ? 'Non-Sequential' : 'Hybrid'} Flow
                 </span>
               </div>
             </div>
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2">
               <button
                 onClick={handleEditEvent}
                 disabled={sendingManagementLink}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 flex items-center text-sm"
+                className="bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 flex items-center text-xs"
               >
-                <Edit3 className="mr-2 h-4 w-4" />
+                <Edit3 className="mr-1 h-3 w-3" />
                 {sendingManagementLink ? 'Sending...' : 'Edit Event'}
               </button>
-              <span className={`px-4 py-2 rounded-full text-sm font-medium ${getStatusColor(event.status)}`}>
+              <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(event.status)}`}>
                 {event.status.charAt(0).toUpperCase() + event.status.slice(1)}
               </span>
             </div>
           </div>
 
           {/* Progress Bar */}
-          <div className="mb-6">
-            <div className="flex justify-between items-center mb-2">
-              <h3 className="text-lg font-semibold text-gray-900">Progress</h3>
-              <span className="text-sm text-gray-600">
+          <div className="mb-3">
+            <div className="flex justify-between items-center mb-1">
+              <h3 className="text-sm font-semibold text-gray-900">Progress</h3>
+              <span className="text-xs text-gray-600">
                 {event.completed_steps || 0} of {event.total_steps || 0} steps completed
               </span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-3">
-              <div 
-                className="bg-blue-600 h-3 rounded-full transition-all duration-300"
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div
+                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                 style={{ width: `${event.progress || 0}%` }}
               ></div>
             </div>
-            <p className="text-sm text-gray-600 mt-2">{event.progress || 0}% complete</p>
+            <p className="text-xs text-gray-600 mt-1">{event.progress || 0}% complete</p>
           </div>
 
           {/* Quick Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-blue-50 rounded-lg p-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="bg-blue-50 rounded-lg p-2">
               <div className="flex items-center">
-                <BarChart3 className="h-8 w-8 text-blue-600 mr-3" />
+                <BarChart3 className="h-6 w-6 text-blue-600 mr-2" />
                 <div>
-                  <p className="text-sm text-blue-600 font-medium">Total Steps</p>
-                  <p className="text-2xl font-bold text-blue-900">{event.total_steps || 0}</p>
+                  <p className="text-xs text-blue-600 font-medium">Total Steps</p>
+                  <p className="text-lg font-bold text-blue-900">{event.total_steps || 0}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-green-50 rounded-lg p-4">
+            <div className="bg-green-50 rounded-lg p-2">
               <div className="flex items-center">
-                <CheckCircle className="h-8 w-8 text-green-600 mr-3" />
+                <CheckCircle className="h-6 w-6 text-green-600 mr-2" />
                 <div>
-                  <p className="text-sm text-green-600 font-medium">Completed</p>
-                  <p className="text-2xl font-bold text-green-900">{event.completed_steps || 0}</p>
+                  <p className="text-xs text-green-600 font-medium">Completed</p>
+                  <p className="text-lg font-bold text-green-900">{event.completed_steps || 0}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-yellow-50 rounded-lg p-4">
+            <div className="bg-yellow-50 rounded-lg p-2">
               <div className="flex items-center">
-                <Clock className="h-8 w-8 text-yellow-600 mr-3" />
+                <Clock className="h-6 w-6 text-yellow-600 mr-2" />
                 <div>
-                  <p className="text-sm text-yellow-600 font-medium">Pending</p>
-                  <p className="text-2xl font-bold text-yellow-900">{(event.total_steps || 0) - (event.completed_steps || 0)}</p>
+                  <p className="text-xs text-yellow-600 font-medium">Pending</p>
+                  <p className="text-lg font-bold text-yellow-900">{(event.total_steps || 0) - (event.completed_steps || 0)}</p>
                 </div>
               </div>
             </div>
@@ -265,32 +265,32 @@ export default function EventPage() {
         </div>
 
         {/* Timeline */}
-        <div className="bg-white rounded-xl shadow-lg p-8">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-6">Timeline</h2>
-          
-          <div className="space-y-6">
+        <div className="bg-white rounded-lg shadow p-4">
+          <h2 className="text-lg font-semibold text-gray-900 mb-3">Timeline</h2>
+
+          <div className="space-y-3">
             {event.steps.map((step, index) => (
-              <div key={step.id} className="flex items-start space-x-4 p-6 border border-gray-200 rounded-lg">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+              <div key={step.id} className="flex items-start space-x-3 p-3 border border-gray-200 rounded-lg">
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs ${
                   step.status === 'completed' ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-600'
                 }`}>
                   {index + 1}
                 </div>
-                
+
                 <div className="flex-1">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-lg font-semibold text-gray-900">{step.name}</h3>
-                    <div className="flex items-center space-x-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-sm font-semibold text-gray-900">{step.name}</h3>
+                    <div className="flex items-center space-x-1">
                       {getStatusIcon(step.status)}
-                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(step.status)}`}>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(step.status)}`}>
                         {step.status.charAt(0).toUpperCase() + step.status.slice(1)}
                       </span>
                     </div>
                   </div>
-                  
-                  <div className="space-y-2 text-sm text-gray-600">
+
+                  <div className="space-y-1 text-xs text-gray-600">
                     <p className="flex items-center">
-                      <Mail className="mr-2 h-4 w-4" />
+                      <Mail className="mr-1 h-3 w-3" />
                       {step.vendor_email}
                     </p>
                     {step.description && (
@@ -298,9 +298,9 @@ export default function EventPage() {
                     )}
                     {step.time_limit && (
                       <p className="flex items-center">
-                        <Clock className="mr-2 h-4 w-4" />
-                        <span className="text-sm text-gray-600">Time limit:</span>
-                        <span className="ml-2 text-sm font-medium text-blue-600">
+                        <Clock className="mr-1 h-3 w-3" />
+                        <span className="text-xs text-gray-600">Time limit:</span>
+                        <span className="ml-1 text-xs font-medium text-blue-600">
                           {step.time_limit}
                         </span>
                       </p>
@@ -312,21 +312,21 @@ export default function EventPage() {
                     )}
                   </div>
                 </div>
-                
-                <div className="flex flex-col space-y-2">
+
+                <div className="flex flex-col space-y-1">
                   {step.status === 'pending' && (
                     <button
                       onClick={() => sendReminder(step.id)}
                       disabled={sendingReminder === step.id}
-                      className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 disabled:bg-gray-400 flex items-center"
+                      className="bg-blue-500 text-white px-2 py-1 rounded-lg text-xs hover:bg-blue-600 disabled:bg-gray-400 flex items-center"
                     >
-                      <Mail className="mr-2 h-4 w-4" />
+                      <Mail className="mr-1 h-3 w-3" />
                       {sendingReminder === step.id ? 'Sending...' : 'Send Reminder'}
                     </button>
                   )}
-                  
+
                   {step.status === 'completed' && (
-                    <div className="text-sm text-green-600 font-medium">
+                    <div className="text-xs text-green-600 font-medium">
                       ✓ Completed
                     </div>
                   )}
@@ -338,27 +338,27 @@ export default function EventPage() {
 
         {/* Recent Activity */}
         {event.commits.length > 0 && (
-          <div className="bg-white rounded-xl shadow-lg p-8 mt-8">
-            <h2 className="text-2xl font-semibold text-gray-900 mb-6">Recent Activity</h2>
-            
-            <div className="space-y-4">
+          <div className="bg-white rounded-lg shadow p-4 mt-4">
+            <h2 className="text-lg font-semibold text-gray-900 mb-3">Recent Activity</h2>
+
+            <div className="space-y-2">
               {event.commits.slice(-5).reverse().map((commit, index) => {
                 const step = event.steps.find(s => s.id === commit.step_id);
                 return (
-                  <div key={commit.commit_hash} className="flex items-start space-x-4 p-4 bg-gray-50 rounded-lg">
-                    <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold">
+                  <div key={commit.commit_hash} className="flex items-start space-x-3 p-2 bg-gray-50 rounded-lg">
+                    <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
                       ✓
                     </div>
                     <div className="flex-1">
-                      <h4 className="font-semibold text-gray-900">{step?.name}</h4>
-                      <p className="text-sm text-gray-600">
+                      <h4 className="font-semibold text-sm text-gray-900">{step?.name}</h4>
+                      <p className="text-xs text-gray-600">
                         Completed by {commit.vendor_email} • {new Date(commit.timestamp).toLocaleString()}
                       </p>
                       {commit.comments && (
-                        <p className="text-sm text-gray-700 mt-1">"{commit.comments}"</p>
+                        <p className="text-xs text-gray-700 mt-0.5">"{commit.comments}"</p>
                       )}
                       {commit.files.length > 0 && (
-                        <p className="text-sm text-blue-600 mt-1">
+                        <p className="text-xs text-blue-600 mt-0.5">
                           {commit.files.length} file(s) uploaded
                         </p>
                       )}
