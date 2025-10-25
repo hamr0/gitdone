@@ -142,6 +142,19 @@
         "add_steps",
         "send_reminders"
       ]
+    },
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJldmVudF9pZCI6IjBmM2UzYWY0LWE5YjQtNDZkNS1hNDI5LTliN2FkYTJjZGNlZCIsIm93bmVyX2VtYWlsIjoiYXZvaWRhY2Nlc3NAbXNuLmNvbSIsInB1cnBvc2UiOiJldmVudF9tYW5hZ2VtZW50IiwicGVybWlzc2lvbnMiOlsidmlldyIsImVkaXQiLCJhZGRfc3RlcHMiLCJzZW5kX3JlbWluZGVycyJdLCJpYXQiOjE3NjA1MTYwNjQsImV4cCI6MTc2MTEyMDg2NH0.yUkgVRQJHuUKc_M69iZ7CDye1EFkGb3Vlwe8LnNeQ6g": {
+      "event_id": "0f3e3af4-a9b4-46d5-a429-9b7ada2cdced",
+      "owner_email": "avoidaccess@msn.com",
+      "created_at": "2025-10-15T08:14:24.324Z",
+      "expires_at": "2025-10-22T08:14:24.324Z",
+      "used": false,
+      "permissions": [
+        "view",
+        "edit",
+        "add_steps",
+        "send_reminders"
+      ]
     }
   }
 }

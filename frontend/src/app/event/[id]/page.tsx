@@ -1,8 +1,8 @@
 'use client';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { CheckCircle, Clock, Mail, Calendar, Users, BarChart3, RefreshCw, Edit3 } from 'lucide-react';
-// import { formatTimeLimit, getTimeLimitStatus } from '../../utils/timeFormat';
+import { CheckCircle, Clock, Mail, Calendar, Users, BarChart3, RefreshCw, Edit3, AlertCircle } from 'lucide-react';
+import Modal from '../../../components/Modal';
 
 interface Event {
   id: string;
@@ -53,6 +53,11 @@ export default function EventPage() {
   const [sendingReminder, setSendingReminder] = useState<string | null>(null);
   const [sendingManagementLink, setSendingManagementLink] = useState(false);
 
+  // Modal states
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
+
   useEffect(() => {
     if (params.id) {
       fetchEvent();
@@ -89,15 +94,18 @@ export default function EventPage() {
           vendor_email: event?.steps.find(s => s.id === stepId)?.vendor_email
         })
       });
-      
+
       const result = await response.json();
       if (result.success) {
-        alert('Reminder sent successfully!');
+        setModalMessage('Reminder sent successfully!');
+        setShowSuccessModal(true);
       } else {
-        alert('Error sending reminder: ' + result.error);
+        setModalMessage('Error sending reminder: ' + result.error);
+        setShowErrorModal(true);
       }
     } catch (error) {
-      alert('Error sending reminder');
+      setModalMessage('Error sending reminder. Please try again.');
+      setShowErrorModal(true);
     } finally {
       setSendingReminder(null);
     }
@@ -105,17 +113,18 @@ export default function EventPage() {
 
   const handleEditEvent = async () => {
     if (!event) return;
-    
+
     // Prompt for email to verify ownership
     const email = prompt(`Enter your email to edit "${event.name}":`, event.owner_email);
-    
+
     if (!email) return;
-    
+
     if (email !== event.owner_email) {
-      alert('Email does not match event owner. Only the event owner can edit.');
+      setModalMessage('Email does not match event owner. Only the event owner can edit.');
+      setShowErrorModal(true);
       return;
     }
-    
+
     setSendingManagementLink(true);
     try {
       const response = await fetch('/api/manage', {
@@ -126,15 +135,18 @@ export default function EventPage() {
           owner_email: email
         })
       });
-      
+
       const result = await response.json();
       if (result.success) {
-        alert('Management link sent to your email! Check your inbox to edit the event.');
+        setModalMessage('Management link sent to your email! Check your inbox to edit the event.');
+        setShowSuccessModal(true);
       } else {
-        alert('Error sending management link: ' + result.error);
+        setModalMessage('Error sending management link: ' + result.error);
+        setShowErrorModal(true);
       }
     } catch (error) {
-      alert('Error sending management link');
+      setModalMessage('Error sending management link. Please try again.');
+      setShowErrorModal(true);
     } finally {
       setSendingManagementLink(false);
     }
@@ -370,6 +382,42 @@ export default function EventPage() {
           </div>
         )}
       </div>
+
+      {/* Success Modal */}
+      <Modal
+        isOpen={showSuccessModal}
+        onClose={() => setShowSuccessModal(false)}
+        title="Success!"
+      >
+        <div className="text-center py-4">
+          <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
+          <p className="text-gray-700 mb-6">{modalMessage}</p>
+          <button
+            onClick={() => setShowSuccessModal(false)}
+            className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700"
+          >
+            Close
+          </button>
+        </div>
+      </Modal>
+
+      {/* Error Modal */}
+      <Modal
+        isOpen={showErrorModal}
+        onClose={() => setShowErrorModal(false)}
+        title="Error"
+      >
+        <div className="text-center py-4">
+          <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
+          <p className="text-gray-700 mb-6">{modalMessage}</p>
+          <button
+            onClick={() => setShowErrorModal(false)}
+            className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700"
+          >
+            Close
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -1,8 +1,8 @@
 'use client';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Upload, FileText, Camera, CheckCircle, AlertCircle, Clock } from 'lucide-react';
-// import { formatTimeLimit, getTimeLimitStatus } from '../../utils/timeFormat';
+import { Upload, FileText, Camera, CheckCircle, AlertCircle, Clock, X } from 'lucide-react';
+import Modal from '../../../components/Modal';
 
 interface StepInfo {
   event_name: string;
@@ -16,12 +16,15 @@ interface StepInfo {
 
 export default function CompletePage() {
   const params = useParams();
+  const router = useRouter();
   const [stepInfo, setStepInfo] = useState<StepInfo | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [comments, setComments] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
     validateToken();
@@ -57,16 +60,21 @@ export default function CompletePage() {
 
   const submitCompletion = async () => {
     if (files.length === 0 && !comments.trim()) {
-      alert('Please upload files or add comments to complete this step');
+      setError('Please upload files or add comments to complete this step');
       return;
     }
 
+    if (submitted) {
+      return; // Prevent multiple submissions
+    }
+
     setSubmitting(true);
-    
+    setError(null);
+
     try {
       const formData = new FormData();
       formData.append('comments', comments);
-      
+
       files.forEach(file => {
         formData.append('files', file);
       });
@@ -77,15 +85,15 @@ export default function CompletePage() {
       });
 
       const result = await response.json();
-      
+
       if (result.success) {
-        alert('Step completed successfully!');
-        window.location.href = '/success';
+        setSubmitted(true);
+        setShowSuccessModal(true);
       } else {
-        alert('Error completing step: ' + result.error);
+        setError('Error completing step: ' + result.error);
       }
     } catch (error) {
-      alert('Error submitting completion');
+      setError('Error submitting completion. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -237,14 +245,22 @@ export default function CompletePage() {
             />
           </div>
 
+          {/* Error Message */}
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start">
+              <AlertCircle className="h-5 w-5 text-red-600 mr-3 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-800">{error}</p>
+            </div>
+          )}
+
           {/* Submit Button */}
           <div className="text-center">
             <button
               onClick={submitCompletion}
-              disabled={submitting || (files.length === 0 && !comments.trim())}
+              disabled={submitting || submitted || (files.length === 0 && !comments.trim())}
               className="bg-green-600 text-white px-8 py-4 rounded-lg font-semibold hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-lg w-full"
             >
-              {submitting ? 'Submitting...' : 'Mark Step Complete'}
+              {submitting ? 'Submitting...' : submitted ? 'Submitted ✓' : 'Mark Step Complete'}
             </button>
             <p className="text-sm text-gray-500 mt-3">
               Upload files or add comments to complete this step
@@ -252,6 +268,28 @@ export default function CompletePage() {
           </div>
         </div>
       </div>
+
+      {/* Success Modal */}
+      <Modal
+        isOpen={showSuccessModal}
+        onClose={() => setShowSuccessModal(false)}
+        title="Step Completed!"
+        showCloseButton={true}
+      >
+        <div className="text-center py-4">
+          <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
+          <h3 className="text-xl font-bold text-gray-900 mb-2">Success!</h3>
+          <p className="text-gray-600 mb-6">
+            Your step has been completed successfully. Thank you for your work!
+          </p>
+          <button
+            onClick={() => setShowSuccessModal(false)}
+            className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700"
+          >
+            Close
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

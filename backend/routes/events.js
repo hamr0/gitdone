@@ -4,6 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const fs = require('fs').promises;
 const path = require('path');
 const EventCreationEmailService = require('../utils/eventCreationEmail');
+const MagicLinkService = require('../utils/magicLinkService');
 
 const EVENTS_DIR = path.join(__dirname, '../../data/events');
 
@@ -76,7 +77,7 @@ router.post('/', async (req, res) => {
       path.join(EVENTS_DIR, `${eventId}.json`),
       JSON.stringify(event, null, 2)
     );
-    
+
     // Send event creation email to owner
     try {
       const eventCreationEmailService = new EventCreationEmailService();
@@ -86,8 +87,57 @@ router.post('/', async (req, res) => {
       console.error('Failed to send event creation email:', emailError);
       // Don't fail the request if email fails
     }
-    
-    res.json({ success: true, eventId, event });
+
+    // Automatically send magic links for ready-to-execute steps
+    try {
+      const magicLinkService = new MagicLinkService();
+      let readySteps = [];
+
+      if (flow_type === 'sequential') {
+        // Sequential: only first step is ready
+        readySteps = event.steps.length > 0 ? [event.steps[0]] : [];
+      } else if (flow_type === 'hybrid') {
+        // Hybrid: all steps with the minimum sequence number are ready
+        const minSequence = Math.min(...event.steps.map(s => s.sequence));
+        readySteps = event.steps.filter(s => s.sequence === minSequence);
+      } else {
+        // Non-sequential: all steps are ready
+        readySteps = event.steps;
+      }
+
+      // Send magic links to all ready steps
+      const magicLinkResults = [];
+      for (const step of readySteps) {
+        try {
+          const result = await magicLinkService.sendMagicLink(eventId, step.id, step.vendor_email);
+          magicLinkResults.push({
+            step_name: step.name,
+            vendor_email: step.vendor_email,
+            success: true
+          });
+          console.log(`✅ Magic link sent to ${step.vendor_email} for step: ${step.name}`);
+        } catch (linkError) {
+          magicLinkResults.push({
+            step_name: step.name,
+            vendor_email: step.vendor_email,
+            success: false,
+            error: linkError.message
+          });
+          console.error(`Failed to send magic link for step ${step.name}:`, linkError.message);
+        }
+      }
+
+      res.json({
+        success: true,
+        eventId,
+        event,
+        magic_links_sent: magicLinkResults
+      });
+    } catch (magicLinkError) {
+      console.error('Error sending magic links:', magicLinkError);
+      // Event was created successfully, just return without magic link info
+      res.json({ success: true, eventId, event });
+    }
   } catch (error) {
     console.error('Error creating event:', error);
     res.status(500).json({ error: error.message });

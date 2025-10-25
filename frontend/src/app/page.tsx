@@ -1,6 +1,8 @@
 'use client';
 import { useState } from 'react';
-import { Plus, Trash2, Calendar, Users, Clock, Edit3, Mail } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Plus, Trash2, Calendar, Users, Clock, Edit3, Mail, CheckCircle, AlertCircle } from 'lucide-react';
+import Modal from '../components/Modal';
 
 interface Step {
   name: string;
@@ -11,6 +13,7 @@ interface Step {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [eventName, setEventName] = useState('');
   const [ownerEmail, setOwnerEmail] = useState('');
   const [flowType, setFlowType] = useState<'sequential' | 'non_sequential' | 'hybrid'>('sequential');
@@ -18,10 +21,16 @@ export default function Home() {
     { name: '', vendor_email: '', description: '', time_limit: '', sequence: 1 }
   ]);
   const [loading, setLoading] = useState(false);
-  
+
   // Edit event state
   const [editOwnerEmail, setEditOwnerEmail] = useState('');
   const [sendingEditLink, setSendingEditLink] = useState(false);
+
+  // Modal states
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
+  const [createdEventId, setCreatedEventId] = useState('');
 
   const addStep = () => {
     const nextSequence = Math.max(...steps.map(s => s.sequence || 0)) + 1;
@@ -42,21 +51,23 @@ export default function Home() {
 
   const createEvent = async () => {
     if (!eventName.trim() || !ownerEmail.trim()) {
-      alert('Please fill in event name and your email');
+      setModalMessage('Please fill in event name and your email');
+      setShowErrorModal(true);
       return;
     }
 
-    const validSteps = steps.filter(step => 
+    const validSteps = steps.filter(step =>
       step.name.trim() && step.vendor_email.trim()
     );
 
     if (validSteps.length === 0) {
-      alert('Please add at least one step with name and vendor email');
+      setModalMessage('Please add at least one step with name and vendor email');
+      setShowErrorModal(true);
       return;
     }
 
     setLoading(true);
-    
+
     try {
       console.log('Creating event with data:', {
         name: eventName.trim(),
@@ -66,7 +77,8 @@ export default function Home() {
           name: step.name.trim(),
           vendor_email: step.vendor_email.trim(),
           description: step.description.trim(),
-          time_limit: step.time_limit?.trim() || null
+          time_limit: step.time_limit?.trim() || null,
+          sequence: step.sequence
         }))
       });
 
@@ -81,30 +93,30 @@ export default function Home() {
             name: step.name.trim(),
             vendor_email: step.vendor_email.trim(),
             description: step.description.trim(),
-            time_limit: step.time_limit?.trim() || null
+            time_limit: step.time_limit?.trim() || null,
+            sequence: step.sequence
           }))
         })
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       const result = await response.json();
-      
+
       if (result.success) {
-        // Send magic links based on flow type
-        await sendMagicLinksBasedOnFlow(result.eventId, result.event.steps, result.event.flow_type);
-        
-        alert(`Event created successfully! Event ID: ${result.eventId}`);
-        // Redirect to event page
-        window.location.href = `/event/${result.eventId}`;
+        setCreatedEventId(result.eventId);
+        setModalMessage(`Event "${eventName}" created successfully! Magic links have been sent to vendors.`);
+        setShowSuccessModal(true);
       } else {
-        alert('Error creating event: ' + result.error);
+        setModalMessage('Error creating event: ' + result.error);
+        setShowErrorModal(true);
       }
     } catch (error) {
       console.error('Error creating event:', error);
-      alert('Error creating event. Please try again.');
+      setModalMessage('Error creating event. Please try again.');
+      setShowErrorModal(true);
     } finally {
       setLoading(false);
     }
@@ -167,7 +179,8 @@ export default function Home() {
 
   const sendEditLink = async () => {
     if (!editOwnerEmail.trim()) {
-      alert('Please enter your email address');
+      setModalMessage('Please enter your email address');
+      setShowErrorModal(true);
       return;
     }
 
@@ -183,14 +196,17 @@ export default function Home() {
 
       const result = await response.json();
       if (result.success) {
-        alert('Management links sent to your email! Check your inbox to edit your events.');
+        setModalMessage('Management links sent to your email! Check your inbox to edit your events.');
+        setShowSuccessModal(true);
         setEditOwnerEmail('');
       } else {
-        alert('Error sending management links: ' + result.error);
+        setModalMessage('Error sending management links: ' + result.error);
+        setShowErrorModal(true);
       }
     } catch (error) {
       console.error('Error sending management links:', error);
-      alert('Error sending management links. Please try again.');
+      setModalMessage('Error sending management links. Please try again.');
+      setShowErrorModal(true);
     } finally {
       setSendingEditLink(false);
     }
@@ -451,6 +467,59 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Success Modal */}
+      <Modal
+        isOpen={showSuccessModal}
+        onClose={() => setShowSuccessModal(false)}
+        title="Success!"
+      >
+        <div className="text-center py-4">
+          <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
+          <p className="text-gray-700 mb-6">{modalMessage}</p>
+          {createdEventId && (
+            <button
+              onClick={() => router.push(`/event/${createdEventId}`)}
+              className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 mb-2"
+            >
+              View Event
+            </button>
+          )}
+          <button
+            onClick={() => {
+              setShowSuccessModal(false);
+              if (createdEventId) {
+                // Reset form
+                setEventName('');
+                setOwnerEmail('');
+                setSteps([{ name: '', vendor_email: '', description: '', time_limit: '', sequence: 1 }]);
+                setCreatedEventId('');
+              }
+            }}
+            className="w-full bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-semibold hover:bg-gray-300"
+          >
+            Close
+          </button>
+        </div>
+      </Modal>
+
+      {/* Error Modal */}
+      <Modal
+        isOpen={showErrorModal}
+        onClose={() => setShowErrorModal(false)}
+        title="Error"
+      >
+        <div className="text-center py-4">
+          <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
+          <p className="text-gray-700 mb-6">{modalMessage}</p>
+          <button
+            onClick={() => setShowErrorModal(false)}
+            className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700"
+          >
+            Close
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

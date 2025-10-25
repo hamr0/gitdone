@@ -15,29 +15,79 @@ const EVENTS_DIR = path.join(__dirname, '../../data/events');
 const UPLOADS_DIR = path.join(__dirname, '../../data/uploads');
 const TOKENS_FILE = path.join(__dirname, '../../data/magic_tokens.json');
 
-// Trigger next step in sequential flow
-async function triggerNextStep(event, eventId) {
+// Trigger next step(s) based on flow type
+async function triggerNextSteps(event, eventId) {
   try {
-    // Find the next pending step in sequence
-    const completedSteps = event.steps.filter(step => step.status === 'completed');
-    const nextStep = event.steps.find(step => 
-      step.status === 'pending' && 
-      step.sequence === completedSteps.length + 1
-    );
-    
-    if (nextStep) {
-      console.log(`Triggering next step: ${nextStep.name} for vendor: ${nextStep.vendor_email}`);
-      
-      // Use the magic link service
-      const magicLinkService = new MagicLinkService();
-      await magicLinkService.sendMagicLink(eventId, nextStep.id, nextStep.vendor_email);
-      
-      console.log(`✅ Magic link sent for next step: ${nextStep.name}`);
+    let readySteps = [];
+
+    if (event.flow_type === 'sequential') {
+      // Sequential: find the next pending step in sequence
+      const completedSteps = event.steps.filter(step => step.status === 'completed');
+      const nextStep = event.steps.find(step =>
+        step.status === 'pending' &&
+        step.sequence === completedSteps.length + 1
+      );
+      if (nextStep) {
+        readySteps = [nextStep];
+      }
+    } else if (event.flow_type === 'hybrid') {
+      // Hybrid: find all pending steps whose dependencies are met
+      const completedStepIds = new Set(
+        event.steps.filter(s => s.status === 'completed').map(s => s.id)
+      );
+
+      // Get the minimum sequence number among pending steps
+      const pendingSteps = event.steps.filter(s => s.status === 'pending');
+      if (pendingSteps.length > 0) {
+        // Find all completed sequences
+        const completedSequences = new Set(
+          event.steps.filter(s => s.status === 'completed').map(s => s.sequence)
+        );
+
+        // If we have completed steps, find the next sequence level
+        if (completedSequences.size > 0) {
+          const maxCompletedSequence = Math.max(...completedSequences);
+
+          // Check if all steps at current max sequence are completed
+          const stepsAtMaxSequence = event.steps.filter(s => s.sequence === maxCompletedSequence);
+          const allMaxSequenceCompleted = stepsAtMaxSequence.every(s => s.status === 'completed');
+
+          if (allMaxSequenceCompleted) {
+            // Find the next sequence level
+            const nextSequence = Math.min(
+              ...pendingSteps.map(s => s.sequence).filter(seq => seq > maxCompletedSequence)
+            );
+
+            if (nextSequence !== Infinity) {
+              readySteps = event.steps.filter(
+                s => s.status === 'pending' && s.sequence === nextSequence
+              );
+            }
+          }
+        }
+      }
     } else {
-      console.log('No next step to trigger');
+      // Non-sequential: no triggering needed (all links sent at creation)
+      console.log('Non-sequential flow: no automatic triggering');
+      return;
+    }
+
+    // Send magic links to all ready steps
+    if (readySteps.length > 0) {
+      const magicLinkService = new MagicLinkService();
+      for (const step of readySteps) {
+        try {
+          await magicLinkService.sendMagicLink(eventId, step.id, step.vendor_email);
+          console.log(`✅ Magic link sent for next step: ${step.name} (sequence ${step.sequence}) to ${step.vendor_email}`);
+        } catch (linkError) {
+          console.error(`Failed to send magic link for step ${step.name}:`, linkError.message);
+        }
+      }
+    } else {
+      console.log('No next steps ready to trigger');
     }
   } catch (error) {
-    console.error('Error triggering next step:', error);
+    console.error('Error triggering next steps:', error);
     throw error;
   }
 }
@@ -287,21 +337,24 @@ router.post('/:token', upload.array('files', 10), async (req, res) => {
     
     // Save updated event
     await fs.writeFile(eventPath, JSON.stringify(event, null, 2));
-    
+
+    // Variable to store git commit hash
+    let gitCommitHash = null;
+
     // Integrate with Git repository
     try {
       const gitManager = new GitManager(decoded.event_id);
-      
+
       // Initialize repo if it doesn't exist
       const repoInfo = await gitManager.getRepositoryInfo();
       if (!repoInfo) {
         await gitManager.initialize();
       }
-      
+
       // Commit the step completion
-      const gitCommitHash = await gitManager.commitStep(step, processedFiles, comments);
+      gitCommitHash = await gitManager.commitStep(step, processedFiles, comments);
       commit.parent_hash = gitCommitHash;
-      
+
       // Update the commit with git hash
       const updatedEvent = JSON.parse(await fs.readFile(eventPath, 'utf8'));
       const commitIndex = updatedEvent.commits.findIndex(c => c.commit_hash === commit.commit_hash);
@@ -313,17 +366,17 @@ router.post('/:token', upload.array('files', 10), async (req, res) => {
       console.error('Git integration failed:', gitError);
       // Don't fail the request if git fails
     }
-    
-    // Trigger next step if this is sequential flow
-    if (event.flow_type === 'sequential' && !allStepsCompleted) {
+
+    // Trigger next step(s) for sequential and hybrid flows
+    if ((event.flow_type === 'sequential' || event.flow_type === 'hybrid') && !allStepsCompleted) {
       try {
-        await triggerNextStep(event, decoded.event_id);
+        await triggerNextSteps(event, decoded.event_id);
       } catch (triggerError) {
-        console.error('Failed to trigger next step:', triggerError);
+        console.error('Failed to trigger next steps:', triggerError);
         // Don't fail the request if trigger fails
       }
     }
-    
+
     // Send completion email if all steps are completed
     if (allStepsCompleted) {
       try {
