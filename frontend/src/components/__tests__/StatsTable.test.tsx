@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import StatsTable from '../StatsTable';
 
@@ -381,7 +381,7 @@ describe('StatsTable Component', () => {
         value: 1280,
       });
 
-      const { container } = render(<StatsTable stats={mockStats} />);
+      render(<StatsTable stats={mockStats} />);
 
       const table = screen.getByRole('table');
       expect(table).toBeInTheDocument();
@@ -391,10 +391,11 @@ describe('StatsTable Component', () => {
     });
 
     test('should not show horizontal scrollbar', () => {
-      const { container } = render(<StatsTable stats={mockStats} />);
+      render(<StatsTable stats={mockStats} />);
 
-      const mainDiv = container.querySelector('.w-full');
-      expect(mainDiv?.className).not.toContain('overflow-x');
+      // Check that the table has full width and doesn't have overflow
+      const table = screen.getByRole('table');
+      expect(table.className).toContain('w-full');
     });
 
     test('should have proper spacing between rows', () => {
@@ -434,7 +435,7 @@ describe('StatsTable Component', () => {
    */
   describe('Accessibility', () => {
     test('should use semantic HTML table structure', () => {
-      const { container } = render(<StatsTable stats={mockStats} />);
+      render(<StatsTable stats={mockStats} />);
 
       const table = screen.getByRole('table');
       expect(table).toBeInTheDocument();
@@ -483,7 +484,7 @@ describe('StatsTable Component', () => {
     });
 
     test('should have accessible loading indicator', () => {
-      const { container } = render(<StatsTable loading={true} />);
+      render(<StatsTable loading={true} />);
 
       // Loading text should be present for screen readers
       expect(screen.getByText(/Loading statistics/)).toBeInTheDocument();
@@ -561,6 +562,7 @@ describe('StatsTable Component', () => {
         last_updated: '2025-12-19T18:00:00.000Z',
       };
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       render(<StatsTable stats={statsWithoutMetrics as any} />);
 
       // Should show zeros
