@@ -1,8 +1,9 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Trash2, Calendar, Users, Clock, Edit3, Mail, CheckCircle, AlertCircle } from 'lucide-react';
 import Modal from '../components/Modal';
+import StatsTable from '../components/StatsTable';
 
 interface Step {
   name: string;
@@ -10,6 +11,20 @@ interface Step {
   description: string;
   time_limit?: string;
   sequence?: number;
+}
+
+interface StepWithId extends Step {
+  id: string;
+}
+
+interface StatsData {
+  current_metrics: {
+    total_events: number;
+    total_steps: number;
+    completed_events: number;
+    completed_steps: number;
+  };
+  last_updated: string | null;
 }
 
 export default function Home() {
@@ -22,6 +37,11 @@ export default function Home() {
   ]);
   const [loading, setLoading] = useState(false);
 
+  // Stats state management
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [stats, setStats] = useState<StatsData | null>(null);
+
   // Edit event state
   const [editOwnerEmail, setEditOwnerEmail] = useState('');
   const [sendingEditLink, setSendingEditLink] = useState(false);
@@ -31,6 +51,27 @@ export default function Home() {
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
   const [createdEventId, setCreatedEventId] = useState('');
+
+  // Fetch stats on component mount
+  const fetchStats = async () => {
+    setStatsLoading(true);
+    setStatsError(null);
+    try {
+      const response = await fetch('/api/stats');
+      if (!response.ok) throw new Error('Failed to fetch stats');
+      const data = await response.json();
+      setStats(data);
+    } catch (error) {
+      setStatsError('Could not load statistics');
+      console.error('Stats fetch error:', error);
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStats();
+  }, []);
 
   const addStep = () => {
     const nextSequence = Math.max(...steps.map(s => s.sequence || 0)) + 1;
@@ -122,7 +163,7 @@ export default function Home() {
     }
   };
 
-  const sendMagicLinksBasedOnFlow = async (eventId: string, steps: any[], flowType: string) => {
+  const sendMagicLinksBasedOnFlow = async (eventId: string, steps: StepWithId[], flowType: string) => {
     try {
       let stepsToTrigger = [];
       
@@ -157,7 +198,7 @@ export default function Home() {
     }
   };
 
-  const sendMagicLinks = async (eventId: string, steps: any[]) => {
+  const sendMagicLinks = async (eventId: string, steps: StepWithId[]) => {
     try {
       const promises = steps.map(step => 
         fetch('/api/magic', {
@@ -308,7 +349,7 @@ export default function Home() {
               </label>
               <select
                 value={flowType}
-                onChange={(e) => setFlowType(e.target.value as any)}
+                onChange={(e) => setFlowType(e.target.value as 'sequential' | 'non_sequential' | 'hybrid')}
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="sequential">Sequential (A → B → C)</option>
@@ -466,6 +507,18 @@ export default function Home() {
             </button>
           </div>
         </div>
+
+        {/* Stats Section */}
+        <section className="mt-12 mb-8 bg-white rounded-lg shadow p-4">
+          <h2 className="text-lg font-semibold text-gray-900 mb-6">Platform Statistics</h2>
+          <div className="px-4 md:px-0">
+            <StatsTable
+              loading={statsLoading}
+              error={statsError}
+              stats={stats}
+            />
+          </div>
+        </section>
       </div>
 
       {/* Success Modal */}
