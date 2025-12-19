@@ -57,7 +57,8 @@ export default function Home() {
     setStatsLoading(true);
     setStatsError(null);
     try {
-      const response = await fetch('/api/stats');
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
+      const response = await fetch(`${apiBaseUrl}/api/stats`);
       if (!response.ok) throw new Error('Failed to fetch stats');
       const data = await response.json();
       setStats(data);
