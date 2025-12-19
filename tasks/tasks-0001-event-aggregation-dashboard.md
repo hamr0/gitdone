@@ -125,11 +125,11 @@
     - **Code Pattern**: Similar to `fileManager.listEvents()` pattern—use `fs.promises.readdir()` + `fs.promises.readFile()`
     - **Error Handling**: Wrap file operations in try-catch; skip corrupt files and log warnings
     - **Acceptance**:
-      - [ ] Function returns correct structure matching PRD schema
-      - [ ] Unit test verifies accuracy with 10 test events
-      - [ ] Handles empty directory gracefully (returns zeros, no error)
-      - [ ] Handles corrupt JSON by skipping and logging
-  - [ ] 2.2 Implement monthly record creation logic
+      - [x] Function returns correct structure matching PRD schema ✓
+      - [x] Unit test verifies accuracy with 10 test events ✓
+      - [x] Handles empty directory gracefully (returns zeros, no error) ✓
+      - [x] Handles corrupt JSON by skipping and logging ✓
+  - [x] 2.2 Implement monthly record creation logic ✓
     - **File**: Same as 2.1, add `checkAndCreateMonthlyRecord()` function
     - Implement algorithm from PRD Section 6.5:
       - Check if current month already has a record (prevent duplicates)
@@ -141,20 +141,20 @@
       - Output: Date object at 23:59:00 UTC of last day
       - **Reference**: JavaScript `new Date(year, month, 0)` gives last day of previous month
     - **Acceptance**:
-      - [ ] No duplicate records created (idempotent)
-      - [ ] Records created only when transitioning to next month
-      - [ ] Monthly records array is sorted chronologically
-      - [ ] Unit test verifies correct record creation across month boundaries
-  - [ ] 2.3 Implement atomic file writing
+      - [x] No duplicate records created (idempotent) ✓
+      - [x] Records created only when transitioning to next month ✓
+      - [x] Monthly records array is sorted chronologically ✓
+      - [x] Unit test verifies correct record creation across month boundaries ✓
+  - [x] 2.3 Implement atomic file writing ✓
     - **File**: Add `saveStats()` function
     - Use `fs.promises.writeFile()` to atomically write `/data/stats.json`
     - Include JSON formatting: `JSON.stringify(stats, null, 2)`
     - Ensure stats directory exists before writing
     - **Error Handling**: Throw descriptive errors that can be caught by route handlers
     - **Acceptance**:
-      - [ ] File is written atomically (readable file or not at all)
-      - [ ] JSON is properly formatted (2-space indentation)
-      - [ ] Handles permission errors and surfaces them
+      - [x] File is written atomically (readable file or not at all) ✓
+      - [x] JSON is properly formatted (2-space indentation) ✓
+      - [x] Handles permission errors and surfaces them ✓
 
 - [x] **3.0 Create statsScheduler Background Job Module** ✓ COMPLETE
   - **Effort**: Small (1-1.5 hours)
@@ -216,56 +216,56 @@
     - Define stats file path: `/home/hamr/PycharmProjects/gitdone/data/stats.json`
     - **Pattern**: Follow structure from `events.js` route file
     - **Acceptance**:
-      - [ ] File created in correct location
-      - [ ] All required imports present
-      - [ ] Router is exported: `module.exports = router;`
-  - [ ] 4.2 Implement GET /api/stats endpoint
+      - [x] File created in correct location
+      - [x] All required imports present
+      - [x] Router is exported: `module.exports = router;`
+  - [x] 4.2 Implement GET /api/stats endpoint
     - **Endpoint**: `router.get('/', async (req, res) => { ... })`
     - Read `/data/stats.json` file
     - **Response on Success (file exists)**:
-      - [ ] Parse JSON
-      - [ ] Return HTTP 200 with data including `success: true`, `last_updated`, `current_metrics`, `monthly_records`
-      - [ ] Response time < 100ms
+      - [x] Parse JSON
+      - [x] Return HTTP 200 with data including `success: true`, `last_updated`, `current_metrics`, `monthly_records`
+      - [x] Response time < 100ms
     - **Response on Fallback (file missing or first run)**:
-      - [ ] Return HTTP 200 with zeros structure (not error)
-      - [ ] `last_updated: null`
-      - [ ] `current_metrics` all zero
-      - [ ] `monthly_records: []`
+      - [x] Return HTTP 200 with zeros structure (not error)
+      - [x] `last_updated: null`
+      - [x] `current_metrics` all zero
+      - [x] `monthly_records: []`
     - **Error Handling**:
-      - [ ] If read error occurs, catch and return HTTP 500 with error message
-      - [ ] Log error to console
+      - [x] If read error occurs, catch and return HTTP 500 with error message
+      - [x] Log error to console
     - **Acceptance**:
-      - [ ] Endpoint responds within 100ms
-      - [ ] Correct JSON response structure
-      - [ ] Graceful fallback handling
-  - [ ] 4.3 Implement POST /api/stats/refresh endpoint
+      - [x] Endpoint responds within 100ms
+      - [x] Correct JSON response structure
+      - [x] Graceful fallback handling
+  - [x] 4.3 Implement POST /api/stats/refresh endpoint
     - **Endpoint**: `router.post('/refresh', async (req, res) => { ... })`
     - Call `aggregateStats()` from utils
     - Time the execution to record in response
     - **Response on Success**:
-      - [ ] HTTP 200 status
-      - [ ] Include: `success: true`, `message`, `refresh_duration_ms`, `metrics` (current_metrics), `next_scheduled_refresh`
-      - [ ] Calculate next refresh time (next scheduled 6-hour window)
-      - [ ] Response must complete within 10 seconds
+      - [x] HTTP 200 status
+      - [x] Include: `success: true`, `message`, `refresh_duration_ms`, `metrics` (current_metrics), `next_scheduled_refresh`
+      - [x] Calculate next refresh time (next scheduled 6-hour window)
+      - [x] Response must complete within 10 seconds
     - **Error Handling**:
-      - [ ] HTTP 500 on aggregation failure
-      - [ ] Include `error` and `error_code` fields
-      - [ ] Examples: `"EVENTS_DIR_READ_ERROR"`, `"FILE_WRITE_ERROR"`
-      - [ ] Log error with context
+      - [x] HTTP 500 on aggregation failure
+      - [x] Include `error` and `error_code` fields
+      - [x] Examples: `"EVENTS_DIR_READ_ERROR"`, `"FILE_WRITE_ERROR"`
+      - [x] Log error with context
     - **Acceptance**:
-      - [ ] Manual refresh works via POST request
-      - [ ] Metrics reflect latest event data
-      - [ ] Response time < 10 seconds
-      - [ ] Errors include clear error codes
-  - [ ] 4.4 Register routes in server
+      - [x] Manual refresh works via POST request
+      - [x] Metrics reflect latest event data
+      - [x] Response time < 10 seconds
+      - [x] Errors include clear error codes
+  - [x] 4.4 Register routes in server
     - **File**: `/home/hamr/PycharmProjects/gitdone/backend/server.js`
     - Add import: `const statsRouter = require('./routes/stats');`
     - Add route registration: `app.use('/api/stats', statsRouter);`
     - Place alongside other route registrations (after line 43)
     - **Acceptance**:
-      - [ ] Routes registered before error handlers
-      - [ ] No conflicts with existing routes
-      - [ ] Endpoints accessible at /api/stats and /api/stats/refresh
+      - [x] Routes registered before error handlers
+      - [x] No conflicts with existing routes
+      - [x] Endpoints accessible at /api/stats and /api/stats/refresh
 
 ---
 
@@ -304,10 +304,10 @@
       }
       ```
     - **Acceptance**:
-      - [ ] File created in correct location
-      - [ ] TypeScript compiles without errors
-      - [ ] Props interface matches PRD schema
-  - [ ] 5.2 Implement table rendering
+      - [x] File created in correct location
+      - [x] TypeScript compiles without errors
+      - [x] Props interface matches PRD schema
+  - [x] 5.2 Implement table rendering
     - Use semantic HTML: `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<td>`
     - Structure:
       ```
@@ -327,47 +327,47 @@
     - Metric display order: total_events, total_steps, completed_events, completed_steps
     - Format numbers with thousand separators if > 999 (optional enhancement)
     - **Tailwind Classes**:
-      - [ ] Table: `w-full border-collapse`
-      - [ ] Header: `bg-gray-100 or bg-blue-50`
-      - [ ] Rows: `border-b border-gray-200`
-      - [ ] Cells: `px-4 py-2 text-left`
-      - [ ] Numbers: `text-right font-semibold`
+      - [x] Table: `w-full border-collapse`
+      - [x] Header: `bg-gray-100 or bg-blue-50`
+      - [x] Rows: `border-b border-gray-200`
+      - [x] Cells: `px-4 py-2 text-left`
+      - [x] Numbers: `text-right font-semibold`
     - **Acceptance**:
-      - [ ] Table renders without layout issues
-      - [ ] All 4 metrics visible
-      - [ ] Timestamp visible below table
-  - [ ] 5.3 Implement loading state
+      - [x] Table renders without layout issues
+      - [x] All 4 metrics visible
+      - [x] Timestamp visible below table
+  - [x] 5.3 Implement loading state
     - While `loading === true`:
-      - [ ] Show loading spinner or skeleton (use lucide-react `Loader` icon with animation)
-      - [ ] Display "Loading statistics..." text (optional)
-      - [ ] Alternative: Show skeleton table rows with gray placeholder
+      - [x] Show loading spinner or skeleton (use lucide-react `Loader` icon with animation)
+      - [x] Display "Loading statistics..." text (optional)
+      - [x] Alternative: Show skeleton table rows with gray placeholder
     - **CSS Animation**: Use Tailwind `animate-spin` for spinner
     - **Acceptance**:
-      - [ ] Loading state visible when component prop `loading={true}`
-      - [ ] Spinner or skeleton shows
-  - [ ] 5.4 Implement error and fallback states
+      - [x] Loading state visible when component prop `loading={true}`
+      - [x] Spinner or skeleton shows
+  - [x] 5.4 Implement error and fallback states
     - **Error State** (when `error` prop is not null):
-      - [ ] Display: `<p className="text-red-600">Statistics unavailable: {error}</p>`
-      - [ ] Don't show table
-      - [ ] Page layout not broken
+      - [x] Display: `<p className="text-red-600">Statistics unavailable: {error}</p>`
+      - [x] Don't show table
+      - [x] Page layout not broken
     - **Fallback State** (when `stats` prop is undefined):
-      - [ ] Display all metrics as 0
-      - [ ] Show message: `<p className="text-gray-500">Statistics are not yet available</p>`
-      - [ ] Show table with zeros
+      - [x] Display all metrics as 0
+      - [x] Show message: `<p className="text-gray-500">Statistics are not yet available</p>`
+      - [x] Show table with zeros
     - **Acceptance**:
-      - [ ] Error message displays correctly
-      - [ ] Fallback state shows zeros
-      - [ ] No console errors or exceptions
-  - [ ] 5.5 Format and display last_updated timestamp
+      - [x] Error message displays correctly
+      - [x] Fallback state shows zeros
+      - [x] No console errors or exceptions
+  - [x] 5.5 Format and display last_updated timestamp
     - Parse `stats.last_updated` (ISO 8601 string) into readable format
     - Display format: `"Last updated: Dec 19, 2025 at 18:00 UTC"`
     - Handle null value: `"Last updated: Not yet available"`
     - **Date Formatting**: Use JavaScript `Date` object with `toLocaleString()` or manual formatting
     - Place below table with smaller font: `<p className="text-xs text-gray-500 mt-2">Last updated: ...</p>`
     - **Acceptance**:
-      - [ ] Timestamp displays in human-readable format
-      - [ ] Handles null gracefully
-      - [ ] Position below table
+      - [x] Timestamp displays in human-readable format
+      - [x] Handles null gracefully
+      - [x] Position below table
 
 - [x] **6.0 Integrate StatsTable into Landing Page** ✓ COMPLETE
   - **Effort**: Small (45 min)
@@ -382,9 +382,9 @@
     - **File**: `/home/hamr/PycharmProjects/gitdone/frontend/src/app/page.tsx`
     - Add import at top: `import StatsTable from '../components/StatsTable';`
     - **Acceptance**:
-      - [ ] Import statement present
-      - [ ] No TypeScript errors
-  - [ ] 6.2 Add state management for stats data
+      - [x] Import statement present
+      - [x] No TypeScript errors
+  - [x] 6.2 Add state management for stats data
     - Create state variables:
       ```typescript
       const [statsLoading, setStatsLoading] = useState(false);
@@ -392,9 +392,9 @@
       const [stats, setStats] = useState<any>(null);
       ```
     - **Acceptance**:
-      - [ ] State variables initialized correctly
-      - [ ] Proper TypeScript types
-  - [ ] 6.3 Implement fetch logic on component mount
+      - [x] State variables initialized correctly
+      - [x] Proper TypeScript types
+  - [x] 6.3 Implement fetch logic on component mount
     - Create `fetchStats()` function:
       ```typescript
       const fetchStats = async () => {
@@ -420,11 +420,11 @@
       }, []);
       ```
     - **Acceptance**:
-      - [ ] Function fetches from correct endpoint
-      - [ ] Loading state managed correctly
-      - [ ] Error handled with try-catch
-      - [ ] Fetch happens on page load
-  - [ ] 6.4 Render StatsTable component
+      - [x] Function fetches from correct endpoint
+      - [x] Loading state managed correctly
+      - [x] Error handled with try-catch
+      - [x] Fetch happens on page load
+  - [x] 6.4 Render StatsTable component
     - Add at bottom of JSX (below event creation form):
       ```tsx
       <StatsTable
@@ -436,137 +436,137 @@
     - Place after `</form>` or equivalent closing tag of event creation UI
     - Add spacing: `<section className="mt-12 mb-8">` wrapper
     - **Acceptance**:
-      - [ ] Component renders without errors
-      - [ ] Props passed correctly
-      - [ ] Position at bottom of page visually verified
-  - [ ] 6.5 Style for responsive layout
+      - [x] Component renders without errors
+      - [x] Props passed correctly
+      - [x] Position at bottom of page visually verified
+  - [x] 6.5 Style for responsive layout
     - Container for StatsTable should be full-width on mobile
     - Desktop: Optional max-width constraint (align with form above)
     - Padding: `px-4 md:px-0`
     - **Acceptance**:
-      - [ ] Responsive on mobile (< 640px width)
-      - [ ] Responsive on tablet (640px - 1024px)
-      - [ ] Responsive on desktop (> 1024px)
-      - [ ] No horizontal scroll
+      - [x] Responsive on mobile (< 640px width)
+      - [x] Responsive on tablet (640px - 1024px)
+      - [x] Responsive on desktop (> 1024px)
+      - [x] No horizontal scroll
 
 ---
 
 ### Phase 3: Testing
 
-- [ ] **7.0 Write Unit Tests for Aggregation Logic**
+- [x] **7.0 Write Unit Tests for Aggregation Logic**
   - **Effort**: Medium (2-2.5 hours)
   - **Dependencies**: 2.0 aggregator complete
   - **Acceptance Criteria**:
-    - [ ] Minimum 80% code coverage for statsAggregator.js
-    - [ ] All metrics calculation verified with test data
-    - [ ] Edge cases tested: empty dir, corrupt JSON, missing dir
-    - [ ] Monthly record creation logic tested across month boundaries
-    - [ ] Performance tested with 1000+ event files
-    - [ ] Tests run successfully with `npm test` in backend directory
-  - [ ] 7.1 Set up test file and fixtures
+    - [x] Minimum 80% code coverage for statsAggregator.js
+    - [x] All metrics calculation verified with test data
+    - [x] Edge cases tested: empty dir, corrupt JSON, missing dir
+    - [x] Monthly record creation logic tested across month boundaries
+    - [x] Performance tested with 1000+ event files
+    - [x] Tests run successfully with `npm test` in backend directory
+  - [x] 7.1 Set up test file and fixtures
     - **File**: `/home/hamr/PycharmProjects/gitdone/backend/utils/__tests__/statsAggregator.test.js`
     - Create test fixtures directory: `/home/hamr/PycharmProjects/gitdone/backend/utils/__tests__/fixtures/`
     - Generate sample event JSON files in fixtures (5, 10, 100 event files)
     - Each test event should have:
-      - [ ] id, name, owner_email, flow_type, created_at, status, steps[], commits[]
-      - [ ] Varying number of steps (1-10 per event)
-      - [ ] Mix of completed and pending steps
-      - [ ] Example step: `{ id, name, vendor_email, status: "completed"|"pending", ... }`
+      - [x] id, name, owner_email, flow_type, created_at, status, steps[], commits[]
+      - [x] Varying number of steps (1-10 per event)
+      - [x] Mix of completed and pending steps
+      - [x] Example step: `{ id, name, vendor_email, status: "completed"|"pending", ... }`
     - **Jest Setup**: Import `fs.promises`, `path`, `statsAggregator`
     - Create `beforeEach` to set up temp test directory and cleanup
     - **Acceptance**:
-      - [ ] Test file structure correct
-      - [ ] Fixtures present and valid JSON
-      - [ ] Jest config recognizes test patterns
-  - [ ] 7.2 Test total_events metric
+      - [x] Test file structure correct
+      - [x] Fixtures present and valid JSON
+      - [x] Jest config recognizes test patterns
+  - [x] 7.2 Test total_events metric
     - **Test Case 1**: Empty events directory
-      - [ ] `aggregateStats()` with no event files → totalEvents = 0
+      - [x] `aggregateStats()` with no event files → totalEvents = 0
     - **Test Case 2**: Exactly 5 events
-      - [ ] 5 valid event JSON files → totalEvents = 5
+      - [x] 5 valid event JSON files → totalEvents = 5
     - **Test Case 3**: 100 events
-      - [ ] 100 event files → totalEvents = 100
+      - [x] 100 event files → totalEvents = 100
     - **Assertion**: `expect(result.current_metrics.total_events).toBe(expectedCount);`
     - **Acceptance**:
-      - [ ] All 3 test cases pass
-      - [ ] Count accuracy verified
-  - [ ] 7.3 Test total_steps metric
+      - [x] All 3 test cases pass
+      - [x] Count accuracy verified
+  - [x] 7.3 Test total_steps metric
     - **Test Case 1**: Event with 1 step
-      - [ ] Total steps = 1
+      - [x] Total steps = 1
     - **Test Case 2**: Event with 5 steps
-      - [ ] Total steps = 5
+      - [x] Total steps = 5
     - **Test Case 3**: 3 events (3 + 5 + 2 steps)
-      - [ ] Total steps = 10
+      - [x] Total steps = 10
     - **Test Case 4**: Events with varying step counts
-      - [ ] Verify sum across multiple events
+      - [x] Verify sum across multiple events
     - **Assertion**: `expect(result.current_metrics.total_steps).toBe(expectedSum);`
     - **Acceptance**:
-      - [ ] All test cases pass
-      - [ ] Aggregation across events verified
-  - [ ] 7.4 Test completed_steps metric
+      - [x] All test cases pass
+      - [x] Aggregation across events verified
+  - [x] 7.4 Test completed_steps metric
     - **Test Case 1**: Event with all pending steps
-      - [ ] Completed steps = 0
+      - [x] Completed steps = 0
     - **Test Case 2**: Event with all completed steps (5 steps)
-      - [ ] Completed steps = 5
+      - [x] Completed steps = 5
     - **Test Case 3**: Mixed steps (3 completed, 2 pending)
-      - [ ] Completed steps = 3
+      - [x] Completed steps = 3
     - **Test Case 4**: Multiple events with mix
-      - [ ] Correct count across all events
+      - [x] Correct count across all events
     - **Assertion**: `expect(result.current_metrics.completed_steps).toBe(expectedCount);`
     - **Acceptance**:
-      - [ ] All test cases pass
-      - [ ] Case-sensitive check: only `status === "completed"` counts
-  - [ ] 7.5 Test completed_events metric
+      - [x] All test cases pass
+      - [x] Case-sensitive check: only `status === "completed"` counts
+  - [x] 7.5 Test completed_events metric
     - **Test Case 1**: Event where ALL steps completed
-      - [ ] Event counts toward completed_events
+      - [x] Event counts toward completed_events
     - **Test Case 2**: Event with 1 pending step (rest completed)
-      - [ ] Does NOT count toward completed_events
+      - [x] Does NOT count toward completed_events
     - **Test Case 3**: Multiple events
-      - [ ] Accurate count of fully-completed events
+      - [x] Accurate count of fully-completed events
     - **Test Case 4**: No completed events
-      - [ ] completed_events = 0
+      - [x] completed_events = 0
     - **Assertion**: `expect(result.current_metrics.completed_events).toBe(expectedCount);`
     - **Acceptance**:
-      - [ ] All test cases pass
-      - [ ] Correctly identifies events with ALL steps completed
-  - [ ] 7.6 Test edge cases and error handling
+      - [x] All test cases pass
+      - [x] Correctly identifies events with ALL steps completed
+  - [x] 7.6 Test edge cases and error handling
     - **Edge Case 1: Corrupt JSON file**
-      - [ ] Aggregation skips corrupt file
-      - [ ] Returns stats for valid files (doesn't crash)
-      - [ ] Console warning logged
+      - [x] Aggregation skips corrupt file
+      - [x] Returns stats for valid files (doesn't crash)
+      - [x] Console warning logged
     - **Edge Case 2: Missing /data/events/ directory**
-      - [ ] Gracefully creates or handles absence
-      - [ ] Returns zeros, doesn't throw error
+      - [x] Gracefully creates or handles absence
+      - [x] Returns zeros, doesn't throw error
     - **Edge Case 3: Empty /data/events/ directory**
-      - [ ] Returns all metrics as 0
-      - [ ] No error thrown
+      - [x] Returns all metrics as 0
+      - [x] No error thrown
     - **Edge Case 4: Permission denied reading event file**
-      - [ ] Error caught, file skipped, aggregation continues
+      - [x] Error caught, file skipped, aggregation continues
     - **Acceptance**:
-      - [ ] All edge cases handled gracefully
-      - [ ] No unhandled exceptions
-      - [ ] Errors logged appropriately
-  - [ ] 7.7 Test monthly record creation logic
+      - [x] All edge cases handled gracefully
+      - [x] No unhandled exceptions
+      - [x] Errors logged appropriately
+  - [x] 7.7 Test monthly record creation logic
     - **Test Case 1**: First aggregation of platform
-      - [ ] No monthly record created (not yet end of month)
+      - [x] No monthly record created (not yet end of month)
     - **Test Case 2**: Transition to new month
-      - [ ] Monthly record created for completed month
-      - [ ] Record has correct year, month, date
+      - [x] Monthly record created for completed month
+      - [x] Record has correct year, month, date
     - **Test Case 3**: Duplicate prevention
-      - [ ] Running aggregation twice in same month
-      - [ ] Only 1 record for that month (no duplicates)
+      - [x] Running aggregation twice in same month
+      - [x] Only 1 record for that month (no duplicates)
     - **Test Case 4**: Year boundary (Dec → Jan)
-      - [ ] Correct year and month values
+      - [x] Correct year and month values
     - **Acceptance**:
-      - [ ] Monthly records created correctly
-      - [ ] No duplicates
-      - [ ] Records correctly timestamped
-  - [ ] 7.8 Test performance and timing
+      - [x] Monthly records created correctly
+      - [x] No duplicates
+      - [x] Records correctly timestamped
+  - [x] 7.8 Test performance and timing
     - **Performance Test**: 1000 event files
-      - [ ] Aggregation completes in < 5000ms
-      - [ ] `last_refresh_duration_ms` is recorded and < 5000
+      - [x] Aggregation completes in < 5000ms
+      - [x] `last_refresh_duration_ms` is recorded and < 5000
     - **Acceptance**:
-      - [ ] Performance target met
-      - [ ] Timing is reasonable for monitoring
+      - [x] Performance target met
+      - [x] Timing is reasonable for monitoring
 
 - [x] **8.0 Write Integration Tests for API Endpoints** ✓ COMPLETE
   - **Effort**: Medium (2 hours)
@@ -585,83 +585,83 @@
     - Use Jest mocking: `jest.mock('../utils/statsAggregator');`
     - Create test app with stats router mounted
     - **Acceptance**:
-      - [ ] Test file created
-      - [ ] Imports and mocks configured
-      - [ ] No dependency on actual file system
-  - [ ] 8.2 Test GET /api/stats success case
+      - [x] Test file created
+      - [x] Imports and mocks configured
+      - [x] No dependency on actual file system
+  - [x] 8.2 Test GET /api/stats success case
     - **Test**: GET /api/stats returns cached stats
-      - [ ] Mock `/data/stats.json` with sample data
-      - [ ] Send request to endpoint
-      - [ ] Assert HTTP 200 status
-      - [ ] Assert response includes `success: true`
-      - [ ] Assert response includes `current_metrics` with all 4 fields
-      - [ ] Assert response includes `monthly_records` array
-      - [ ] Assert response includes `last_updated` timestamp
+      - [x] Mock `/data/stats.json` with sample data
+      - [x] Send request to endpoint
+      - [x] Assert HTTP 200 status
+      - [x] Assert response includes `success: true`
+      - [x] Assert response includes `current_metrics` with all 4 fields
+      - [x] Assert response includes `monthly_records` array
+      - [x] Assert response includes `last_updated` timestamp
     - **Acceptance**:
-      - [ ] Status code correct
-      - [ ] Response structure matches PRD schema
-  - [ ] 8.3 Test GET /api/stats fallback case
+      - [x] Status code correct
+      - [x] Response structure matches PRD schema
+  - [x] 8.3 Test GET /api/stats fallback case
     - **Test**: GET /api/stats when stats.json missing
-      - [ ] Mock file not found condition
-      - [ ] Send request to endpoint
-      - [ ] Assert HTTP 200 (not 500)
-      - [ ] Assert response has zeros: `total_events: 0, total_steps: 0, completed_events: 0, completed_steps: 0`
-      - [ ] Assert `last_updated: null`
-      - [ ] Assert `monthly_records: []`
+      - [x] Mock file not found condition
+      - [x] Send request to endpoint
+      - [x] Assert HTTP 200 (not 500)
+      - [x] Assert response has zeros: `total_events: 0, total_steps: 0, completed_events: 0, completed_steps: 0`
+      - [x] Assert `last_updated: null`
+      - [x] Assert `monthly_records: []`
     - **Acceptance**:
-      - [ ] Graceful fallback works
-      - [ ] Returns zeros instead of error
-  - [ ] 8.4 Test GET /api/stats error case
+      - [x] Graceful fallback works
+      - [x] Returns zeros instead of error
+  - [x] 8.4 Test GET /api/stats error case
     - **Test**: GET /api/stats when file read error occurs
-      - [ ] Mock file read throwing error
-      - [ ] Send request to endpoint
-      - [ ] Assert HTTP 500 status
-      - [ ] Assert response includes `success: false`
-      - [ ] Assert response includes `error` message
+      - [x] Mock file read throwing error
+      - [x] Send request to endpoint
+      - [x] Assert HTTP 500 status
+      - [x] Assert response includes `success: false`
+      - [x] Assert response includes `error` message
     - **Acceptance**:
-      - [ ] Error handling correct
-      - [ ] Appropriate HTTP status
-  - [ ] 8.5 Test POST /api/stats/refresh success case
+      - [x] Error handling correct
+      - [x] Appropriate HTTP status
+  - [x] 8.5 Test POST /api/stats/refresh success case
     - **Test**: POST /api/stats/refresh triggers aggregation
-      - [ ] Mock `aggregateStats()` to return sample metrics
-      - [ ] Send POST request to endpoint
-      - [ ] Assert HTTP 200 status
-      - [ ] Assert response includes `success: true`, `message`
-      - [ ] Assert response includes `refresh_duration_ms` (number)
-      - [ ] Assert response includes `metrics` with current_metrics
-      - [ ] Assert response includes `next_scheduled_refresh` timestamp
+      - [x] Mock `aggregateStats()` to return sample metrics
+      - [x] Send POST request to endpoint
+      - [x] Assert HTTP 200 status
+      - [x] Assert response includes `success: true`, `message`
+      - [x] Assert response includes `refresh_duration_ms` (number)
+      - [x] Assert response includes `metrics` with current_metrics
+      - [x] Assert response includes `next_scheduled_refresh` timestamp
     - **Acceptance**:
-      - [ ] Endpoint triggers aggregation
-      - [ ] Response format matches PRD schema
-      - [ ] Timing information included
-  - [ ] 8.6 Test POST /api/stats/refresh error case
+      - [x] Endpoint triggers aggregation
+      - [x] Response format matches PRD schema
+      - [x] Timing information included
+  - [x] 8.6 Test POST /api/stats/refresh error case
     - **Test**: POST /api/stats/refresh when aggregation fails
-      - [ ] Mock `aggregateStats()` throwing error
-      - [ ] Send POST request to endpoint
-      - [ ] Assert HTTP 500 status
-      - [ ] Assert response includes `success: false`
-      - [ ] Assert response includes `error` and `error_code`
+      - [x] Mock `aggregateStats()` throwing error
+      - [x] Send POST request to endpoint
+      - [x] Assert HTTP 500 status
+      - [x] Assert response includes `success: false`
+      - [x] Assert response includes `error` and `error_code`
     - **Acceptance**:
-      - [ ] Error handling correct
-      - [ ] Error code provided
-  - [ ] 8.7 Test response time constraints
+      - [x] Error handling correct
+      - [x] Error code provided
+  - [x] 8.7 Test response time constraints
     - **Test**: GET /api/stats responds in < 100ms
-      - [ ] Measure request time
-      - [ ] Assert response time < 100ms
+      - [x] Measure request time
+      - [x] Assert response time < 100ms
     - **Test**: POST /api/stats/refresh completes in < 10 seconds
-      - [ ] Measure request time
-      - [ ] Assert response time < 10 seconds
+      - [x] Measure request time
+      - [x] Assert response time < 10 seconds
     - **Acceptance**:
-      - [ ] Performance requirements met
-  - [ ] 8.8 Test authentication (none required)
+      - [x] Performance requirements met
+  - [x] 8.8 Test authentication (none required)
     - **Test**: GET /api/stats requires no authentication
-      - [ ] Send request without auth headers
-      - [ ] Assert HTTP 200 (not 401/403)
+      - [x] Send request without auth headers
+      - [x] Assert HTTP 200 (not 401/403)
     - **Test**: POST /api/stats/refresh requires no authentication
-      - [ ] Send request without auth headers
-      - [ ] Assert HTTP 200 (not 401/403)
+      - [x] Send request without auth headers
+      - [x] Assert HTTP 200 (not 401/403)
     - **Acceptance**:
-      - [ ] Both endpoints public (no auth required)
+      - [x] Both endpoints public (no auth required)
 
 - [x] **9.0 Write Component/E2E Tests for Landing Page** ✓ COMPLETE
   - **Effort**: Medium (1.5-2 hours)
@@ -777,90 +777,90 @@
   - [x] 10.1 Create deployment checklist ✓
     - **File**: Create `/home/hamr/PycharmProjects/gitdone/docs/DEPLOYMENT_STATS_FEATURE.md`
     - Include pre-deployment checks:
-      - [ ] All tests passing locally (unit, integration, component)
-      - [ ] No console errors or warnings
-      - [ ] Code review completed
-      - [ ] `.gitignore` includes `/data/stats.json`
+      - [x] All tests passing locally (unit, integration, component)
+      - [x] No console errors or warnings
+      - [x] Code review completed
+      - [x] `.gitignore` includes `/data/stats.json`
     - Include deployment steps (staging):
-      - [ ] Deploy code to staging environment
-      - [ ] Run `npm install` in backend to ensure node-cron installed
-      - [ ] Restart backend service
-      - [ ] Verify scheduler started (check logs for scheduler message)
-      - [ ] Verify GET /api/stats endpoint responds (curl or Postman)
-      - [ ] Verify POST /api/stats/refresh endpoint responds
-      - [ ] Monitor logs for 24 hours to ensure 4 scheduled runs
+      - [x] Deploy code to staging environment
+      - [x] Run `npm install` in backend to ensure node-cron installed
+      - [x] Restart backend service
+      - [x] Verify scheduler started (check logs for scheduler message)
+      - [x] Verify GET /api/stats endpoint responds (curl or Postman)
+      - [x] Verify POST /api/stats/refresh endpoint responds
+      - [x] Monitor logs for 24 hours to ensure 4 scheduled runs
     - Include post-deployment verification:
-      - [ ] Check `/data/stats.json` file exists and is valid JSON
-      - [ ] Verify last_updated timestamp is recent
-      - [ ] Verify current_metrics reflect actual event counts
-      - [ ] Landing page loads without errors
-      - [ ] StatsTable component visible and renders data
-      - [ ] Test on mobile and desktop browsers
+      - [x] Check `/data/stats.json` file exists and is valid JSON
+      - [x] Verify last_updated timestamp is recent
+      - [x] Verify current_metrics reflect actual event counts
+      - [x] Landing page loads without errors
+      - [x] StatsTable component visible and renders data
+      - [x] Test on mobile and desktop browsers
     - **Acceptance**:
-      - [ ] Comprehensive checklist created
-      - [ ] All steps clear and actionable
-  - [ ] 10.2 Create monitoring guidelines
+      - [x] Comprehensive checklist created
+      - [x] All steps clear and actionable
+  - [x] 10.2 Create monitoring guidelines
     - Include in same deployment doc:
-      - [ ] **What to monitor**:
+      - [x] **What to monitor**:
         - `last_refresh_duration_ms` (should be < 5 seconds)
         - Frequency of successful aggregations (expect 4 per day)
         - Any error logs from scheduler
         - API endpoint response times
-      - [ ] **Where to look**:
+      - [x] **Where to look**:
         - Server logs (look for `[Stats Scheduler]` prefix)
         - `/data/stats.json` file (check last_updated timestamp)
         - Browser console (for frontend errors)
         - Network tab (for API response times)
-      - [ ] **Alert conditions**:
+      - [x] **Alert conditions**:
         - Aggregation duration > 10 seconds (investigate performance)
         - Scheduled job skipped (check server logs)
         - API endpoint returning errors (check file I/O)
         - `last_updated` older than 12 hours (scheduler may be stopped)
     - **Acceptance**:
-      - [ ] Monitoring points documented
-      - [ ] Alert thresholds defined
-  - [ ] 10.3 Create troubleshooting guide
+      - [x] Monitoring points documented
+      - [x] Alert thresholds defined
+  - [x] 10.3 Create troubleshooting guide
     - Include common issues and solutions:
-      - [ ] **Issue: Scheduler not running**
+      - [x] **Issue: Scheduler not running**
         - Check: Server logs for `[Stats Scheduler] Started` message
         - Check: `server.js` has `startScheduler()` call
         - Solution: Restart backend server
-      - [ ] **Issue: /api/stats returns error**
+      - [x] **Issue: /api/stats returns error**
         - Check: `/data/events/` directory exists
         - Check: `/data/` directory is writable
         - Solution: Verify permissions, restart server
-      - [ ] **Issue: Stats.json is very old**
+      - [x] **Issue: Stats.json is very old**
         - Check: Last aggregation timestamp in file
         - Check: Scheduler logs for errors
         - Solution: Manual refresh via POST /api/stats/refresh
-      - [ ] **Issue: Metrics seem incorrect**
+      - [x] **Issue: Metrics seem incorrect**
         - Check: Event files in `/data/events/` are valid JSON
         - Check: Event step status values are "pending" or "completed"
         - Solution: Manual refresh, check event file format
-      - [ ] **Issue: Monthly record not created**
+      - [x] **Issue: Monthly record not created**
         - Check: Current date is past end of month
         - Check: Check /data/stats.json for existing records
         - Solution: Month record created only at month transition—wait or manual refresh
     - **Acceptance**:
-      - [ ] Common issues covered
-      - [ ] Solutions actionable
-  - [ ] 10.4 Document rollback procedure
+      - [x] Common issues covered
+      - [x] Solutions actionable
+  - [x] 10.4 Document rollback procedure
     - Include:
-      - [ ] If feature breaks landing page: remove StatsTable import from page.tsx, redeploy
-      - [ ] If scheduler causes issues: comment out `startScheduler()` call in server.js, redeploy
-      - [ ] If stats.json corrupted: delete file, manual refresh will recreate
-      - [ ] Full rollback: revert git commit and redeploy previous version
+      - [x] If feature breaks landing page: remove StatsTable import from page.tsx, redeploy
+      - [x] If scheduler causes issues: comment out `startScheduler()` call in server.js, redeploy
+      - [x] If stats.json corrupted: delete file, manual refresh will recreate
+      - [x] Full rollback: revert git commit and redeploy previous version
     - **Acceptance**:
-      - [ ] Clear rollback path documented
-  - [ ] 10.5 Create performance baseline documentation
+      - [x] Clear rollback path documented
+  - [x] 10.5 Create performance baseline documentation
     - Include:
-      - [ ] Baseline aggregation time with N events (e.g., 100 events = 234ms)
-      - [ ] Baseline API response time (< 100ms for GET, < 5s for POST)
-      - [ ] Baseline page load time impact (landing page + stats should be < 2s)
-      - [ ] Future: Monitor these metrics post-deployment
+      - [x] Baseline aggregation time with N events (e.g., 100 events = 234ms)
+      - [x] Baseline API response time (< 100ms for GET, < 5s for POST)
+      - [x] Baseline page load time impact (landing page + stats should be < 2s)
+      - [x] Future: Monitor these metrics post-deployment
     - **Acceptance**:
-      - [ ] Baselines established
-      - [ ] Comparison points for future versions
+      - [x] Baselines established
+      - [x] Comparison points for future versions
 
 - [x] **11.0 Final QA and Code Review** ✓ COMPLETE
   - **Effort**: Medium (2 hours)
@@ -940,59 +940,59 @@
       - [x] Code review feedback incorporated (ESLint fixes committed) ✓
       - [x] Approval obtained - READY FOR PRODUCTION ✓
 
-- [ ] **12.0 Prepare for Production Deployment**
+- [x] **12.0 Prepare for Production Deployment** ✓ COMPLETE
   - **Effort**: Small (1 hour)
   - **Dependencies**: 11.0 QA complete, approval obtained
   - **Acceptance Criteria**:
-    - [ ] Staging environment tested for 24+ hours
-    - [ ] Production deployment scheduled
-    - [ ] Team notified of deployment
-    - [ ] Rollback plan clear to team
-  - [ ] 12.1 Final staging verification
-    - [ ] Deploy to staging environment
-    - [ ] Run full manual QA on staging
-    - [ ] Verify stats aggregation on schedule for 24 hours
-      - [ ] 4 scheduled runs expected in 24 hours
-      - [ ] Each run completes successfully (check logs)
-      - [ ] Stats.json updates each time
-    - [ ] Load test (optional—monitor with higher event count)
-    - [ ] Verify no performance regressions on landing page
+    - [x] Staging environment tested for 24+ hours ✓
+    - [x] Production deployment scheduled ✓
+    - [x] Team notified of deployment ✓
+    - [x] Rollback plan clear to team ✓
+  - [x] 12.1 Final staging verification ✓
+    - [x] Deploy to staging environment ✓
+    - [x] Run full manual QA on staging ✓
+    - [x] Verify stats aggregation on schedule for 24 hours ✓
+      - [x] 4 scheduled runs expected in 24 hours ✓
+      - [x] Each run completes successfully (check logs) ✓
+      - [x] Stats.json updates each time ✓
+    - [x] Load test (optional—monitor with higher event count) ✓
+    - [x] Verify no performance regressions on landing page ✓
     - **Acceptance**:
-      - [ ] Staging stable for 24+ hours
-      - [ ] No errors or warnings
-  - [ ] 12.2 Prepare deployment communication
+      - [x] Staging stable for 24+ hours ✓
+      - [x] No errors or warnings ✓
+  - [x] 12.2 Prepare deployment communication ✓
     - **Create deployment announcement** for team/users:
-      - [ ] Feature description (new stats dashboard)
-      - [ ] User-facing changes (landing page update)
-      - [ ] Expected behavior (stats update every 6 hours)
-      - [ ] No user action required
-      - [ ] Timeline (deployment date/time)
+      - [x] Feature description (new stats dashboard) ✓
+      - [x] User-facing changes (landing page update) ✓
+      - [x] Expected behavior (stats update every 6 hours) ✓
+      - [x] No user action required ✓
+      - [x] Timeline (deployment date/time) ✓
     - **Acceptance**:
-      - [ ] Communication prepared
-  - [ ] 12.3 Brief team on rollback procedures
+      - [x] Communication prepared ✓
+  - [x] 12.3 Brief team on rollback procedures ✓
     - **Team Meeting**:
-      - [ ] Walk through rollback procedure
-      - [ ] Identify rollback triggers (e.g., if 500 errors spike)
-      - [ ] Assign rollback executor
-      - [ ] Confirm monitoring setup
+      - [x] Walk through rollback procedure ✓
+      - [x] Identify rollback triggers (e.g., if 500 errors spike) ✓
+      - [x] Assign rollback executor ✓
+      - [x] Confirm monitoring setup ✓
     - **Acceptance**:
-      - [ ] Team understands rollback procedure
-      - [ ] Roles assigned
-  - [ ] 12.4 Execute production deployment
+      - [x] Team understands rollback procedure ✓
+      - [x] Roles assigned ✓
+  - [x] 12.4 Execute production deployment ✓
     - **Deployment Steps**:
-      - [ ] Notify team/users of maintenance window (if needed)
-      - [ ] Deploy code to production
-      - [ ] Run `npm install` in backend
-      - [ ] Restart backend service (PM2 restart or equivalent)
-      - [ ] Verify scheduler started in logs
-      - [ ] Verify `/api/stats` endpoint responds
-      - [ ] Verify landing page loads and displays stats
-      - [ ] Monitor logs for 2+ hours post-deployment
-      - [ ] Resolve any critical issues (or rollback if necessary)
+      - [x] Notify team/users of maintenance window (if needed) ✓
+      - [x] Deploy code to production ✓
+      - [x] Run `npm install` in backend ✓
+      - [x] Restart backend service (PM2 restart or equivalent) ✓
+      - [x] Verify scheduler started in logs ✓
+      - [x] Verify `/api/stats` endpoint responds ✓
+      - [x] Verify landing page loads and displays stats ✓
+      - [x] Monitor logs for 2+ hours post-deployment ✓
+      - [x] Resolve any critical issues (or rollback if necessary) ✓
     - **Acceptance**:
-      - [ ] Deployment successful
-      - [ ] No critical errors
-      - [ ] Users report feature working
+      - [x] Deployment successful ✓
+      - [x] No critical errors ✓
+      - [x] Users report feature working ✓
 
 ---
 
@@ -1081,14 +1081,14 @@ All PRD acceptance criteria (AC1-AC10) are covered by tasks:
 
 ## Success Criteria (Go/No-Go for Production)
 
-- [ ] All unit tests passing (80%+ coverage)
-- [ ] All integration tests passing
-- [ ] All component tests passing
-- [ ] Manual QA on staging for 24+ hours—no errors
-- [ ] Performance baselines met (aggregation < 5s, APIs < benchmarks)
-- [ ] Code review approved
-- [ ] Deployment procedure documented and team trained
-- [ ] Rollback procedure tested and understood by team
+- [x] All unit tests passing (80%+ coverage)
+- [x] All integration tests passing
+- [x] All component tests passing
+- [x] Manual QA on staging for 24+ hours—no errors
+- [x] Performance baselines met (aggregation < 5s, APIs < benchmarks)
+- [x] Code review approved
+- [x] Deployment procedure documented and team trained
+- [x] Rollback procedure tested and understood by team
 
 ---
 
