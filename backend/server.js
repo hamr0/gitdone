@@ -13,6 +13,10 @@ const magicRouter = require('./routes/magic');
 const completeRouter = require('./routes/complete');
 const viewRouter = require('./routes/view');
 const manageRouter = require('./routes/manage');
+const statsRouter = require('./routes/stats');
+
+// Import scheduler
+const { startScheduler } = require('./utils/statsScheduler');
 
 const app = express();
 
@@ -41,6 +45,7 @@ app.use('/api/magic', magicRouter);
 app.use('/api/complete', completeRouter);
 app.use('/api/view', viewRouter);
 app.use('/api/manage', manageRouter);
+app.use('/api/stats', statsRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -64,6 +69,10 @@ app.use((err, req, res, next) => {
 app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
+
+// Start stats scheduler
+startScheduler();
+console.log('[Stats Scheduler] Started—running every 6 hours at 00:00, 06:00, 12:00, 18:00 UTC');
 
 const PORT = process.env.PORT || 3001;
 

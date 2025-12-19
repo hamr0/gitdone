@@ -39,7 +39,7 @@ This gives you a menu with options to:
 - 📦 Install dependencies
 - ⚙️ Setup environment
 
-📚 **See [DEVELOPMENT.md](DEVELOPMENT.md) for complete development guide**
+📚 **See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for complete development guide**
 
 ### 🔧 Manual Setup (Traditional)
 
@@ -217,7 +217,7 @@ GIT_REPOS_PATH=./data/git_repos
 - **SendGrid**: `smtp.sendgrid.net:587` (recommended for production)
 - **Custom SMTP**: Any SMTP server with TLS support
 
-📧 **See [EMAIL_SETUP.md](EMAIL_SETUP.md) for detailed configuration guide**
+📧 **See [docs/EMAIL_SETUP.md](docs/EMAIL_SETUP.md) for detailed configuration guide**
 
 ## 🎮 Usage Examples
 
@@ -416,9 +416,24 @@ curl -X POST http://localhost:3001/api/events \
 
 MIT License - see LICENSE file for details
 
+## 📚 Documentation
+
+Complete documentation is available in the `/docs` directory:
+
+- **[KNOWLEDGE_BASE.md](docs/KNOWLEDGE_BASE.md)** - Master documentation index and quick reference
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture, tech stack, and design decisions
+- **[DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Development workflow, scripts, and troubleshooting
+- **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** - VPS deployment guide with PM2, Nginx, and SSL
+- **[EMAIL_SETUP.md](docs/EMAIL_SETUP.md)** - Email provider configuration (Gmail, SendGrid, etc.)
+- **[ENVIRONMENT.md](docs/ENVIRONMENT.md)** - Environment variables and configuration management
+- **[API_REFERENCE.md](docs/API_REFERENCE.md)** - Complete API endpoint documentation
+- **[WORKFLOWS.md](docs/WORKFLOWS.md)** - Development workflows and testing strategies
+
+**Start here**: [docs/KNOWLEDGE_BASE.md](docs/KNOWLEDGE_BASE.md)
+
 ## 🆘 Support
 
-- **Documentation**: Check this README and code comments
+- **Documentation**: Check [docs/KNOWLEDGE_BASE.md](docs/KNOWLEDGE_BASE.md) first
 - **Issues**: Create GitHub issues for bugs
 - **Email**: Contact the development team
 
