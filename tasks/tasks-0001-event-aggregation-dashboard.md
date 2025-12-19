@@ -568,17 +568,17 @@
       - [ ] Performance target met
       - [ ] Timing is reasonable for monitoring
 
-- [ ] **8.0 Write Integration Tests for API Endpoints**
+- [x] **8.0 Write Integration Tests for API Endpoints** ✓ COMPLETE
   - **Effort**: Medium (2 hours)
   - **Dependencies**: 4.0 routes complete
   - **Acceptance Criteria**:
-    - [ ] GET /api/stats endpoint tested with mocked file I/O
-    - [ ] POST /api/stats/refresh endpoint tested with mocked aggregation
-    - [ ] Error responses tested (HTTP 500, error messages)
-    - [ ] Graceful fallback tested (missing stats.json returns zeros)
-    - [ ] Response format matches API schema exactly
-    - [ ] Tests run with `npm test` in backend directory
-  - [ ] 8.1 Set up integration test file
+    - [x] GET /api/stats endpoint tested with mocked file I/O
+    - [x] POST /api/stats/refresh endpoint tested with mocked aggregation
+    - [x] Error responses tested (HTTP 500, error messages)
+    - [x] Graceful fallback tested (missing stats.json returns zeros)
+    - [x] Response format matches API schema exactly
+    - [x] Tests run with `npm test` in backend directory
+  - [x] 8.1 Set up integration test file ✓
     - **File**: `/home/hamr/PycharmProjects/gitdone/backend/routes/__tests__/stats.test.js`
     - Import: `supertest`, `express`, `stats router`, `statsAggregator`
     - Mock `statsAggregator` to avoid file I/O in tests
