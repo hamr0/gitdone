@@ -1,0 +1,537 @@
+{
+  "config": {
+    "configFile": "/home/hamr/PycharmProjects/gitdone/playwright.config.ts",
+    "rootDir": "/home/hamr/PycharmProjects/gitdone/tests/e2e",
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 4
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "/home/hamr/PycharmProjects/gitdone/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/home/hamr/PycharmProjects/gitdone/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "/home/hamr/PycharmProjects/gitdone/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "firefox",
+        "name": "firefox",
+        "testDir": "/home/hamr/PycharmProjects/gitdone/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "/home/hamr/PycharmProjects/gitdone/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "webkit",
+        "name": "webkit",
+        "testDir": "/home/hamr/PycharmProjects/gitdone/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "/home/hamr/PycharmProjects/gitdone/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "Mobile Chrome",
+        "name": "Mobile Chrome",
+        "testDir": "/home/hamr/PycharmProjects/gitdone/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "/home/hamr/PycharmProjects/gitdone/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "Mobile Safari",
+        "name": "Mobile Safari",
+        "testDir": "/home/hamr/PycharmProjects/gitdone/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      }
+    ],
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.57.0",
+    "workers": 4,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "01-event-creation-sequential.spec.ts",
+      "file": "01-event-creation-sequential.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Sequential Flow Event Creation",
+          "file": "01-event-creation-sequential.spec.ts",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should create sequential event with valid data",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 40974,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-22T13:19:24.762Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2e91ec6bc191ca386ae3-fd80d13df48b38ca735c",
+              "file": "01-event-creation-sequential.spec.ts",
+              "line": 18,
+              "column": 7
+            },
+            {
+              "title": "should send magic link only to first vendor in sequential flow",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 2763,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-22T13:19:24.818Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2e91ec6bc191ca386ae3-837aec7e64ae3819b34d",
+              "file": "01-event-creation-sequential.spec.ts",
+              "line": 33,
+              "column": 7
+            },
+            {
+              "title": "should display event in stats after creation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
+                      "status": "passed",
+                      "duration": 2575,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-22T13:19:24.871Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2e91ec6bc191ca386ae3-d56d4f68aec2da8684ba",
+              "file": "01-event-creation-sequential.spec.ts",
+              "line": 46,
+              "column": 7
+            },
+            {
+              "title": "should show error when creating event without name",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 3,
+                      "status": "failed",
+                      "duration": 26402,
+                      "error": {
+                        "message": "TimeoutError: locator.fill: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.border').first().locator('input[placeholder*=\"Venue\"]')\u001b[22m\n",
+                        "stack": "TimeoutError: locator.fill: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.border').first().locator('input[placeholder*=\"Venue\"]')\u001b[22m\n\n    at /home/hamr/PycharmProjects/gitdone/tests/e2e/01-event-creation-sequential.spec.ts:64:64",
+                        "location": {
+                          "file": "/home/hamr/PycharmProjects/gitdone/tests/e2e/01-event-creation-sequential.spec.ts",
+                          "column": 64,
+                          "line": 64
+                        },
+                        "snippet": "  62 |\n  63 |     const stepContainer = page.locator('.border').first();\n> 64 |     await stepContainer.locator('input[placeholder*=\"Venue\"]').fill('Test Step');\n     |                                                                ^\n  65 |     await stepContainer.locator('input[type=\"email\"]').fill('vendor@example.com');\n  66 |\n  67 |     await page.click('button:has-text(\"Create Event & Send Invitations\")');"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/hamr/PycharmProjects/gitdone/tests/e2e/01-event-creation-sequential.spec.ts",
+                            "column": 64,
+                            "line": 64
+                          },
+                          "message": "TimeoutError: locator.fill: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.border').first().locator('input[placeholder*=\"Venue\"]')\u001b[22m\n\n\n  62 |\n  63 |     const stepContainer = page.locator('.border').first();\n> 64 |     await stepContainer.locator('input[placeholder*=\"Venue\"]').fill('Test Step');\n     |                                                                ^\n  65 |     await stepContainer.locator('input[type=\"email\"]').fill('vendor@example.com');\n  66 |\n  67 |     await page.click('button:has-text(\"Create Event & Send Invitations\")');\n    at /home/hamr/PycharmProjects/gitdone/tests/e2e/01-event-creation-sequential.spec.ts:64:64"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-22T13:19:24.868Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/home/hamr/PycharmProjects/gitdone/test-results/01-event-creation-sequenti-94a64-creating-event-without-name-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/home/hamr/PycharmProjects/gitdone/test-results/01-event-creation-sequenti-94a64-creating-event-without-name-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/home/hamr/PycharmProjects/gitdone/test-results/01-event-creation-sequenti-94a64-creating-event-without-name-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/home/hamr/PycharmProjects/gitdone/tests/e2e/01-event-creation-sequential.spec.ts",
+                        "column": 64,
+                        "line": 64
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "2e91ec6bc191ca386ae3-f5d85bebd47aaf941442",
+              "file": "01-event-creation-sequential.spec.ts",
+              "line": 56,
+              "column": 7
+            },
+            {
+              "title": "should show error when creating event without owner email",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
+                      "status": "failed",
+                      "duration": 27894,
+                      "error": {
+                        "message": "TimeoutError: locator.fill: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.border').first().locator('input[placeholder*=\"Venue\"]')\u001b[22m\n",
+                        "stack": "TimeoutError: locator.fill: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.border').first().locator('input[placeholder*=\"Venue\"]')\u001b[22m\n\n    at /home/hamr/PycharmProjects/gitdone/tests/e2e/01-event-creation-sequential.spec.ts:82:64",
+                        "location": {
+                          "file": "/home/hamr/PycharmProjects/gitdone/tests/e2e/01-event-creation-sequential.spec.ts",
+                          "column": 64,
+                          "line": 82
+                        },
+                        "snippet": "  80 |     await page.click('button:has-text(\"Add Step\")');\n  81 |     const stepContainer = page.locator('.border').first();\n> 82 |     await stepContainer.locator('input[placeholder*=\"Venue\"]').fill('Test Step');\n     |                                                                ^\n  83 |     await stepContainer.locator('input[type=\"email\"]').fill('vendor@example.com');\n  84 |\n  85 |     await page.click('button:has-text(\"Create Event & Send Invitations\")');"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/hamr/PycharmProjects/gitdone/tests/e2e/01-event-creation-sequential.spec.ts",
+                            "column": 64,
+                            "line": 82
+                          },
+                          "message": "TimeoutError: locator.fill: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.border').first().locator('input[placeholder*=\"Venue\"]')\u001b[22m\n\n\n  80 |     await page.click('button:has-text(\"Add Step\")');\n  81 |     const stepContainer = page.locator('.border').first();\n> 82 |     await stepContainer.locator('input[placeholder*=\"Venue\"]').fill('Test Step');\n     |                                                                ^\n  83 |     await stepContainer.locator('input[type=\"email\"]').fill('vendor@example.com');\n  84 |\n  85 |     await page.click('button:has-text(\"Create Event & Send Invitations\")');\n    at /home/hamr/PycharmProjects/gitdone/tests/e2e/01-event-creation-sequential.spec.ts:82:64"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-22T13:19:28.394Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/home/hamr/PycharmProjects/gitdone/test-results/01-event-creation-sequenti-f5c9e-g-event-without-owner-email-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/home/hamr/PycharmProjects/gitdone/test-results/01-event-creation-sequenti-f5c9e-g-event-without-owner-email-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/home/hamr/PycharmProjects/gitdone/test-results/01-event-creation-sequenti-f5c9e-g-event-without-owner-email-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/home/hamr/PycharmProjects/gitdone/tests/e2e/01-event-creation-sequential.spec.ts",
+                        "column": 64,
+                        "line": 82
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "2e91ec6bc191ca386ae3-1b941526082fe0e3ccd3",
+              "file": "01-event-creation-sequential.spec.ts",
+              "line": 74,
+              "column": 7
+            },
+            {
+              "title": "should show error when creating event without steps",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "failed",
+                      "duration": 23285,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('text=at least one step')\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 10000ms\u001b[22m\n\u001b[2m  - waiting for locator('text=at least one step')\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('text=at least one step')\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 10000ms\u001b[22m\n\u001b[2m  - waiting for locator('text=at least one step')\u001b[22m\n\n    at /home/hamr/PycharmProjects/gitdone/tests/e2e/01-event-creation-sequential.spec.ts:108:58",
+                        "location": {
+                          "file": "/home/hamr/PycharmProjects/gitdone/tests/e2e/01-event-creation-sequential.spec.ts",
+                          "column": 58,
+                          "line": 108
+                        },
+                        "snippet": "  106 |     // Should show error modal\n  107 |     await expect(page.locator('text=Error')).toBeVisible({ timeout: 5000 });\n> 108 |     await expect(page.locator('text=at least one step')).toBeVisible();\n      |                                                          ^\n  109 |   });\n  110 |\n  111 |   test('should create event and navigate to event view page', async ({ page }) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/hamr/PycharmProjects/gitdone/tests/e2e/01-event-creation-sequential.spec.ts",
+                            "column": 58,
+                            "line": 108
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('text=at least one step')\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 10000ms\u001b[22m\n\u001b[2m  - waiting for locator('text=at least one step')\u001b[22m\n\n\n  106 |     // Should show error modal\n  107 |     await expect(page.locator('text=Error')).toBeVisible({ timeout: 5000 });\n> 108 |     await expect(page.locator('text=at least one step')).toBeVisible();\n      |                                                          ^\n  109 |   });\n  110 |\n  111 |   test('should create event and navigate to event view page', async ({ page }) => {\n    at /home/hamr/PycharmProjects/gitdone/tests/e2e/01-event-creation-sequential.spec.ts:108:58"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-22T13:19:28.461Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/home/hamr/PycharmProjects/gitdone/test-results/01-event-creation-sequenti-50577-reating-event-without-steps-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/home/hamr/PycharmProjects/gitdone/test-results/01-event-creation-sequenti-50577-reating-event-without-steps-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/home/hamr/PycharmProjects/gitdone/test-results/01-event-creation-sequenti-50577-reating-event-without-steps-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/home/hamr/PycharmProjects/gitdone/tests/e2e/01-event-creation-sequential.spec.ts",
+                        "column": 58,
+                        "line": 108
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "2e91ec6bc191ca386ae3-554006c55568a14b8824",
+              "file": "01-event-creation-sequential.spec.ts",
+              "line": 92,
+              "column": 7
+            },
+            {
+              "title": "should create event and navigate to event view page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 14267,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-22T13:20:00.507Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2e91ec6bc191ca386ae3-7102a465c3c43e29712a",
+              "file": "01-event-creation-sequential.spec.ts",
+              "line": 111,
+              "column": 7
+            },
+            {
+              "title": "should display correct initial progress (0%)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 5,
+                      "parallelIndex": 3,
+                      "status": "passed",
+                      "duration": 8396,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-22T13:19:59.158Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2e91ec6bc191ca386ae3-919e03befd6e80d39a13",
+              "file": "01-event-creation-sequential.spec.ts",
+              "line": 127,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2025-12-22T13:18:49.171Z",
+    "duration": 86651.887,
+    "expected": 5,
+    "skipped": 0,
+    "unexpected": 3,
+    "flaky": 0
+  }
+}

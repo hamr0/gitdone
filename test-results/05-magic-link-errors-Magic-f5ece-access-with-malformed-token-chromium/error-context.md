@@ -1,0 +1,9 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - paragraph [ref=e5]: Loading...
+  - button "Open Next.js Dev Tools" [ref=e11] [cursor=pointer]:
+    - img [ref=e12]
+  - alert [ref=e15]
+```

@@ -1,0 +1,25 @@
+{
+  "name": "Sarah's Wedding Ceremony",
+  "owner_email": "sarah.johnson@example.com",
+  "flow_type": "sequential",
+  "steps": [
+    {
+      "name": "Venue Setup Complete",
+      "vendor_email": "venue@example.com",
+      "description": "Set up chairs, tables, and decorations in main hall",
+      "time_limit": "24h"
+    },
+    {
+      "name": "Catering Ready",
+      "vendor_email": "catering@example.com",
+      "description": "All food prepared and ready to serve",
+      "time_limit": "4h"
+    },
+    {
+      "name": "Photography Setup",
+      "vendor_email": "photo@example.com",
+      "description": "Camera equipment set up and lighting tested",
+      "time_limit": "2h"
+    }
+  ]
+}

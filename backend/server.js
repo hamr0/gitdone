@@ -5,7 +5,9 @@ const morgan = require('morgan');
 const path = require('path');
 
 // Load environment variables from .env file in project root
-require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+// Use .env.test when running tests
+const envFile = process.env.NODE_ENV === 'test' ? '.env.test' : '.env';
+require('dotenv').config({ path: path.resolve(__dirname, '..', envFile) });
 
 // Import routes
 const eventsRouter = require('./routes/events');

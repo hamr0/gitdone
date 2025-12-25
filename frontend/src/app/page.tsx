@@ -323,6 +323,7 @@ export default function Home() {
                 </label>
                 <input
                   type="text"
+                  data-testid="event-name-input"
                   value={eventName}
                   onChange={(e) => setEventName(e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -336,6 +337,7 @@ export default function Home() {
                 </label>
                 <input
                   type="email"
+                  data-testid="owner-email-input"
                   value={ownerEmail}
                   onChange={(e) => setOwnerEmail(e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -349,6 +351,7 @@ export default function Home() {
                 Flow Type
               </label>
               <select
+                data-testid="flow-type-select"
                 value={flowType}
                 onChange={(e) => setFlowType(e.target.value as 'sequential' | 'non_sequential' | 'hybrid')}
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -377,6 +380,7 @@ export default function Home() {
               </h2>
               <button
                 type="button"
+                data-testid="add-step-button"
                 onClick={addStep}
                 className="bg-green-500 text-white px-3 py-1.5 text-xs rounded-lg hover:bg-green-600 flex items-center"
               >
@@ -410,6 +414,7 @@ export default function Home() {
                     </label>
                     <input
                       type="text"
+                      data-testid={`step-${index}-name-input`}
                       value={step.name}
                       onChange={(e) => updateStep(index, 'name', e.target.value)}
                       className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -423,6 +428,7 @@ export default function Home() {
                     </label>
                     <input
                       type="email"
+                      data-testid={`step-${index}-email-input`}
                       value={step.vendor_email}
                       onChange={(e) => updateStep(index, 'vendor_email', e.target.value)}
                       className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -437,6 +443,7 @@ export default function Home() {
                       </label>
                       <input
                         type="number"
+                        data-testid={`step-${index}-sequence-input`}
                         min="1"
                         value={step.sequence || ''}
                         onChange={(e) => updateStep(index, 'sequence', parseInt(e.target.value) || 1)}
@@ -453,6 +460,7 @@ export default function Home() {
                     Description
                   </label>
                   <textarea
+                    data-testid={`step-${index}-description-input`}
                     value={step.description}
                     onChange={(e) => updateStep(index, 'description', e.target.value)}
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -500,6 +508,7 @@ export default function Home() {
 
           <div className="pt-3 border-t border-gray-200">
             <button
+              data-testid="create-event-button"
               onClick={createEvent}
               disabled={loading}
               className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
