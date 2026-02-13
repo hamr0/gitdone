@@ -420,20 +420,20 @@ MIT License - see LICENSE file for details
 
 Complete documentation is available in the `/docs` directory:
 
-- **[KNOWLEDGE_BASE.md](docs/KNOWLEDGE_BASE.md)** - Master documentation index and quick reference
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture, tech stack, and design decisions
-- **[DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Development workflow, scripts, and troubleshooting
-- **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** - VPS deployment guide with PM2, Nginx, and SSL
-- **[EMAIL_SETUP.md](docs/EMAIL_SETUP.md)** - Email provider configuration (Gmail, SendGrid, etc.)
-- **[ENVIRONMENT.md](docs/ENVIRONMENT.md)** - Environment variables and configuration management
-- **[API_REFERENCE.md](docs/API_REFERENCE.md)** - Complete API endpoint documentation
-- **[WORKFLOWS.md](docs/WORKFLOWS.md)** - Development workflows and testing strategies
+- **[docs/README.md](docs/README.md)** - Documentation navigation guide
+- **[docs/00-context/system-state.md](docs/00-context/system-state.md)** - System architecture and design decisions
+- **[docs/04-process/development.md](docs/04-process/development.md)** - Development workflow, scripts, and troubleshooting
+- **[docs/04-process/deployment.md](docs/04-process/deployment.md)** - VPS deployment guide with PM2, Nginx, and SSL
+- **[docs/02-features/email-setup.md](docs/02-features/email-setup.md)** - Email provider configuration (Gmail, SendGrid, etc.)
+- **[docs/02-features/environment.md](docs/02-features/environment.md)** - Environment variables and configuration management
+- **[docs/02-features/api-reference.md](docs/02-features/api-reference.md)** - Complete API endpoint documentation
+- **[docs/04-process/dev-workflow.md](docs/04-process/dev-workflow.md)** - Development workflows and testing strategies
 
-**Start here**: [docs/KNOWLEDGE_BASE.md](docs/KNOWLEDGE_BASE.md)
+**Start here**: [docs/README.md](docs/README.md)
 
 ## 🆘 Support
 
-- **Documentation**: Check [docs/KNOWLEDGE_BASE.md](docs/KNOWLEDGE_BASE.md) first
+- **Documentation**: Check [docs/README.md](docs/README.md) first
 - **Issues**: Create GitHub issues for bugs
 - **Email**: Contact the development team
 

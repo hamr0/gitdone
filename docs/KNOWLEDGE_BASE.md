@@ -1,47 +1,45 @@
 # GitDone Knowledge Base
 
-Quick index to detailed documentation.
-
----
-
 ## Architecture
-Next.js 15 + Node.js/Express platform with Git-backed audit trails, magic link auth, and multi-vendor workflow coordination.
-→ docs/ARCHITECTURE.md
+Event-driven workflow engine: planners create events with ordered steps, vendors complete steps via magic links, each completion triggers Git commit as audit proof.
+-> docs/00-context/system-state.md
 
-## Development
-Local development setup, scripts (dev.sh, quick-start.sh), debugging workflows, and common troubleshooting.
-→ docs/DEVELOPMENT.md
+## Product Vision
+Target users, problem space, product goals, and tech stack rationale.
+-> docs/00-context/vision.md
 
-## Deployment
-VPS deployment with PM2, Nginx, SSL configuration, and production setup steps.
-→ docs/DEPLOYMENT.md
+## Assumptions and Constraints
+Scaling path, risk factors, single-server deployment model.
+-> docs/00-context/assumptions.md
 
-## Email Configuration
-SMTP provider setup (Gmail, SendGrid), app passwords, environment variables, and email testing.
-→ docs/EMAIL_SETUP.md
-
-## Environment Variables
-Complete list of environment variables for backend, frontend, and deployment configurations.
-→ docs/ENVIRONMENT.md
+## Product Requirements
+Event Aggregation Dashboard PRD with acceptance criteria.
+-> docs/01-product/prd.md
 
 ## API Reference
-REST endpoints for events, magic links, step completion, health checks, and file uploads.
-→ docs/API_REFERENCE.md
+REST endpoints for events, steps, vendors, magic links, file uploads, dashboard stats.
+-> docs/02-features/api-reference.md
 
-## Workflows
-Agent-based development workflows, task generation patterns, and project management processes.
-→ docs/WORKFLOWS.md
+## Email and SMTP
+Gmail app password setup, Nodemailer config, magic link delivery.
+-> docs/02-features/email-setup.md
 
----
+## Environment Variables
+All env vars for frontend and backend, .env file locations.
+-> docs/02-features/environment.md
 
-## Quick Reference
+## Testing
+Playwright E2E test plan and quickstart guide.
+-> docs/02-features/test-plan.md | docs/04-process/testing-quickstart.md
 
-**Core Concept**: Event planners create workflows (sequential/non-sequential), vendors receive magic links, complete steps with file uploads, each completion creates Git commit for immutable audit trail.
+## Development Workflow
+Local setup, scripts, dev principles, branching strategy.
+-> docs/04-process/dev-workflow.md | docs/04-process/development.md
 
-**Key Endpoints**: POST /api/events (create), POST /api/magic/send (send link), POST /api/complete/:token (complete step)
+## Deployment
+VPS deployment with PM2, Nginx, SSL. Docker compose available.
+-> docs/04-process/deployment.md
 
-**Common Commands**: ./dev.sh (interactive dev), ./quick-start.sh (first-time setup), ./deploy.sh (production deploy)
-
-**Critical Files**: data/magic_tokens.json (tokens), data/events/{eventId}.json (event data), data/git_repos/{eventId}/ (audit trail)
-
-**Gotchas**: Gmail needs app password not regular password, clear shell SMTP_* vars before testing, frontend API URL must match backend port
+## Project History
+Implementation milestones, architectural decisions, bug resolutions, lessons learned.
+-> docs/03-logs/
