@@ -205,6 +205,106 @@ test('integration: routing — non-event address (plain "test@") leaves routing 
   assert.equal(out.routing.matched, false);
 });
 
+test('integration: 1.C — matched reply is committed to event git repo', async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-commit-'));
+  try {
+    await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
+    await fs.writeFile(path.join(tmp, 'events', 'demoA.json'), JSON.stringify({
+      id: 'demoA', title: 'Commit test', steps: [{ id: 'step1', participant: 'alice@ex.com' }],
+    }));
+    const eml = buildEml([
+      'From: alice@ex.com',
+      'To: event+demoA-step1@git-done.com',
+      'Subject: 1.C commit test',
+      'Message-ID: <c1@ex.com>',
+    ]);
+    const { code, stdout } = await runReceive(
+      eml,
+      ['198.51.100.9', 'mta.ex.com', 'alice@ex.com', 'event+demoA-step1@git-done.com'],
+      { GITDONE_DATA_DIR: tmp }
+    );
+    assert.equal(code, 0);
+    const out = JSON.parse(stdout.trim());
+    assert.equal(out.accepted, true);
+    assert.ok(out.git_commit, 'git_commit should be populated');
+    assert.ok(out.git_commit.sha, 'commit sha present');
+    assert.equal(out.git_commit.sequence, 1);
+    assert.match(out.git_commit.file, /^commits\/commit-001\.json$/);
+
+    // Inspect repo: should have 2 commits (init + reply)
+    const simpleGit = require('simple-git');
+    const repoDir = path.join(tmp, 'repos', 'demoA');
+    const log = await simpleGit(repoDir).log();
+    assert.equal(log.total, 2);
+    assert.match(log.all[0].message, /^reply 001: demoA step step1/);
+
+    // Read the commit metadata back
+    const saved = JSON.parse(await fs.readFile(path.join(repoDir, 'commits', 'commit-001.json'), 'utf8'));
+    assert.equal(saved.event_id, 'demoA');
+    assert.equal(saved.step_id, 'step1');
+    assert.equal(saved.sender, 'alice@ex.com');
+    assert.equal(saved.participant_match, true);
+    assert.match(saved.sender_hash, /^sha256:[a-f0-9]{64}$/);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('integration: 1.C — second reply increments sequence', async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-commit2-'));
+  try {
+    await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
+    await fs.writeFile(path.join(tmp, 'events', 'demoB.json'), JSON.stringify({
+      id: 'demoB', steps: [{ id: 'step1', participant: 'a@b.com' }],
+    }));
+    const env = { GITDONE_DATA_DIR: tmp };
+    const mk = (msgId) => buildEml([
+      'From: a@b.com',
+      'To: event+demoB-step1@git-done.com',
+      `Subject: seq test`,
+      `Message-ID: <${msgId}@b.com>`,
+    ]);
+    const args = ['1.1.1.1', 'b.com', 'a@b.com', 'event+demoB-step1@git-done.com'];
+
+    const r1 = await runReceive(mk('m1'), args, env);
+    const r2 = await runReceive(mk('m2'), args, env);
+    const o1 = JSON.parse(r1.stdout.trim());
+    const o2 = JSON.parse(r2.stdout.trim());
+    assert.equal(o1.git_commit.sequence, 1);
+    assert.equal(o2.git_commit.sequence, 2);
+
+    const simpleGit = require('simple-git');
+    const log = await simpleGit(path.join(tmp, 'repos', 'demoB')).log();
+    assert.equal(log.total, 3); // init + 2 replies
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('integration: 1.C — unknown event id → accepted, no commit', async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-orphan-'));
+  try {
+    await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
+    const eml = buildEml([
+      'From: who@example.com',
+      'To: event+ghost-step1@git-done.com',
+      'Subject: orphan',
+    ]);
+    const { code, stdout } = await runReceive(
+      eml,
+      ['1.1.1.1', 'ex.com', 'who@example.com', 'event+ghost-step1@git-done.com'],
+      { GITDONE_DATA_DIR: tmp }
+    );
+    assert.equal(code, 0);
+    const out = JSON.parse(stdout.trim());
+    assert.equal(out.accepted, true);
+    assert.equal(out.routing.matched, false);
+    assert.equal(out.git_commit, null);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
 test('integration: attachment hash is deterministic', async () => {
   // Two MIME emails carrying the same attachment bytes should hash the same.
   const boundary = 'BOUNDARY';

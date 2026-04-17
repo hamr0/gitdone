@@ -17,6 +17,7 @@ const { preFilter, extractHeaderBlock } = require('../src/prefilter');
 const { classifyTrust } = require('../src/classifier');
 const { parseEventTag, parseAddress } = require('../src/router');
 const { loadEvent, findStep, senderMatchesStep } = require('../src/event-store');
+const { commitReply } = require('../src/gitrepo');
 const logger = require('../src/logger');
 
 function readStdin() {
@@ -86,6 +87,7 @@ async function main() {
   // failure. Initiator policy decides.
   const addr = parseAddress(envelope.recipient);
   const tag = parseEventTag(envelope.recipient);
+  let event = null;
   let routing = {
     matched: false,
     address_kind: addr ? addr.kind : null,
@@ -96,7 +98,7 @@ async function main() {
   };
   if (tag) {
     try {
-      const event = await loadEvent(tag.eventId);
+      event = await loadEvent(tag.eventId);
       if (event) {
         routing.matched = true;
         const step = findStep(event, tag.stepId);
@@ -129,10 +131,58 @@ async function main() {
     return;
   }
 
+  const trustLevel = classifyTrust(auth);
+  const receivedAt = new Date().toISOString();
+  const bodyPreview = (parsed.text || '').slice(0, 200);
+  const dkimSummary = summariseDkim(auth);
+  const spfSummary = auth.spf ? { result: auth.spf.status && auth.spf.status.result } : null;
+  const dmarcSummary = auth.dmarc ? { result: auth.dmarc.status && auth.dmarc.status.result } : null;
+  const arcSummary = auth.arc ? {
+    result: auth.arc.status && auth.arc.status.result,
+    comment: (auth.arc.status && auth.arc.status.comment) || null,
+    chain_length: (auth.arc.authResults && auth.arc.authResults.length) || 0,
+  } : null;
+  const attachments = summariseAttachments(parsed);
+  const rawHash = sha256(raw);
+
+  // 1.C: write per-event git commit for accepted replies that resolved to
+  // a known event. Accept-with-flag: we commit regardless of
+  // participant_match (that's a flag inside the commit, not a gate).
+  let gitCommit = null;
+  if (routing.matched && event && tag) {
+    try {
+      gitCommit = await commitReply(tag.eventId, event, {
+        eventId: tag.eventId,
+        stepId: tag.stepId,
+        receivedAt,
+        envelope: {
+          sender: envelope.sender,
+          client_ip: envelope.clientIp,
+          client_helo: envelope.clientHelo,
+        },
+        from: from.address,
+        trustLevel,
+        participantMatch: routing.participant_match,
+        subject: parsed.subject,
+        bodyPreview,
+        messageId: parsed.messageId,
+        attachments,
+        dkim: dkimSummary,
+        spf: spfSummary,
+        dmarc: dmarcSummary,
+        arc: arcSummary,
+        rawSha256: rawHash,
+        rawSize: raw.length,
+      });
+    } catch (err) {
+      gitCommit = { error: err.message || String(err) };
+    }
+  }
+
   logger.emit({
     accepted: true,
-    trust_level: classifyTrust(auth),
-    received_at: new Date().toISOString(),
+    trust_level: trustLevel,
+    received_at: receivedAt,
     envelope: {
       client_ip: envelope.clientIp,
       client_helo: envelope.clientHelo,
@@ -140,23 +190,20 @@ async function main() {
       recipient: envelope.recipient,
     },
     routing,
+    git_commit: gitCommit,
     from: from.address || null,
     from_domain: from.address ? from.address.split('@')[1] : null,
     to: (parsed.to && parsed.to.text) || null,
     subject: parsed.subject || null,
     message_id: parsed.messageId || null,
-    body_preview: (parsed.text || '').slice(0, 200),
-    dkim: summariseDkim(auth),
-    spf: auth.spf ? { result: auth.spf.status && auth.spf.status.result } : null,
-    dmarc: auth.dmarc ? { result: auth.dmarc.status && auth.dmarc.status.result } : null,
-    arc: auth.arc ? {
-      result: auth.arc.status && auth.arc.status.result,
-      comment: (auth.arc.status && auth.arc.status.comment) || null,
-      chain_length: (auth.arc.authResults && auth.arc.authResults.length) || 0,
-    } : null,
-    attachments: summariseAttachments(parsed),
+    body_preview: bodyPreview,
+    dkim: dkimSummary,
+    spf: spfSummary,
+    dmarc: dmarcSummary,
+    arc: arcSummary,
+    attachments,
     raw_size: raw.length,
-    raw_sha256: sha256(raw),
+    raw_sha256: rawHash,
   });
 }
 
