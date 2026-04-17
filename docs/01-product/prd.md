@@ -203,6 +203,8 @@ Named steps, each with an assigned participant (by email), each requiring comple
 
 **Completion rule:** all steps marked complete.
 
+**Multi-reply dedup (default):** the same participant can reply to the same step multiple times (e.g., forgot an attachment, corrected version). Every reply commits — there is no cap, no "already done" rejection. **Latest reply wins** for step completion; earlier attempts stay in the audit trail. Stats view shows reply count per (step, participant) so the initiator sees the history. Overridable per event at creation time if a different policy is needed.
+
 **Example schema:**
 ```json
 {
@@ -422,6 +424,14 @@ Per the moat (§0.1.4 — "invisible beats correct"), the initiator's day-to-day
 **Initiator authentication via DKIM:** when an inbound message is DKIM-verified and its envelope sender matches `event.initiator`, that's cryptographic proof that the initiator authorised the command. As strong as (and often stronger than) a magic link — DKIM can't be spoofed, magic links can be forwarded.
 
 **Every outbound email from GitDone includes a footer** pointing to `verify+{id}@` and `stats+{id}@` for the event. Zero-friction discoverability.
+
+**Two UX paths for `verify+{id}@`:**
+
+1. **Attach a raw file** (most common) — attach the PDF / image / document in question to a plain email. GitDone hashes every attachment and reports which commit(s) it matches. Works identically across MSN, Gmail, Proton, etc. because every client transmits raw file bytes untouched (MIME base64). **This is the primary verification UX for attachment-heavy events** (contracts, signed documents).
+
+2. **Forward an email as attachment** — forward the whole `.eml` to `verify+{id}@`. GitDone matches via Message-ID (stable across clients, per RFC 5322). Identifies the commit and reports the reception-time trust level. **DKIM cannot be re-run** on forwarded content — see §10.5 finding 13.
+
+Attachment verification is strictly stronger than body verification, because attachments are bit-preserved across forward paths while email bodies are not. In practice this matches reality: legal docs, evidence, signatures are the things people need to prove later; body text is conversation.
 
 ---
 
@@ -871,6 +881,8 @@ Phase 0 completed on a RackNerd VPS (AlmaLinux 8, Postfix 3.5.8, Node 20). All a
     **Implication for the trust model:** DKIM is verified ONCE at reception and its result is stored with an archived public key (1.D) + OTS anchor (1.E). The stored result is the truth; the OTS + git chain make tampering with that stored result detectable. Forwarded copies can only *identify* which commit they correspond to (Message-ID match) — they cannot be used to re-run DKIM. This does not weaken the cryptographic guarantee, because the guarantee never relied on repeated DKIM verification; it relied on the one-shot verification being immutable.
 
 14. **`verify+{id}@` email flow graduates on commit identification, not content re-verification.** The per-commit verification report tells the user: "this forwarded email corresponds to commit-N in event X, and here's what we recorded about it at reception (trust level, signatures, attachment hashes)." That's the practical upper bound given finding 13, and it's the useful outcome — the user can now cross-reference a specific reply to a specific recorded commit.
+
+15. **Direct-attachment hashing is deterministic across providers.** Validated with the same `braun-invoice.pdf` attached to a plain email and sent to `verify+{id}@` from both MSN Outlook and Gmail Web. Both produced byte-identical SHA-256 hashes and correctly matched `attachments[0]` of commit-002. A deliberately-wrong file (random PNG) produced a clean `match_type: none` with the computed hash returned for diagnostics. **Attach-a-raw-file is therefore the primary verification UX** — it works identically everywhere, unlike forward-as-attachment which is client-dependent (findings 11, 13). Practical implication: for attachment-heavy events (contracts, signed docs, evidence), users attach the disputed file and immediately get cryptographic proof of match or non-match.
 
 ---
 
