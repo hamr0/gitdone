@@ -65,7 +65,7 @@ Modules are ordered so each is independently completable and verifiable.
 | **1.A** ✅ | Clean rewrite + production user/dirs + unit tests | POC | Phase 0 happy-path matrix passes under new code; unit tests green — **done 2026-04-17, commit `2bfb5f2`** |
 | **1.B** ✅ | Plus-tag router + event JSON lookup | 1.A | Reply with valid tag finds event; unknown tag rejected and logged — **done 2026-04-17** |
 | **1.C** ✅ | Per-event git repo + commit per reply | 1.A, 1.B | Real reply → commit visible in event's git log with §8.3 schema — **done 2026-04-17** |
-| **1.D** | DKIM key archival per commit | 1.C | `dkim_keys/commit-N.pem` written; offline re-verification works |
+| **1.D** ✅ | DKIM key archival per commit | 1.C | `dkim_keys/commit-N.pem` written; offline re-verification works — **done 2026-04-17** |
 | **1.E** | OpenTimestamps async anchoring | 1.C | `ots_proofs/commit-N.ots` verifies against Bitcoin |
 | **1.F** | Outbound DKIM signing (DNS + Postfix or opendkim) | independent | Gmail receives a message from us with DKIM pass |
 | **1.G** | Attachment forwarding to event owner | 1.C, 1.F | Owner inbox gets original email; SHA-256 in git matches forwarded copy |

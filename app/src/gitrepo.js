@@ -132,10 +132,27 @@ async function commitReply(eventId, event, ctx) {
   const abs = path.join(root, rel);
 
   const metadata = buildCommitMetadata(seq, ctx);
+
+  // 1.D: if caller supplied a DKIM key (PEM), archive it alongside the commit
+  // so future verification works even after DNS rotation.
+  const filesToAdd = [rel];
+  if (ctx.dkimArchive && ctx.dkimArchive.pem) {
+    const keyRel = path.join('dkim_keys', `commit-${seqStr}.pem`);
+    await fs.writeFile(path.join(root, keyRel), ctx.dkimArchive.pem);
+    metadata.dkim_key_file = keyRel;
+    metadata.dkim_archive = {
+      fetched_at: ctx.dkimArchive.fetched_at || null,
+      lookup: ctx.dkimArchive.lookup || null,
+    };
+    filesToAdd.push(keyRel);
+  } else if (ctx.dkimArchive && ctx.dkimArchive.error) {
+    metadata.dkim_archive = { error: ctx.dkimArchive.error };
+  }
+
   await fs.writeFile(abs, JSON.stringify(metadata, null, 2) + '\n');
 
   const git = simpleGit(root);
-  await git.add(rel);
+  await git.add(filesToAdd);
   const stepPart = ctx.stepId ? ` step ${ctx.stepId}` : '';
   const result = await git.commit(`reply ${seqStr}: ${eventId}${stepPart} from ${metadata.sender_domain || 'unknown'}`);
 
@@ -143,6 +160,7 @@ async function commitReply(eventId, event, ctx) {
     sha: result.commit || null,
     sequence: seq,
     file: rel,
+    dkim_key_file: metadata.dkim_key_file,
     repo_path: root,
   };
 }

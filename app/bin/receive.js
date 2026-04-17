@@ -18,6 +18,7 @@ const { classifyTrust } = require('../src/classifier');
 const { parseEventTag, parseAddress } = require('../src/router');
 const { loadEvent, findStep, senderMatchesStep } = require('../src/event-store');
 const { commitReply } = require('../src/gitrepo');
+const { fetchDkimKey, pickSignatureToArchive } = require('../src/dkim-archive');
 const logger = require('../src/logger');
 
 function readStdin() {
@@ -145,6 +146,15 @@ async function main() {
   const attachments = summariseAttachments(parsed);
   const rawHash = sha256(raw);
 
+  // 1.D: for accepted mail with a DKIM signature, fetch the DKIM public key
+  // from DNS right now. Archive alongside the commit so verification works
+  // even after the signer rotates their DNS key.
+  let dkimArchive = null;
+  const sigToArchive = pickSignatureToArchive(auth);
+  if (sigToArchive && sigToArchive.signingDomain && sigToArchive.selector) {
+    dkimArchive = await fetchDkimKey(sigToArchive.signingDomain, sigToArchive.selector);
+  }
+
   // 1.C: write per-event git commit for accepted replies that resolved to
   // a known event. Accept-with-flag: we commit regardless of
   // participant_match (that's a flag inside the commit, not a gate).
@@ -173,6 +183,7 @@ async function main() {
         arc: arcSummary,
         rawSha256: rawHash,
         rawSize: raw.length,
+        dkimArchive,
       });
     } catch (err) {
       gitCommit = { error: err.message || String(err) };

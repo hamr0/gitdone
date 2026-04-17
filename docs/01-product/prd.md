@@ -768,6 +768,7 @@ Phase 0 completed on a RackNerd VPS (AlmaLinux 8, Postfix 3.5.8, Node 20). All a
 |---|---|
 | **Postfix operational complexity** | Document setup thoroughly; provide `setup.sh` script |
 | **DKIM breakage by intermediaries** (mailing lists, corporate gateways, forwarders) | Four-method verification per §7.4: DKIM → ARC fallback → SPF/DMARC → accept-with-flag. Trust level recorded per reply; initiator sets policy |
+| **Operator tampering window before cryptographic seal** | Between Phase 1.C landing and Phase 1.D+1.E completing, the event git repo is only as trustworthy as the GitDone operator — a root user on the VPS could technically forge or delete commits. **1.D (DKIM key archival per commit) + 1.E (OpenTimestamps anchoring) close this window** by making backdated rewrites cryptographically detectable. Interim: we run on infrastructure we control and auditors should expect repos from this era to have lower assurance |
 | **DKIM verification failures on edge providers** | Accept-with-flag model; user can upgrade to verified provider |
 | **OpenTimestamps calendar server downtime** | OTS is async; the proof completes within 24h, no blocking |
 | **Email spam filtering of our outbound** | Proper SPF/DKIM/DMARC setup from day one |
