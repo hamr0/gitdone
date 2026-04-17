@@ -1,0 +1,14 @@
+{
+  "name": "gitdone-poc-phase0",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 0 POC: verify DKIM + parse MIME from stdin. Throwaway.",
+  "main": "receive.js",
+  "scripts": {
+    "test": "cat sample.eml | node receive.js"
+  },
+  "dependencies": {
+    "mailauth": "^4.6.0",
+    "mailparser": "^3.6.0"
+  }
+}

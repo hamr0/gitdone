@@ -1,980 +1,806 @@
-# Product Requirements Document: Event Aggregation Dashboard
+# GitDone — Product Requirements Document
 
-**Document Version**: 1.0
-**Date Created**: December 19, 2025
-**Status**: Ready for Development
-**Owner**: Product Manager
-**Target Release**: Next Sprint
-
----
-
-## 1. Executive Summary
-
-GitDone will add a public-facing event aggregation dashboard to the landing page that displays platform-wide statistics collected from all event JSON files. This lightweight feature provides transparency into platform activity and tracks cumulative metrics over time with monthly snapshots for analytics and reporting.
-
-**Core Value**: Give users visibility into platform health and activity at a glance while maintaining a simple, performant architecture using JSON-based caching.
+**Version:** 2.0 (Revival)
+**Date:** 2026-04-16
+**Status:** Design agreed, implementation pending
+**Supersedes:** v1 (event-management-only, archived)
 
 ---
 
-## 2. Feature Overview & Business Context
+## 1. What GitDone Is
 
-### Problem Statement
-Currently, there is no visibility into overall platform usage metrics. Event planners cannot see aggregate statistics about how many total events have been created, how many steps are in the system, or how many events are fully completed. This limits platform transparency and prevents basic analytics.
+**GitDone is a universal coordination protocol for getting cryptographically verifiable multi-party actions, using email as the participant interface and git as the permanent record.**
 
-### Goals
-1. **Provide Platform Transparency**: Display real-time, aggregate statistics on the landing page for all visitors
-2. **Track Historical Trends**: Maintain monthly snapshots of key metrics to build a historical record (up to 12 records per year for analytics)
-3. **Support Future Analytics**: Create a foundation for future dashboards, reports, and performance tracking
-4. **Maintain Simplicity**: Use lightweight JSON-based storage without introducing database complexity
-5. **Ensure Performance**: Cache aggregated data to minimize file I/O and maintain fast landing page load times
+An initiator defines what needs to happen, who needs to do it, and when it's done. Participants receive emails. They reply. Their replies are DKIM-verified, timestamped via OpenTimestamps, and committed to a per-event git repository. When the completion criteria are met, the event closes and the repository becomes the permanent, independently-verifiable proof.
 
-### User Stories
+**Two event types cover every use case:**
 
-**US1**: As a **platform visitor**, I want to see aggregate statistics on the landing page so that I can understand the scale and activity level of the platform.
+1. **Event** (workflow) — named steps with ordering (sequential / non-sequential / hybrid). Completion = all steps done. Examples: wedding vendor coordination, multi-signer contracts, release approval chains.
 
-**US2**: As a **product manager**, I want historical monthly snapshots of key metrics so that I can track platform growth trends over time.
+2. **Crypto** — one of two sub-modes:
+   - **Declaration** — exactly one DKIM-verified email, one signer, one cryptographic record. Examples: personal declaration, timestamped statement, whistleblower submission, single-party consent.
+   - **Attestation** — multiple DKIM-verified emails from distinct signers, count-based completion. Examples: proof of being known (vouching), petitions, peer review quorums, multi-witness statements, supply chain checkpoints.
 
-**US3**: As a **system administrator**, I want the ability to manually refresh statistics so that I can verify data accuracy or force an update if needed.
+**Type hierarchy:**
 
-**US4**: As a **platform user**, I want statistics to be updated regularly (every 6 hours) so that the displayed data remains reasonably current without impacting site performance.
-
----
-
-## 3. Functional Requirements
-
-### 3.1 Aggregation Logic
-
-The system must calculate the following metrics from all event JSON files in `/data/events/`:
-
-**Metric Definitions**:
-
-| Metric | Definition | Calculation Method |
-|--------|-----------|-------------------|
-| **Total Events** | Count of all event JSON files | Count all `.json` files in `/data/events/` directory |
-| **Total Steps** | Sum of all steps across all events | For each event, sum the length of `event.steps[]` array |
-| **Completed Events** | Count of events where ALL steps have `status: "completed"` | For each event, check if every step in `event.steps[]` has `status === "completed"`. Count if true. |
-| **Completed Steps** | Count of all steps with `status: "completed"` | For each event, count steps where `status === "completed"`, sum across all events |
-
-**Requirements**:
-- **FR1.1**: Aggregation logic must include ALL events in `/data/events/` directory (no filtering by status or date)
-- **FR1.2**: A step is only counted as "completed" when `status === "completed"` (case-sensitive exact match)
-- **FR1.3**: An event is only counted as "completed" when ALL steps in that event have `status === "completed"` (no partial completion)
-- **FR1.4**: Aggregation must be transactional—all metrics calculated from the same point-in-time snapshot
-- **FR1.5**: If `/data/events/` is empty or inaccessible, aggregation must gracefully return zeros for all metrics without throwing errors
-
-### 3.2 Monthly Records (Historical Snapshots)
-
-The system must maintain cumulative monthly records for historical tracking:
-
-**Requirements**:
-- **FR2.1**: At the end of each calendar month (11:59 PM UTC on the last day), capture a monthly snapshot of all metrics
-- **FR2.2**: Monthly records are CUMULATIVE (not reset each month). They show totals at that point in time, not monthly deltas
-- **FR2.3**: Each monthly record must include:
-  - `year`: Numeric year (e.g., 2025)
-  - `month`: Numeric month (1-12, January = 1)
-  - `date`: ISO 8601 date string when snapshot was captured (e.g., "2025-12-31T23:59:00Z")
-  - `total_events`: Cumulative total events at end of month
-  - `total_steps`: Cumulative total steps at end of month
-  - `completed_events`: Cumulative completed events at end of month
-  - `completed_steps`: Cumulative completed steps at end of month
-- **FR2.4**: A calendar year will have UP TO 12 monthly records (January through December). If records don't exist for all months (e.g., platform launched mid-year), only existing months are recorded
-- **FR2.5**: Monthly records are permanent once created and must never be overwritten or deleted
-- **FR2.6**: The current month should NOT be added to monthly records until the month ends (only full calendar months are recorded)
-
-### 3.3 Data Refresh Strategy
-
-**Requirements**:
-- **FR3.1**: Aggregated statistics must be refreshed automatically every 6 hours (0:00 AM, 6:00 AM, 12:00 PM, 6:00 PM UTC)
-- **FR3.2**: Refresh timing tolerance is ±5 minutes (e.g., 6:00 AM ± 5 minutes acceptable)
-- **FR3.3**: A manual refresh endpoint must be available for administrators to trigger immediate recalculation
-- **FR3.4**: Background refresh job must continue running even if manual refresh is triggered
-- **FR3.5**: If automatic refresh fails (e.g., file read error), the system must log the error and retry at the next scheduled window (no exponential backoff required for initial version)
-- **FR3.6**: Refresh operations must be atomic—if any step in aggregation fails, the previous cached stats remain valid
-- **FR3.7**: Each refresh must complete in under 5 seconds for up to 1000 events
-
-### 3.4 Display Requirements
-
-**Requirements**:
-- **FR4.1**: Statistics must be displayed on the landing page (`/frontend/src/app/page.tsx`) in a simple table format
-- **FR4.2**: Table must be positioned at the bottom of the landing page (below the event creation form)
-- **FR4.3**: Table must display current aggregate metrics with these columns:
-  - Metric name (e.g., "Total Events")
-  - Current count
-  - Optional: trend indicator (e.g., "+5 from last month" if monthly records available)
-- **FR4.4**: Table title must be "Platform Statistics" or similar
-- **FR4.5**: Data must be fetched client-side via GET `/api/stats` endpoint
-- **FR4.6**: If stats cannot be fetched (API error), display a graceful fallback message ("Statistics unavailable" or similar) without breaking page layout
-- **FR4.7**: Stats should refresh automatically on page load (GET `/api/stats` call on component mount)
-- **FR4.8**: No client-side auto-refresh polling required (stats update via backend scheduler, not client-triggered refreshes)
-
----
-
-## 4. Data Structures
-
-### 4.1 Stats Cache File Structure
-
-**File Location**: `/data/stats.json`
-
-**Full Schema**:
-
-```json
-{
-  "last_updated": "2025-12-19T18:00:00.000Z",
-  "last_refresh_duration_ms": 1234,
-  "current_metrics": {
-    "total_events": 42,
-    "total_steps": 156,
-    "completed_events": 18,
-    "completed_steps": 89
-  },
-  "monthly_records": [
-    {
-      "year": 2025,
-      "month": 1,
-      "date": "2025-01-31T23:59:00.000Z",
-      "total_events": 5,
-      "total_steps": 18,
-      "completed_events": 2,
-      "completed_steps": 8
-    },
-    {
-      "year": 2025,
-      "month": 2,
-      "date": "2025-02-28T23:59:00.000Z",
-      "total_events": 12,
-      "total_steps": 45,
-      "completed_events": 5,
-      "completed_steps": 22
-    },
-    {
-      "year": 2025,
-      "month": 12,
-      "date": "2025-12-31T23:59:00.000Z",
-      "total_events": 42,
-      "total_steps": 156,
-      "completed_events": 18,
-      "completed_steps": 89
-    }
-  ]
-}
+```
+GitDone Event
+├── Type 1: Event (workflow)
+│   └── Flow: sequential | non-sequential | hybrid
+│
+└── Type 2: Crypto
+    ├── Mode: Declaration   → exactly 1 email
+    └── Mode: Attestation   → N emails
+        └── Dedup: unique | latest | accumulating
 ```
 
-**Field Descriptions**:
+**The three properties that make this novel:**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `last_updated` | ISO 8601 string | Yes | Timestamp when stats were last calculated (UTC) |
-| `last_refresh_duration_ms` | Integer | Yes | Milliseconds taken to calculate stats (for monitoring performance) |
-| `current_metrics.total_events` | Integer | Yes | Count of all events |
-| `current_metrics.total_steps` | Integer | Yes | Sum of all steps across all events |
-| `current_metrics.completed_events` | Integer | Yes | Count of events where ALL steps are completed |
-| `current_metrics.completed_steps` | Integer | Yes | Count of individual steps with status="completed" |
-| `monthly_records` | Array | Yes | Array of monthly snapshot objects (empty array if no months recorded yet) |
-| `monthly_records[].year` | Integer | Yes | Calendar year (e.g., 2025) |
-| `monthly_records[].month` | Integer | Yes | Month number (1-12) |
-| `monthly_records[].date` | ISO 8601 string | Yes | Date when snapshot was captured (should be last moment of month, e.g., 23:59:00 UTC) |
-| `monthly_records[].total_events` | Integer | Yes | Cumulative total events at end of that month |
-| `monthly_records[].total_steps` | Integer | Yes | Cumulative total steps at end of that month |
-| `monthly_records[].completed_events` | Integer | Yes | Cumulative completed events at end of that month |
-| `monthly_records[].completed_steps` | Integer | Yes | Cumulative completed steps at end of that month |
+- "I want cryptographic proof of a human action" → normally requires account systems or blockchains. GitDone uses DKIM (already deployed by every major mail provider).
+- "I want it verifiable by any third party" → normally requires trusted CAs or consensus. GitDone uses git + OpenTimestamps (Bitcoin-anchored).
+- "I want it one-click for the user" → normally impossible with the above. GitDone uses email reply (universal since 1982).
 
-**Constraints**:
-- `monthly_records` must be sorted in chronological order (earliest month first)
-- `monthly_records` must not contain duplicate month/year combinations
-- `current_metrics` values must be integers >= 0
-- All timestamps must be in UTC (Z suffix or +00:00)
+---
 
-### 4.2 Event JSON Structure (Reference)
+## 2. What Exists Today (v1)
 
-For context, each event file at `/data/events/{eventId}.json` contains:
+GitDone v1 is a working multi-vendor workflow coordination platform, ~80% complete for one specific use case (event/wedding vendor management).
 
+### 2.1 Tech stack
+- **Frontend:** Next.js 15, TypeScript, Tailwind CSS
+- **Backend:** Node.js, Express
+- **Storage:** JSON files (`data/events/*.json`), git repos (`data/git_repos/`), file uploads
+- **Auth:** JWT magic links (30-day expiry, one-time use)
+- **Email (outbound only):** Nodemailer over SMTP
+- **File processing:** Sharp (images), fluent-ffmpeg (videos)
+
+### 2.2 What works end-to-end
+- Event creation with 3 flow types (sequential, non-sequential, hybrid)
+- Magic link authentication (vendor receives email → clicks → uploads files → step completes)
+- Git commits created per step completion with files + metadata
+- Real-time event dashboard showing progress (initiator view)
+- Read-only public event views
+- Platform statistics with 6-hour aggregation cron
+- Management/edit links for event owners
+- File size/type validation + image compression
+
+### 2.3 What's partially built
+- Video processing (dependency imported, not tested end-to-end)
+- Analytics dashboard
+- Reminder emails (infrastructure present, may need testing)
+
+### 2.4 What's missing
+- Inbound email (system only sends, never receives)
+- DKIM verification (not present anywhere)
+- OpenTimestamps anchoring
+- Multi-use-case abstraction (everything hardcoded to "vendor uploads files")
+- Crypto event type (count-based completion)
+- Attachment forwarding model (current design stores files on server)
+
+### 2.5 Critical gaps that blocked v1
+1. **No moat.** v1 is another event-management tool. Nothing structurally unique.
+2. **Storage burden.** Every uploaded file lives on the server.
+3. **Privacy concern.** Server holds all attachments.
+4. **Tight coupling.** Web app is required for both initiator and participants.
+5. **Single use case.** Engine doesn't generalize beyond wedding-style vendor workflows.
+
+---
+
+## 3. What's Changing (v2)
+
+v2 is a structural rebuild of the participant flow and a generalization of the event model. The initiator web app stays (simplified). Participant web forms disappear. Email becomes the interface for everything participants do.
+
+### 3.1 Architectural diff
+
+| Component | v1 | v2 |
+|---|---|---|
+| Initiator UI | Next.js web app | **Simplified** — plain HTML forms, minimal JS |
+| Participant UI | Next.js magic link form | **Removed** — email reply IS the interface |
+| Magic link tokens | Everyone, JWT 30-day | **Initiator only** for management |
+| SMTP send | Nodemailer | Same |
+| SMTP receive | None | **New** — Postfix on VPS → pipe to Node |
+| DKIM verification | None | **New** — `mailauth` library |
+| OpenTimestamps | None | **New** — anchor every commit to Bitcoin |
+| DKIM key archival | None | **New** — store signing keys with each commit |
+| Reply parsing | None | **New** — `mailparser`, extract metadata |
+| Attachment storage | Server filesystem | **Removed** — forwarded to event owner, hash only in git |
+| Event types | Sequential / non / hybrid | Same + **crypto** (declaration + attestation modes) |
+| Data storage | JSON files | Same + archived DKIM keys |
+| Git commits | Per step completion (via web) | Per reply received (via email) |
+| Stats, reminders, management UI | Working | Same (mostly unchanged) |
+
+### 3.2 What gets deleted
+- All participant-facing web pages (`/participate/:token`, upload forms, progress views from participant perspective)
+- Participant magic link generation (no more per-participant tokens)
+- File upload endpoints for participants
+- Server-side file storage for attachments (only hashes remain)
+
+### 3.3 What gets added
+- **Postfix configuration** on the VPS for receiving email at `*@gitdone.yourdomain`
+- **`receive.js`** — script that reads inbound email from Postfix pipe, verifies DKIM, parses MIME, routes to correct event, forwards attachments to event owner, commits metadata to git, anchors to OpenTimestamps, sends receipt to sender
+- **`mailauth`** npm dependency for DKIM, SPF, DMARC, and **ARC** verification
+- **`mailparser`** npm dependency for MIME parsing
+- **`opentimestamps-client`** dependency (Node or Python) for Bitcoin timestamp anchoring
+- **New event type: `crypto`** — count-based completion with distinct DKIM-verified senders
+- **DKIM public key archival** — each commit stores the DKIM public key used to verify the signature, so future verification doesn't depend on DNS archives
+- **Attachment hash recording** — when forwarding attachments to event owner, record SHA-256 hashes in the git commit
+- **Humans-only pre-filter** — reject messages with `Auto-Submitted`, `List-Id`, `List-Post`, `Precedence: bulk|list|junk` headers, or system-sender patterns (`noreply@`, `mailer-daemon@`); keeps the git repo free of auto-responders and list traffic
+
+### 3.4 What stays the same
+- Event creation flow (initiator defines steps, participants, sequence)
+- JSON-based storage model
+- One git repo per event
+- Git commits as the audit trail
+- Sequential / non-sequential / hybrid workflows
+- Platform stats aggregation
+- Reminder email infrastructure
+- Management links for initiators
+
+---
+
+## 4. The Event Types
+
+### 4.1 Type 1 — Event (workflow)
+
+Named steps, each with an assigned participant (by email), each requiring completion. Ordering is sequential, non-sequential, or hybrid.
+
+**Completion rule:** all steps marked complete.
+
+**Example schema:**
 ```json
 {
-  "id": "uuid",
-  "name": "Event Name",
-  "owner_email": "email@example.com",
-  "flow_type": "sequential|non_sequential|hybrid",
-  "created_at": "2025-10-15T06:47:53.116Z",
-  "status": "active|completed|archived",
+  "id": "evt-abc123",
+  "type": "event",
+  "flow": "sequential",
+  "title": "Q2 Contract Signing",
+  "initiator": "hamr@example.com",
   "steps": [
     {
-      "id": "uuid",
-      "name": "Step Name",
-      "vendor_email": "vendor@example.com",
-      "status": "pending|completed",
-      "created_at": "2025-10-15T06:47:53.118Z",
-      "completed_at": "2025-10-15T06:56:00.455Z",
-      "description": "Step description",
-      "sequence": 1
-    }
-  ],
-  "commits": []
-}
-```
-
-**For Aggregation**: Only `steps[].status` field is used. Event `status` field is ignored.
-
----
-
-## 5. API Design
-
-### 5.1 GET /api/stats - Fetch Current Statistics
-
-**Endpoint**: `GET /api/stats`
-
-**Purpose**: Retrieve current aggregated metrics and monthly records. Called by landing page to display statistics table.
-
-**Request**:
-```
-GET /api/stats HTTP/1.1
-Host: localhost:3001
-```
-
-**Response (Success - HTTP 200)**:
-```json
-{
-  "success": true,
-  "last_updated": "2025-12-19T18:00:00.000Z",
-  "current_metrics": {
-    "total_events": 42,
-    "total_steps": 156,
-    "completed_events": 18,
-    "completed_steps": 89
-  },
-  "monthly_records": [
+      "id": "step-1",
+      "name": "Legal review",
+      "participant": "legal@example.com",
+      "requires_attachment": true,
+      "status": "pending"
+    },
     {
-      "year": 2025,
-      "month": 1,
-      "date": "2025-01-31T23:59:00.000Z",
-      "total_events": 5,
-      "total_steps": 18,
-      "completed_events": 2,
-      "completed_steps": 8
+      "id": "step-2",
+      "name": "CEO approval",
+      "participant": "ceo@example.com",
+      "depends_on": ["step-1"],
+      "status": "pending"
     }
   ]
 }
 ```
 
-**Response (Fallback - HTTP 200, stats.json missing)**:
+### 4.2 Type 2 — Crypto
+
+Cryptographic record of an act. Two sub-modes based on signer count.
+
+#### 4.2.1 Declaration mode
+
+Exactly one DKIM-verified email. One signer. One permanent record.
+
+**Completion rule:** 1 email received.
+
+**Example schema:**
 ```json
 {
-  "success": true,
-  "last_updated": null,
-  "current_metrics": {
-    "total_events": 0,
-    "total_steps": 0,
-    "completed_events": 0,
-    "completed_steps": 0
-  },
-  "monthly_records": []
+  "id": "evt-decl-001",
+  "type": "crypto",
+  "mode": "declaration",
+  "title": "Timestamped statement of witness",
+  "initiator": "journalist@example.com",
+  "signer": "witness@example.com"
 }
 ```
 
-**Response (Error - HTTP 500)**:
+**Use cases:** personal declaration, timestamped statement, single-party consent, whistleblower submission, notarized record, "I hereby record that X happened at time T."
+
+#### 4.2.2 Attestation mode
+
+Multiple DKIM-verified emails from distinct signers. Count-based completion.
+
+**Completion rule:** N distinct senders have replied (where N is the configured threshold).
+
+**Dedup rule (optional):** how to handle multiple emails from the same sender.
+
+| Dedup rule | Behavior | Best for |
+|---|---|---|
+| **unique** (default) | One email per sender. Duplicates ignored. | Vouching, petitions, peer review quorum |
+| **latest** | Same sender can submit multiple times. Only the most recent counts. | Revisable reviews, status updates, revocable consent |
+| **accumulating** | Every email from same sender counts separately. | Supply chain checkpoints, multi-stage attestations, progress logs |
+
+**Example schema:**
 ```json
 {
-  "success": false,
-  "error": "Failed to read statistics"
+  "id": "evt-att-xyz789",
+  "type": "crypto",
+  "mode": "attestation",
+  "title": "Proof of being known: hamr",
+  "initiator": "hamr@example.com",
+  "threshold": 10,
+  "dedup": "unique",
+  "allow_anonymous": true,
+  "replies": []
 }
 ```
 
-**Status Codes**:
-- `200 OK`: Stats retrieved successfully (or graceful fallback)
-- `500 Internal Server Error`: Unexpected error reading stats file
+**Use cases:** vouching (proof of being known), petitions, peer review quorums, multi-witness statements, supply chain checkpoints, multi-party attestations, collective consent.
 
-**Notes**:
-- Endpoint has NO authentication required (public endpoint)
-- Endpoint should NOT trigger recalculation (read-only)
-- Response time should be < 100ms (simple file read)
-- If `/data/stats.json` does not exist, return graceful fallback (zeros) rather than error
+### 4.3 Shared engine
+
+All event types use the same email receive, DKIM verify, OpenTimestamps, git commit pipeline. The only differences are:
+- **Outbound email content** — event: step-specific prompt; declaration: single-signer prompt; attestation: generic attestation prompt
+- **Completion calculation**:
+  - Event → all steps done
+  - Declaration → 1 email received
+  - Attestation → N distinct senders reached (per dedup rule)
 
 ---
 
-### 5.2 POST /api/stats/refresh - Manual Statistics Refresh
+## 5. The Participant Experience
 
-**Endpoint**: `POST /api/stats/refresh`
+### 5.1 What participants receive
 
-**Purpose**: Manually trigger recalculation and caching of statistics. Used by administrators or for verification/debugging.
-
-**Request**:
 ```
-POST /api/stats/refresh HTTP/1.1
-Host: localhost:3001
-Content-Type: application/json
+From: hamr@example.com   (spoofed via initiator's email, OR gitdone-on-behalf-of)
+Reply-To: event+abc123-step1@gitdone.yourdomain
+Subject: [Action needed] Legal review for Q2 Contract
 
-{
-  "admin_token": "optional_token_if_authentication_added_later"
-}
-```
+Hi Legal team,
 
-**Response (Success - HTTP 200)**:
-```json
-{
-  "success": true,
-  "message": "Statistics refreshed successfully",
-  "refresh_duration_ms": 1234,
-  "metrics": {
-    "total_events": 42,
-    "total_steps": 156,
-    "completed_events": 18,
-    "completed_steps": 89
-  },
-  "next_scheduled_refresh": "2025-12-19T00:00:00.000Z"
-}
+I need your review on the attached Q2 contract.
+
+Please reply to this email with:
+- Your approval or concerns
+- Attach the redlined document if needed
+
+Your reply is cryptographically recorded via git + OpenTimestamps.
+Due date: 2026-04-23
+
+—
+Sent via GitDone
 ```
 
-**Response (Error - HTTP 500)**:
-```json
-{
-  "success": false,
-  "error": "Failed to read events directory",
-  "error_code": "EVENTS_DIR_READ_ERROR"
-}
-```
+### 5.2 What they do
 
-**Status Codes**:
-- `200 OK`: Refresh completed successfully
-- `500 Internal Server Error`: Error during aggregation or file write
+Hit Reply. Type their response. Attach files if needed. Send.
 
-**Notes**:
-- No authentication required for initial version (can be added later)
-- Refresh is synchronous—response waits for calculation to complete
-- Does NOT interrupt scheduled background refresh job
-- Should include `next_scheduled_refresh` timestamp for user feedback
-- If monthly record should be created (month ended), do so during this refresh
+**Total effort: reply to an email.**
 
-**Timing Guarantee**: Manual refresh must complete within 5 seconds for up to 1000 events.
+No clicks on magic links. No web forms. No accounts. No app installs.
+
+### 5.3 What happens next
+
+1. Reply arrives at `event+abc123-step1@gitdone.yourdomain`
+2. Postfix pipes to `receive.js`
+3. `receive.js`:
+   a. Verifies DKIM via `mailauth`
+   b. Parses MIME via `mailparser`
+   c. Extracts sender, body, attachment hashes
+   d. Forwards the original email (with attachments) to the initiator's inbox
+   e. Commits metadata JSON to the event's git repo
+   f. Archives the DKIM public key alongside the commit
+   g. Submits commit hash to OpenTimestamps
+   h. Replies to participant with commit hash and OTS proof reference
+   i. Checks if event is complete; if yes, notifies initiator
+4. Git repo now has a cryptographically verifiable record
+
+### 5.4 What they DO NOT see
+
+- The git repo (unless initiator chooses to share)
+- Other participants' replies
+- The initiator's management dashboard
+- Any gitdone web UI
 
 ---
 
-## 6. Technical Implementation
+## 6. The Initiator Experience
 
-### 6.1 Architecture Overview
+### 6.1 Event creation (web UI, simplified)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ Frontend (Next.js Landing Page)                                 │
-│  - On load: GET /api/stats                                      │
-│  - Display stats table with current_metrics                     │
-│  - Optional: Show monthly_records as trend (future enhancement) │
-└──────────────────────┬──────────────────────────────────────────┘
-                       │
-                       │ HTTP Requests
-                       ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ Backend Express Server (Node.js)                                 │
-│                                                                   │
-│  Route Handlers:                                                │
-│  ├─ GET /api/stats                                             │
-│  │  └─ Read /data/stats.json (cached)                          │
-│  │  └─ Return current_metrics + monthly_records                │
-│  │                                                              │
-│  └─ POST /api/stats/refresh                                    │
-│     └─ Trigger aggregation calculation                         │
-│     └─ Update /data/stats.json                                 │
-│     └─ Check if monthly record should be created               │
-│                                                                  │
-│  Background Jobs (Node Scheduler):                             │
-│  └─ Every 6 hours (0:00, 6:00, 12:00, 18:00 UTC)             │
-│     └─ Call same aggregation logic as /api/stats/refresh      │
-│     └─ Auto-create monthly records at month-end               │
-└──────────────────────┬──────────────────────────────────────────┘
-                       │
-                       ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ File System                                                      │
-│  ├─ /data/events/*.json (input—event files)                    │
-│  └─ /data/stats.json (output—cached aggregates)                │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### 6.2 File Structure
-
-**Backend Files to Create/Modify**:
+Initiator visits `gitdone.yourdomain` and fills out a minimal form:
 
 ```
-backend/
-├── routes/
-│   ├── stats.js (NEW) ← Implement GET /api/stats & POST /api/stats/refresh
-│   └── events.js (EXISTING)
-├── utils/
-│   ├── statsAggregator.js (NEW) ← Core aggregation logic
-│   └── statsScheduler.js (NEW) ← Background job scheduler
-└── server.js (MODIFY) ← Register stats routes & start scheduler
+Event type:  [ Workflow | Crypto ]
+Title:       [________________]
+Your email:  [________________]
+
+(Workflow)
+  Flow:        [ Sequential | Non-sequential | Hybrid ]
+  Steps:
+    + Add step
+      Step name: [_________]
+      Participant email: [_________]
+      Requires attachment: [yes/no]
+      Due date: [optional]
+
+(Crypto)
+  Completion threshold: [__] distinct replies
+  Allow anonymous: [yes/no]
+  Expected participants: [optional list of emails]
 ```
 
-**Frontend Files to Modify**:
+Submit. Receives:
+- Event ID
+- Management magic link (emailed)
+- For workflow events: emails sent to participants with reply-to addresses
+- For crypto events: a shareable mailto: link to send to potential vouchers
+
+### 6.2 Management
+
+Click the management link from the email. See:
+- Progress (X of Y steps done, or X of Y vouches received)
+- Timeline (commits with timestamps and OTS anchors)
+- Pending actions
+- Option to resend reminder emails
+- Option to close event early
+- When complete: download repo as zip, or clone URL
+
+### 6.3 Receipt
+
+Every reply triggers a forward to the initiator's inbox with the original attachments. The initiator's email is the attachment archive. GitDone only stores hashes.
+
+When the event completes, the initiator has:
+1. A git repo with all metadata, DKIM keys, OpenTimestamps proofs
+2. Their inbox full of forwarded emails with original attachments
+3. A permanent, verifiable record
+
+---
+
+## 7. The Cryptographic Proof — What It Actually Guarantees
+
+### 7.1 What DKIM + git + OpenTimestamps prove
+
+For each commit in an event's repo:
+
+1. **Authenticity:** the email was signed by its domain's mail server at signing time (DKIM)
+2. **Integrity:** the email content was not modified after signing (DKIM body hash + header signature)
+3. **Future-verifiable:** the DKIM public key is archived in the commit, so verification works even after DNS rotation
+4. **Timestamped:** the commit hash was anchored to a Bitcoin block at time T, so gitdone cannot have backdated the commit (OpenTimestamps)
+5. **Content-bound:** attachment SHA-256 hashes are in the commit, so when the initiator produces the original email, anyone can verify the attachment matches what was recorded
+
+### 7.2 What it does NOT prove
+
+- That a specific human pressed "send" (only that an authenticated session at the mail provider did)
+- That the claimed From: address is the human typing — if Alice's Gmail is compromised, DKIM still validates attacker's emails
+- That attachments are authentic beyond their hash — only that what was received matches what was recorded
+- Content authenticity of anything referenced externally (URLs, etc.)
+
+These are standard email-security limitations. Documented in the spec so users don't overclaim.
+
+### 7.3 Independent verification
+
+Any third party can verify a gitdone event by:
+
+1. Cloning the event's git repo
+2. For each commit:
+   - Read the archived DKIM public key
+   - Read the raw email metadata
+   - Reconstruct the DKIM canonical form and verify signature
+   - Check the OpenTimestamps proof against Bitcoin block headers
+3. If all verify, the chain of events is cryptographically sound
+
+No trust in gitdone the service is required. GitDone is a convenience layer; the proofs are self-contained.
+
+### 7.4 Handling real-world DKIM fragility — trust levels and verification methods
+
+**Scope invariant: participant replies are from humans only.** GitDone does not accept replies from mailing lists, automated systems, or out-of-office responders. This is enforced by a pre-filter (below) before any cryptographic verification. Participants are identified by their personal or corporate mailbox, never by a list address.
+
+**Even from humans, DKIM is not uniformly reliable.** Signatures break when intermediaries modify the message in transit. For human participants, the common breakers are:
+
+- **Corporate security gateways** (Proofpoint, Mimecast, Barracuda) — a participant replying from `@bigcorp.com` transits their company's outbound scanner, which may inject "external" warnings, rewrite URLs, or strip tracking pixels. Common among enterprise participants.
+- **Forwarded mailboxes** (`old@oldjob` → `new@gmail`) — the forwarder modifies headers and sometimes the body; sometimes ARC-saved, sometimes not.
+- **Obscure providers that don't sign outbound** — rare in 2026 since Gmail/Yahoo mandated DKIM in 2024, but exists.
+
+**GitDone's architectural advantage: we are the MX.** Mail arrives at `gitdone.yourdomain`'s Postfix directly from the sender's MTA. Zero intermediaries on our side. This eliminates all *recipient-side* modification failures (Microsoft/Outlook safety banners, inbound re-encoders) that would otherwise affect 15–30% of real-world mail. Only sender-side intermediaries (gateways, forwarders) remain as concerns.
+
+For those residual cases, GitDone uses **four verification methods, layered**, after the pre-filter. Every accepted reply commits to git regardless of verification outcome; the commit records which methods verified and produces a **trust level** per reply. The initiator sets the completion policy (accept all, require verified, etc.).
+
+#### Pre-filter — reject automated and list-distributed messages
+
+Before any cryptographic verification, the reply is checked against these rejection rules (RFC 3834 and related):
+
+- `Auto-Submitted:` header present and not `no` → out-of-office, vacation responder, automated ticketing. **Rejected**, with a polite explanatory bounce telling the sender to reply manually.
+- `List-Id:`, `List-Post:`, or `List-Unsubscribe:` headers present → message is list-distributed, not a direct human reply. **Rejected**.
+- `Precedence: bulk` / `list` / `junk` → bulk-mail indicator. **Rejected**.
+- Sender is a known system address pattern (`noreply@`, `no-reply@`, `mailer-daemon@`, `postmaster@`, `bounces@`) → **Rejected**.
+
+Rejected messages are logged (sender, subject, reason) but not committed. The git repo stays clean — only human-initiated replies are recorded.
+
+#### Method 1 — DKIM (primary)
+
+Verify the sender's DKIM signature against the DNS-published public key. Archive the public key alongside the commit so future verification doesn't depend on DNS rotation.
+
+- **`pass`** — signature valid, sender's domain authenticated, body integrity intact. **Highest trust.**
+- **`fail`** — signature invalid (modified in transit, or forgery attempt). Not rejected, but flagged.
+- **`neutral` / `policy` / `temperror`** — signature present but verification inconclusive (DNS issue, expired key, algorithm mismatch). Flagged.
+- **`none`** — no DKIM header. Flagged as unsigned.
+
+#### Method 2 — ARC (fallback when DKIM fails due to intermediary modification)
+
+**ARC (Authenticated Received Chain, RFC 8617)** is how we recover trust when a trustworthy intermediary modified the message after the original signing. This is the primary recovery path for participants behind corporate security gateways that modify outbound mail. Each ARC-participating hop adds a signed attestation of the authentication results it observed before modifying. If the chain verifies and the intermediaries are trustworthy (e.g., Gmail, Fastmail, Google Workspace, Microsoft 365), we can trust the original authenticity even though current DKIM fails.
+
+- **`arc=pass` with DKIM=fail** — message was modified by a known, trustworthy intermediary that vouched for the original DKIM. **Medium trust.** Recorded with the chain details.
+- **`arc=none`** — no ARC headers. No fallback available.
+- **`arc=fail`** — chain broken or intermediary not trusted.
+
+We record ARC trust details in the commit: which hops signed, what they claimed about upstream authentication, whether the chain is unbroken.
+
+#### Method 3 — SPF + DMARC (secondary signal)
+
+Even when DKIM fails, if **SPF passes** (sender's IP is authorized for the claimed domain) and **DMARC aligns** (the From: domain matches SPF identity), we have cryptographic evidence that the sending server was authorized by the domain owner to send on their behalf. Not as strong as DKIM-on-content (doesn't prove body integrity), but proves domain authorization.
+
+- `spf=pass` + `dmarc=pass` with `dkim=fail` → **low-medium trust.** Domain authorized the server, but we can't prove the body wasn't modified after signing.
+- `spf=pass` + `dkim=none` → **low trust.** Sender's provider authorized the MTA but doesn't sign outbound. Rare at major providers in 2026; seen at smaller ISPs.
+
+#### Method 4 — Accept-with-flag, not reject (policy)
+
+**GitDone does not reject unauthenticated replies.** Every reply is committed to git with its complete authentication record: DKIM result, ARC result, SPF, DMARC, and any other available signals. The initiator sees a per-reply trust level:
+
+| Trust level | Conditions | Meaning |
+|---|---|---|
+| **verified** | DKIM pass, aligned, DMARC pass | Cryptographically authenticated end-to-end |
+| **forwarded** | DKIM fail, ARC pass through trusted intermediary | Authenticated at origin; modified in transit by a known relay |
+| **authorized** | DKIM fail/none, SPF pass, DMARC pass | Domain authorized the server; body integrity not proven |
+| **unverified** | None of the above validate | Flagged; initiator decides whether to accept |
+
+GitDone is not a gatekeeper — it is an evidence recorder. The initiator's policy decision (accept all replies regardless, require `verified` for completion, ignore `unverified` toward the attestation threshold, etc.) is configurable per event.
+
+#### Guidance for high-stakes use cases
+
+For events where legal or regulatory weight matters (declarations, compliance attestations, whistleblower submissions), the initiator should configure the event to require **trust level `verified`** for completion and communicate to participants:
+
+> "Please reply from a mailbox that doesn't traverse corporate relays. Gmail, Fastmail, iCloud, and Proton all sign outbound mail cleanly. If your reply goes through a corporate security gateway or a forwarding address, GitDone will record it but downgrade the trust level."
+
+For low-stakes attestations (petitions, casual vouches), the default `authorized`-or-better threshold is sufficient.
+
+---
+
+## 8. Technical Architecture (v2)
+
+### 8.1 Services
 
 ```
-frontend/src/
-├── app/
-│   └── page.tsx (MODIFY) ← Add stats table component at bottom
-└── components/
-    └── StatsTable.tsx (NEW) ← Reusable stats display component
+┌──────────────────────────────────────────────┐
+│                    VPS                        │
+│                                               │
+│  ┌─────────┐  ┌──────────────────────────┐   │
+│  │ Nginx   │  │ Node.js Express server   │   │
+│  │ (TLS)   │←→│  - /api/events (POST)    │   │
+│  └─────────┘  │  - /api/events/:id       │   │
+│       ↑       │  - /manage/:token        │   │
+│   HTTPS       │  - /v/:id (public view) │   │
+│       │       └──────────────────────────┘   │
+│       │              ↓ file I/O               │
+│       │       ┌──────────────────────────┐   │
+│       │       │ data/                    │   │
+│       │       │  events/*.json           │   │
+│       │       │  git_repos/*/            │   │
+│       │       │  dkim_keys_archive/*     │   │
+│       │       └──────────────────────────┘   │
+│       │                                       │
+│  ┌─────────┐  ┌──────────────────────────┐   │
+│  │ Postfix │→ │ receive.js (pipe)        │   │
+│  │ (MX)    │  │  - mailauth (DKIM)       │   │
+│  └─────────┘  │  - mailparser (MIME)     │   │
+│       ↑       │  - ots-client (OTS)      │   │
+│    SMTP       │  - forward email to owner │   │
+│       │       │  - commit to event repo  │   │
+│                └──────────────────────────┘   │
+└──────────────────────────────────────────────┘
+       ↑
+    Email
+ from participants
 ```
 
-**Data Files**:
+### 8.2 Dependencies
+
+**Existing (keep):**
+- `express`, `nodemailer`, `sharp`, `fluent-ffmpeg` (if video needed)
+- Whatever frontend stays (simplify to vanilla or keep Next.js minimal)
+
+**New:**
+- `mailauth` — DKIM / SPF / DMARC / **ARC** verification (Node, by Nodemailer author, actively maintained)
+- `mailparser` — MIME parsing (Node, by same author, stdlib of Node email processing)
+- `opentimestamps-client` — OpenTimestamps Bitcoin anchoring (Python binary called via subprocess, or Node equivalent if available)
+- `simple-git` or equivalent — git operations from Node (already in use)
+
+**Infrastructure:**
+- Postfix (installed via `dnf install postfix`, configured with pipe transport to `receive.js`)
+- MX DNS record pointing VPS
+- SPF + DKIM + DMARC records for outbound from `gitdone.yourdomain` (so our own emails validate)
+
+### 8.3 Data model (git repo per event)
 
 ```
-/data/
-├── events/ (EXISTING—input)
-│   ├── {eventId}.json
+data/git_repos/evt-abc123/
+├── event.json              # initial event definition
+├── commits/
+│   ├── commit-001.json     # first reply
+│   ├── commit-002.json     # second reply
 │   └── ...
-└── stats.json (NEW—output) ← Created/updated by aggregation
+├── dkim_keys/
+│   ├── commit-001.pem      # archived DKIM public key for commit 1
+│   ├── commit-002.pem
+│   └── ...
+├── ots_proofs/
+│   ├── commit-001.ots      # OpenTimestamps proof
+│   ├── commit-002.ots
+│   └── ...
+└── completion.json         # when event closes, final state
 ```
 
-### 6.3 Aggregation Algorithm (Pseudocode)
+Each `commit-NNN.json`:
 
-```
-FUNCTION aggregateStats():
-    START_TIME = now()
-
-    // Read all event files
-    eventFiles = list all .json files in /data/events/
-
-    totalEvents = eventFiles.length
-    totalSteps = 0
-    completedEvents = 0
-    completedSteps = 0
-
-    FOR each eventFile in eventFiles:
-        LOAD event = parse(eventFile)
-
-        // Count total steps
-        totalSteps += event.steps.length
-
-        // Count completed steps
-        FOR each step in event.steps:
-            IF step.status === "completed":
-                completedSteps += 1
-
-        // Check if event is fully complete
-        isEventComplete = all(step.status === "completed" for step in event.steps)
-        IF isEventComplete:
-            completedEvents += 1
-
-    // Calculate refresh duration
-    DURATION = now() - START_TIME
-
-    // Check if we need to create monthly record
-    IF currentMonth has ended (and record doesn't exist):
-        CREATE monthly record with current metrics
-
-    // Build stats object
-    stats = {
-        last_updated: now() in UTC,
-        last_refresh_duration_ms: DURATION,
-        current_metrics: {
-            total_events: totalEvents,
-            total_steps: totalSteps,
-            completed_events: completedEvents,
-            completed_steps: completedSteps
-        },
-        monthly_records: [existing records + new record if created]
+```json
+{
+  "event_id": "evt-abc123",
+  "sequence": 1,
+  "received_at": "2026-04-16T14:22:00Z",
+  "sender_domain": "gmail.com",
+  "sender_hash": "sha256:a1b2c3...",
+  "body_preview": "first 200 chars",
+  "attachments": [
+    {
+      "filename": "contract-signed.pdf",
+      "size": 1234567,
+      "sha256": "sha256:d4e5f6..."
     }
-
-    // Atomic write
-    WRITE stats to /data/stats.json
-
-    RETURN stats
-```
-
-### 6.4 Background Scheduler Implementation
-
-**Technology Choice**: `node-cron` or `node-schedule` npm package
-
-**Scheduler Configuration**:
-
-```javascript
-// Every day at 00:00, 06:00, 12:00, 18:00 UTC
-const schedule = '0 0,6,12,18 * * *'; // cron format
-
-scheduler.scheduleJob(schedule, async () => {
-    try {
-        await aggregateStats();
-        console.log('[Stats Scheduler] ✓ Aggregation completed');
-    } catch (error) {
-        console.error('[Stats Scheduler] ✗ Aggregation failed:', error);
-        // Don't throw—let scheduler continue
-    }
-});
-```
-
-**Error Handling**:
-- Log errors to console (and optionally to file)
-- Do NOT crash the process if aggregation fails
-- Retry at next scheduled window (do NOT implement exponential backoff for v1)
-- Alert/notification system is OUT OF SCOPE for this PRD
-
-### 6.5 Monthly Record Creation Logic
-
-**Trigger**: During aggregation, check if current month has ended and no record exists for it.
-
-**Definition of "Month Ended"**:
-- Today's date > last day of previous month (e.g., December 31st has passed if we're in January)
-- OR: Current UTC date is >= 1st of next month
-
-**Algorithm**:
-
-```javascript
-FUNCTION checkAndCreateMonthlyRecord(stats):
-    now = getCurrentUTCDate()
-    currentYear = now.getUTCFullYear()
-    currentMonth = now.getUTCMonth() + 1 // 1-12
-
-    // Check if record for THIS month already exists
-    existingRecord = find record where year === currentYear AND month === currentMonth
-
-    IF existingRecord exists:
-        RETURN // Already recorded, don't create duplicate
-
-    // Check if we're in the NEXT month (which means last month ended)
-    lastRecordYear = stats.monthly_records[-1].year (if exists)
-    lastRecordMonth = stats.monthly_records[-1].month (if exists)
-
-    IF stats.monthly_records is empty:
-        // First month—create record for the previous month that ended
-        monthToRecord = currentMonth - 1
-        yearToRecord = currentYear
-        IF monthToRecord < 1:
-            monthToRecord = 12
-            yearToRecord = currentYear - 1
-    ELSE:
-        // Only create if we've moved to next month
-        IF currentMonth === lastRecordMonth AND currentYear === lastRecordYear:
-            RETURN // Still in same month as last record
-
-        // We're in a new month—create record for previous month
-        monthToRecord = lastRecordMonth + 1
-        yearToRecord = lastRecordYear
-        IF monthToRecord > 12:
-            monthToRecord = 1
-            yearToRecord = yearToRecord + 1
-
-    // Create the record
-    newRecord = {
-        year: yearToRecord,
-        month: monthToRecord,
-        date: lastDayOfMonth(yearToRecord, monthToRecord) at 23:59:00 UTC,
-        total_events: stats.current_metrics.total_events,
-        total_steps: stats.current_metrics.total_steps,
-        completed_events: stats.current_metrics.completed_events,
-        completed_steps: stats.current_metrics.completed_steps
-    }
-
-    stats.monthly_records.append(newRecord)
-    RETURN stats
-```
-
-**Example Timeline**:
-- January 31, 2025: First aggregation run → Create January record
-- February 15, 2025: Aggregation run → No new record (still in February)
-- March 5, 2025: Aggregation run → Create February record (month ended, we're now in March)
-- April 1, 2025: Aggregation run → Create March record (we're now in April)
-
-### 6.6 Error Handling & Edge Cases
-
-**Edge Case 1: /data/stats.json doesn't exist on first run**
-- Aggregation creates it from scratch
-- GET /api/stats returns graceful fallback if file missing
-
-**Edge Case 2: /data/events/ is empty**
-- All metrics return 0
-- No error thrown
-- Stats file still written with zeros
-
-**Edge Case 3: An event file is corrupt JSON**
-- Skip that event (do not crash)
-- Log warning to console
-- Continue aggregation with remaining valid events
-- Count will be slightly off but will self-correct when corrupt file is removed/fixed
-
-**Edge Case 4: Permission error writing /data/stats.json**
-- Log error to console
-- Throw error (will be caught by route handler)
-- Return HTTP 500 to client
-- Previous cached stats remain valid until next successful write
-
-**Edge Case 5: Scheduled job runs while POST /api/stats/refresh is executing**
-- Both operations read from same event files (safe—reads are concurrent)
-- Whichever finishes last wins (writes are atomic at file level)
-- No locking mechanism required for v1
-
-**Edge Case 6: Manual refresh triggered during month boundary**
-- Monthly record creation happens within that same refresh
-- If month ends between 6-hour intervals, record is created at next manual refresh
-- Background scheduler catches it 6 hours later if manual refresh didn't run
-
-### 6.7 Performance Considerations
-
-**Optimization Goals**:
-- Aggregation completes in < 5 seconds for 1000 events
-- GET /api/stats responds in < 100ms (file read only)
-- POST /api/stats/refresh blocks response until complete (acceptable for manual refresh)
-
-**Optimization Strategies**:
-1. **Streaming**: Read event files sequentially (not in parallel for v1—simplicity over speed)
-2. **Caching**: GET /api/stats serves from cached `/data/stats.json` only (no recalculation)
-3. **Minimal I/O**: Background scheduler writes once per 6 hours (4 writes/day max)
-4. **No Database**: JSON files eliminate database connection overhead
-
-**Monitoring** (Out of Scope for PRD but noted):
-- Log `last_refresh_duration_ms` to track performance trends
-- Alert if aggregation exceeds 5 seconds (possible implementation)
-
----
-
-## 7. UI/UX Requirements
-
-### 7.1 Stats Table Display
-
-**Location**: Bottom of landing page (`/frontend/src/app/page.tsx`), below the event creation form
-
-**Layout**:
-```
-┌─────────────────────────────────────────────────────────┐
-│ Platform Statistics                                      │
-├─────────────────────┬──────────────────────────────────┤
-│ Metric              │ Count                            │
-├─────────────────────┼──────────────────────────────────┤
-│ Total Events        │ 42                               │
-│ Total Steps         │ 156                              │
-│ Completed Events    │ 18                               │
-│ Completed Steps     │ 89                               │
-├─────────────────────┴──────────────────────────────────┤
-│ Last updated: 2025-12-19 at 18:00 UTC                  │
-└─────────────────────────────────────────────────────────┘
-```
-
-### 7.2 Component Specifications
-
-**Component**: `StatsTable.tsx`
-
-**Props**:
-```typescript
-interface StatsTableProps {
-  loading?: boolean;      // Show loading spinner while fetching
-  error?: string | null;  // Error message if fetch fails
-  stats?: {
-    current_metrics: {
-      total_events: number;
-      total_steps: number;
-      completed_events: number;
-      completed_steps: number;
-    };
-    last_updated: string | null;  // ISO 8601 timestamp
-  };
+  ],
+  "dkim": {
+    "result": "pass",
+    "selector": "20230601",
+    "domain": "gmail.com",
+    "pubkey_file": "dkim_keys/commit-001.pem"
+  },
+  "ots_proof_file": "ots_proofs/commit-001.ots",
+  "step_id": "step-1"
 }
 ```
 
-**Features**:
-- **Loading State**: Display spinner or skeleton while fetching `/api/stats`
-- **Error State**: Show "Statistics unavailable" message without breaking layout
-- **Fallback**: If stats is null, display zeros with message "Statistics are not yet available"
-- **Timestamp**: Display "Last updated: [date] at [time] UTC" below table
-- **Responsive**: Table should be full-width on mobile, centered max-width on desktop
-- **Accessibility**: Use semantic HTML table markup, proper ARIA labels
+---
 
-### 7.3 Data Fetching
+## 9. Deployment and Infrastructure
 
-**Fetch on Mount**:
-```typescript
-useEffect(() => {
-    fetchStats();
-}, []);
+### 9.1 Target environment
 
-async function fetchStats() {
-    try {
-        const response = await fetch('/api/stats');
-        if (!response.ok) throw new Error('Failed to fetch');
-        const data = await response.json();
-        setStats(data);
-    } catch (error) {
-        setError('Could not load statistics');
-    }
-}
-```
+- **VPS:** NerdWallet (user's existing)
+- **OS:** Fedora Linux (user's standard)
+- **Domain:** fresh, MX records pointing to VPS
+- **Deployment:** PM2 + Nginx + TLS (matches current gitdone deployment)
+- **Storage budget:** minimal (no attachment storage; JSON + DKIM keys + OTS proofs are all small)
 
-**NO Real-Time Polling**: Do NOT implement client-side auto-refresh. Stats update via backend scheduler (every 6 hours), not via client polling.
+### 9.2 Setup steps (infrastructure)
 
-### 7.4 Styling
+1. Install Postfix: `dnf install postfix`
+2. Configure Postfix to receive mail for `*@gitdone.yourdomain`
+3. Configure pipe transport in `/etc/postfix/master.cf` to hand email to `receive.js`
+4. Set up DNS:
+   - MX record → VPS
+   - SPF record for outbound
+   - DKIM keys and DKIM TXT record for outbound
+   - DMARC record
+5. Generate OpenTimestamps client binary on VPS
+6. Configure Node service (PM2) for Express + receive.js listener
 
-**Design System**: Use existing Tailwind CSS classes from landing page
+### 9.3 No vendor dependencies
 
-**Colors & Style**:
-- Table header: `bg-gray-100` or `bg-blue-50`
-- Table border: `border-gray-200`
-- Text: Gray scale (`text-gray-700`, `text-gray-600`)
-- Timestamp text: `text-xs text-gray-500`
-- Consistent with existing landing page design (see `page.tsx` for reference)
-
-**Mobile Responsive**:
-- Table must not overflow on mobile (consider stacking rows as cards if needed)
-- Padding: `p-4` for cards, `px-4 py-2` for cells
+- No SendGrid, no Mailgun, no Postmark — Postfix directly
+- No cloud functions — Node scripts on VPS
+- No proprietary timestamp service — OpenTimestamps is free, open, Bitcoin-anchored
+- No platform lock-in
 
 ---
 
-## 8. Acceptance Criteria
+## 10. Rollout Phases
 
-### Must-Have Criteria (Feature is Complete Only If ALL Are Met)
+### Phase 0 — POC (1 weekend) — **COMPLETE 2026-04-17**
 
-**AC1: Aggregation Accuracy**
-- [ ] Total Events count equals number of `.json` files in `/data/events/`
-- [ ] Total Steps count equals sum of `event.steps.length` across all events
-- [ ] Completed Events count equals count of events where ALL steps have `status === "completed"`
-- [ ] Completed Steps count equals count of individual steps where `status === "completed"`
-- [ ] Aggregation tested with 10, 100, and 1000 event files to verify accuracy
+Prove the core email-in pipeline works:
 
-**AC2: Data Storage**
-- [ ] `/data/stats.json` file is created and updated correctly
-- [ ] File structure matches schema in Section 4.1 exactly
-- [ ] `last_updated` timestamp is accurate to the second
-- [ ] `last_refresh_duration_ms` is calculated and recorded
-- [ ] File is valid JSON that can be parsed without errors
+1. Install Postfix on a test VPS
+2. Write minimal `receive.js` that:
+   - Reads email from stdin
+   - Verifies DKIM with `mailauth`
+   - Logs sender, body, attachment list
+3. Send a test email, confirm processing
 
-**AC3: GET /api/stats Endpoint**
-- [ ] Endpoint returns HTTP 200 with stats data
-- [ ] Response includes `current_metrics` object with all 4 metrics
-- [ ] Response includes `monthly_records` array (empty if no records yet)
-- [ ] Endpoint returns gracefully (zeros, not error) if `/data/stats.json` missing
-- [ ] Response time is < 100ms
-- [ ] Endpoint has NO authentication (publicly accessible)
+**Graduation:** one real email, DKIM verified, metadata extracted, logged to console.
 
-**AC4: POST /api/stats/refresh Endpoint**
-- [ ] Endpoint returns HTTP 200 on success
-- [ ] Endpoint triggers recalculation and updates `/data/stats.json`
-- [ ] Response includes `metrics` object with updated values
-- [ ] Response includes `refresh_duration_ms` showing how long calculation took
-- [ ] Endpoint returns HTTP 500 on error with error message
-- [ ] Manual refresh does NOT interrupt scheduled background job
+Validation results recorded in §10.5.
 
-**AC5: Background Scheduler**
-- [ ] Scheduler starts automatically on server startup
-- [ ] Scheduler runs aggregation at 00:00, 06:00, 12:00, 18:00 UTC daily
-- [ ] Timing is within ±5 minutes of scheduled times
-- [ ] Scheduler continues running even if single aggregation fails
-- [ ] Errors are logged to console (not silent failures)
-- [ ] Scheduler can be verified running via server logs
+### Phase 1 — Core rebuild (2 weekends)
 
-**AC6: Monthly Records**
-- [ ] Monthly records are created only once per month (no duplicates)
-- [ ] Monthly records include all 4 metrics plus metadata (year, month, date)
-- [ ] Monthly records are cumulative (not reset each month)
-- [ ] Records are sorted chronologically (earliest month first)
-- [ ] Records are permanent—never overwritten or deleted
-- [ ] Example: After running Jan-Mar 2025, exactly 3 records exist (no partial months)
+Build the receive pipeline end-to-end:
 
-**AC7: Landing Page Display**
-- [ ] Stats table appears at bottom of landing page
-- [ ] Table displays all 4 metrics correctly
-- [ ] Table shows `last_updated` timestamp
-- [ ] Table has loading state while fetching
-- [ ] Table shows error message if fetch fails (doesn't break page)
-- [ ] Table displays zeros if stats unavailable
-- [ ] Table is responsive on mobile and desktop
-- [ ] Stats fetch via GET /api/stats on page load
+1. Hook `receive.js` into actual event routing
+2. Add `mailparser` for full MIME extraction
+3. Add OpenTimestamps anchoring
+4. Add DKIM key archival
+5. Add attachment forwarding to event owner via SMTP
+6. Remove participant magic link routes and frontend pages
+7. Simplify initiator UI (plain HTML form, no heavy React)
 
-**AC8: Error Handling**
-- [ ] Corrupt event JSON files are skipped (not crash)
-- [ ] Missing `/data/events/` directory creates it (or handles gracefully)
-- [ ] Corrupted `/data/stats.json` is overwritten with fresh data
-- [ ] Failed aggregation logs error and doesn't break server
-- [ ] GET /api/stats returns fallback (not 500 error) if cache missing
+**Deliverable:** one workflow event, one participant replies via email, git commit created with OTS proof and DKIM key, attachment forwarded to initiator.
 
-**AC9: Performance**
-- [ ] Aggregation completes in < 5 seconds for 1000 events
-- [ ] GET /api/stats responds in < 100ms
-- [ ] POST /api/stats/refresh responds in < 10 seconds
-- [ ] Background scheduler doesn't block other API requests
+### Phase 2 — Crypto event type (1 weekend)
 
-**AC10: Code Quality**
-- [ ] All code is commented explaining aggregation logic
-- [ ] Error messages are clear and actionable
-- [ ] No console errors or warnings
-- [ ] Code follows existing backend/frontend style conventions
-- [ ] Tests exist for aggregation logic (unit tests)
+Add the crypto event primitive with both modes:
 
----
+1. New event type in schema with `mode` field (declaration | attestation)
+2. Declaration mode: single-signer, 1-email completion
+3. Attestation mode: multi-signer, count-based completion
+4. Dedup rules for attestation (unique / latest / accumulating)
+5. Generic mailto: share link generation for attestation
+6. Single-signer email flow for declaration
+7. Test with a real declaration event (one signer) and a real attestation event (vouching with 3+ senders)
 
-## 9. Success Metrics
+**Deliverable:**
+- Declaration: one signer sends DKIM-verified email, committed with OTS anchor, event closes
+- Attestation: 3+ real people reply from different domains, all DKIM-verified, threshold reached, event closes with unique dedup
 
-**How to Measure Feature Success**:
+### Phase 3 — Polish and documentation (1 weekend)
 
-| Metric | Target | How to Measure |
-|--------|--------|----------------|
-| **Stats Fetch Success Rate** | > 99.5% | Monitor GET /api/stats error rate in logs |
-| **Aggregation Performance** | < 5 seconds for 1000 events | Check `last_refresh_duration_ms` in stats.json |
-| **Scheduled Job Uptime** | 100% | Verify 4 daily refreshes complete in logs over 1 week |
-| **Monthly Record Accuracy** | 100% | Manually verify Dec 31 snapshot captured correctly |
-| **Data Freshness** | Updated within 6-hour windows | Check `last_updated` timestamp in response |
-| **Zero Data Integrity Issues** | 0 duplicate/missing records | Audit stats.json monthly_records array |
-| **Landing Page Load Impact** | No measurable increase | Compare page load time before/after (baseline to +10% acceptable) |
-| **User Visibility** | Stats visible to 100% of landing page visitors | Visual QA on landing page |
+1. Receipt emails to participants (with commit hash + OTS proof reference)
+2. Management dashboard improvements
+3. Third-party verification script (independent clone + verify)
+4. User documentation (what is a gitdone event, how verification works)
+5. Small landing page explaining the two event types
 
-**Monitoring Setup** (Out of Scope but Recommended):
-- Add logging to track aggregation duration
-- Set alerts if aggregation exceeds 5 seconds
-- Dashboard to visualize monthly_records growth over time
+**Deliverable:** public launch with documentation, verification tool, sample events.
 
----
+### 10.5 Phase 0 Validation Results (2026-04-17)
 
-## 10. Non-Goals (Out of Scope)
+Phase 0 completed on a RackNerd VPS (AlmaLinux 8, Postfix 3.5.8, Node 20). All architectural assumptions in §1, §3, §7, and §8 empirically validated with real external mail.
 
-The following are explicitly NOT included in this PRD and will be considered for future iterations:
+**Happy-path matrix (external SMTP, real senders):**
 
-- **Database Storage**: Stats remain in JSON files (no SQL/NoSQL database)
-- **Real-Time Updates**: Stats do NOT update instantly when events change—4 refreshes per day only
-- **User-Specific Stats**: Feature shows platform-wide totals only (no per-user breakdown)
-- **Authentication on Manual Refresh**: POST /api/stats/refresh has no auth requirement (can be added later)
-- **Email Alerts**: No notifications when stats updated or threshold breached
-- **Historical Trends / Charts**: No visualization of month-over-month growth (data stored for future use)
-- **Event Status Filtering**: Feature counts ALL events (no filtering by active/archived status)
-- **Manual Monthly Record Entry**: Records are created automatically only (no manual overrides)
-- **Backup/Archive Strategy**: No automatic backup of stats history (customers responsible for backup)
-- **Admin Dashboard**: No dedicated admin interface (refresh via API endpoint only)
-- **Timezone Support**: All timestamps are UTC only (no per-user timezone conversion)
-- **Concurrent Refresh Locking**: No lock mechanism for simultaneous manual + scheduled refresh
-- **Data Export**: No CSV/JSON export of monthly records (can access via API)
+| Sender | client_ip / HELO | DKIM | SPF | DMARC | ARC | trust_level |
+|---|---|---|---|---|---|---|
+| MSN (`avoidaccess@msn.com`) | 52.103.33.36 / `*.outbound.protection.outlook.com` | pass (aligned) | pass | pass | pass (M365 chain) | **verified** |
+| Gmail (`avoidaccess@gmail.com`) | 209.85.208.53 / `mail-ed1-f53.google.com` | pass (aligned) | pass | pass | none (direct, expected) | **verified** |
+
+**Pre-filter classifier (§7.4):** 4/4 cases matched spec. `Precedence: bulk` on a real newsletter (AlgorithmWatch) rejected correctly without touching DKIM. Boddy-hash-fail (Mailjet via MSN inbox) correctly classified `unverified`. Gmail self-delivery (no DKIM) correctly `unverified`. MSN→Gmail direct correctly `verified`.
+
+**Findings worth recording:**
+
+1. **Direct MX receives untampered DKIM mail.** The core architectural bet — "we are the MX, so no intermediary modifies the body" — holds empirically. Both providers produced clean DKIM pass + DMARC pass.
+
+2. **Attachment hashing is deterministic across sessions.** The same PDF + DOCX sent from two different providers (MSN and Gmail, different routing paths, different hosts) produced byte-identical SHA-256 hashes. Validates the privacy model: we record only hashes, owners retain content, independent third parties can re-verify.
+
+3. **Plus-tag survives external SMTP end-to-end.** `event+ID-step@git-done.com` made it from a sender's outbound MTA through inbound SMTP, routing, and the pipe transport all the way to `${original_recipient}` in `receive.js`. Phase 1 event routing by plus-tag is architecturally viable.
+
+4. **ARC behavior matches §7.4 theory.** M365-mediated mail carries an ARC chain and passes; direct-Gmail mail has no ARC (nothing to attest) and classifies `verified` via DKIM+DMARC alone. No anomalies.
+
+5. **DMARC pass achievable from DKIM alignment alone** (SPF unreachable because mailauth needs envelope `ip`/`helo`, which requires Postfix pipe transport — see finding 7). Good: DMARC remains a reliable `verified` anchor even when SPF context is unavailable.
+
+**Architectural lessons not in the original PRD (add to Phase 1 spec):**
+
+6. **Postfix on systemd uses `PrivateTmp=yes` by default on RHEL/AlmaLinux.** The service has an isolated `/tmp`. Pipe-transport scripts must log outside `/tmp` (use `/var/log/gitdone/`). Originally hit while debugging: pipe ran, script wrote to `/tmp/gitdone-poc.log`, log appeared empty from our login shell because Postfix's log was inside `/tmp/systemd-private-*/tmp/`.
+
+7. **Alias-pipe (`"|command"` in `/etc/aliases`) loses envelope metadata.** `local(8)` runs the pipe under `/bin/sh -c` with no `${client_address}` / `${client_helo}` / `${sender}` / `${original_recipient}` available. SPF verification and plus-tag preservation both require these.
+
+8. **Correct production setup: Postfix `pipe(8)` transport.** Required config sketch:
+
+   ```
+   # /etc/postfix/master.cf
+   gitdone  unix - n n - - pipe
+     flags=R user=<runtime-user> argv=/opt/gitdone/bin/receive.sh ${client_address} ${client_helo} ${sender} ${original_recipient}
+
+   # /etc/postfix/main.cf
+   virtual_mailbox_domains = git-done.com
+   virtual_mailbox_maps = static:nothing
+   virtual_transport = gitdone
+   transport_maps = hash:/etc/postfix/transport
+
+   # /etc/postfix/transport
+   git-done.com  gitdone:
+   ```
+
+   `mydestination` must **not** contain the GitDone domain (or `local(8)` intercepts before the transport runs). `luser_relay` must be unset.
+
+9. **`receive.js` must accept envelope args** and pass them to `mailauth.authenticate()` as `{ip, helo, sender, mta}`. Without these, SPF evaluates as `none` / `neutral`, costing us one of the §7.4 fallback signals.
+
+10. **POC `receive.js` ran as `nobody` under the alias-pipe.** For production, create a dedicated `gitdone` system user with restricted home (for git repos) and run the pipe under that identity.
+
+**Validated spec delta:** §3.3, §7.4, §8.1 are correct as written. §8.2 transport section needs the concrete pipe(8) config from finding 8. §9.2 setup steps need PrivateTmp / pipe-transport guidance. The Phase 1 design should incorporate findings 6–10 directly.
 
 ---
 
-## 11. Technical Constraints & Assumptions
+### Phase 4 — Optional (deferred)
 
-**Constraints**:
-1. Backend runs Node.js with Express framework (existing setup)
-2. Data storage is JSON files only (no database)
-3. No external services required (all in-process scheduler)
-4. Stats aggregation must be synchronous (not queued/async jobs)
-5. File I/O operations assume `/data/` directory is writable by backend process
-
-**Assumptions**:
-1. Event JSON files are created by existing `/api/events` endpoint (not modified by external sources)
-2. Step `status` field values are consistent (only "pending" or "completed")
-3. Event files are well-formed JSON (with error handling for corrupt files)
-4. Server will restart infrequently (scheduler state resets on restart—acceptable for v1)
-5. Platform will have < 10,000 events in `/data/events/` (single file aggregation adequate)
-
-**Dependencies**:
-- `node-cron` or `node-schedule` npm package for background scheduling
-- Existing Express server infrastructure
-- Existing file system access (no new permissions needed)
+- Federation across multiple gitdone instances
+- Bootstrap integration (accept GitHub age, domain ownership, etc. as pre-vouch signals for crypto events)
+- Webhook notifications
+- API for external integrations
+- Visual CAPTCHA layer for high-volume crypto events
 
 ---
 
-## 12. Implementation Checklist
+## 11. Success Criteria
 
-**Phase 1: Core Infrastructure**
-- [ ] Install scheduling package (`npm install node-cron`)
-- [ ] Create `backend/utils/statsAggregator.js` with aggregation logic
-- [ ] Create `backend/utils/statsScheduler.js` with scheduler setup
-- [ ] Create `backend/routes/stats.js` with GET and POST endpoints
-- [ ] Register stats routes in `backend/server.js`
-- [ ] Start scheduler on server startup
+**Phase 1 success:**
+- Postfix receives email, `receive.js` verifies DKIM, commits to git, forwards attachment to owner
+- Zero server-side attachment storage
+- OpenTimestamps anchor validates on independent verifier
+- Initiator UI creates workflow event in < 30 seconds
 
-**Phase 2: Testing**
-- [ ] Unit tests for aggregation logic (min 80% coverage)
-- [ ] Integration test for GET /api/stats endpoint
-- [ ] Integration test for POST /api/stats/refresh endpoint
-- [ ] Manual test with 100+ test event files
-- [ ] Test error scenarios (missing events dir, corrupt JSON, etc.)
-- [ ] Test monthly record creation logic
+**Phase 2 success:**
+- Declaration mode: single signer, 1 email, commits with OTS anchor, event closes
+- Attestation mode: 3+ real external senders, DKIM-verified, threshold reached, event closes
+- Duplicate senders correctly ignored under `unique` dedup rule
 
-**Phase 3: Frontend**
-- [ ] Create `frontend/src/components/StatsTable.tsx` component
-- [ ] Modify `frontend/src/app/page.tsx` to include stats table
-- [ ] Add fetch logic to load stats on component mount
-- [ ] Add loading and error states
-- [ ] Style table to match landing page design
-- [ ] Test on mobile and desktop viewports
-- [ ] QA: Verify stats display correctly
+**Phase 3 (launch) success:**
+- One real user (not the developer) creates and completes an event
+- Third party independently verifies an event's proofs
+- Documentation clear enough that a non-technical user understands what GitDone provides
 
-**Phase 4: Deployment & Verification**
-- [ ] Deploy to staging environment
-- [ ] Verify background scheduler runs on schedule (4 runs per day)
-- [ ] Verify monthly record creation (wait for month transition or trigger manually)
-- [ ] Verify stats cache updates correctly
-- [ ] Monitor aggregation performance in production
-- [ ] Deploy to production
-- [ ] Monitor for 24+ hours to ensure stability
+**Ongoing:**
+- Storage remains minimal (< 1 MB per 100 events, excluding git objects)
+- DKIM verification pass rate > 95% for major mail providers
+- No vendor dependencies beyond open-source libraries and Bitcoin
 
 ---
 
-## 13. Open Questions
+## 12. Out of Scope (Deliberately)
 
-**Questions to Resolve Before Implementation** (All answered in discovery; included for reference):
-
-1. ✅ **Endpoint Strategy**: Should stats be cached in a file or calculated on-demand? **ANSWER**: Cache in `/data/stats.json` with every-6-hour refresh (Option B)
-2. ✅ **Refresh Frequency**: How often should stats update? **ANSWER**: Every 6 hours (4 times daily) automatically + manual refresh capability
-3. ✅ **Monthly Record Scope**: How many months of history? **ANSWER**: Up to 12 per year (cumulative, one record per calendar month)
-4. ✅ **Access Control**: Who can see stats? **ANSWER**: Public view (no authentication)
-5. ✅ **Completed Event Definition**: All steps or at least one step? **ANSWER**: ALL steps must have completed status
-
-**Potential Questions During Implementation**:
-
-- **Q**: What if aggregation takes > 5 seconds? Should we implement async processing?
-  - **A**: For v1, document warning in logs. Add async queue in v2 if needed.
-
-- **Q**: Should we add indexes to event files for faster lookups?
-  - **A**: Not required for v1 (adequate performance with sequential scan). Consider for v2+ if > 10K events.
-
-- **Q**: How do we handle server restarts? Does scheduler state persist?
-  - **A**: Scheduler restarts on each server restart. This is acceptable—worst case, one 6-hour window is skipped (next refresh catches up).
-
-- **Q**: Should monthly records store `created_at` timestamp or just `date`?
-  - **A**: Use `date` (end of month 23:59 UTC) per schema in Section 4.1.
+- End-to-end encryption of emails (not needed — attachments don't live on server)
+- Identity verification beyond DKIM (we prove mail authentication, not human identity)
+- Legal document validity (GitDone proofs are records, not legal signatures — legal weight depends on jurisdiction and use)
+- Real-time notifications (email is asynchronous by design)
+- Mobile apps (web + email works everywhere)
+- Authentication beyond magic links (initiator convenience only)
+- Built-in document editor (users attach what they already have)
+- Blockchain anchoring beyond OpenTimestamps
+- Zero-knowledge proofs or advanced cryptography
+- Federation in v2 (deferred to Phase 4)
+- Inbuilt template library for the 9+ use cases (users describe what they need; GitDone routes it)
 
 ---
 
-## 14. Appendix: Example Walkthrough
+## 13. Risks and Open Questions
 
-### Scenario: Platform Uses GitDone for 3 Months
+### 13.1 Risks
 
-**January 31, 2025 @ 18:00 UTC**:
-- Background scheduler runs aggregation
-- Scans `/data/events/` and finds 5 event files
-- Aggregation results: `{total_events: 5, total_steps: 18, completed_events: 2, completed_steps: 8}`
-- Monthly record created: `{year: 2025, month: 1, date: "2025-01-31T23:59:00Z", total_events: 5, ...}`
-- `/data/stats.json` written with this record
+| Risk | Mitigation |
+|---|---|
+| **Postfix operational complexity** | Document setup thoroughly; provide `setup.sh` script |
+| **DKIM breakage by intermediaries** (mailing lists, corporate gateways, forwarders) | Four-method verification per §7.4: DKIM → ARC fallback → SPF/DMARC → accept-with-flag. Trust level recorded per reply; initiator sets policy |
+| **DKIM verification failures on edge providers** | Accept-with-flag model; user can upgrade to verified provider |
+| **OpenTimestamps calendar server downtime** | OTS is async; the proof completes within 24h, no blocking |
+| **Email spam filtering of our outbound** | Proper SPF/DKIM/DMARC setup from day one |
+| **Deliverability of receipts to participants** | Test with top 10 mail providers before launch |
+| **Attachment size limits from Postfix defaults** | Configure message_size_limit; document user expectations |
 
-**February 15, 2025**:
-- User visits landing page
-- Frontend calls GET `/api/stats`
-- Backend returns current metrics + monthly records (1 record: January)
-- Landing page displays: `Total Events: 5, Total Steps: 18, Completed Events: 2, Completed Steps: 8`
+### 13.2 Open questions
 
-**February 28, 2025 @ 12:00 UTC**:
-- Aggregation runs again (scheduled)
-- Now 12 event files exist (7 new events created in Feb)
-- Aggregation results: `{total_events: 12, total_steps: 45, completed_events: 5, completed_steps: 22}`
-- Monthly record created: `{year: 2025, month: 2, date: "2025-02-28T23:59:00Z", total_events: 12, ...}`
-- `/data/stats.json` now has 2 monthly records
-
-**March 5, 2025**:
-- Landing page shows: `Total Events: 12, Total Steps: 45, Completed Events: 5, Completed Steps: 22`
-- Monthly records: [Jan snapshot, Feb snapshot]
-- Trend visible: Jan→Feb shows growth
-
-**December 31, 2025 @ 18:00 UTC**:
-- Final aggregation of year
-- 12 monthly records exist (Jan-Dec)
-- Platform can now calculate annual growth rate: Jan (5 events) → Dec (42 events)
+- Should the initiator's email be hashed or plaintext in event JSON? (Leaning: hashed for public view, plaintext for management)
+- How long to retain DKIM key archives? (Proposal: forever — they're tiny)
+- How to handle legal discovery requests for event data? (Standard response: we have hashes and DKIM proofs; content is with event owners)
+- Should we offer an opt-in "keep attachments for 30 days" mode for users who want the convenience? (Leaning: no — keeps the privacy story clean)
+- What's the migration path from v1 data? (Proposal: none — v2 starts fresh)
 
 ---
 
-## 15. Document Control
+## 14. Alignment with Dev Rules
 
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 1.0 | 2025-12-19 | Product Manager | Initial PRD—Ready for development |
+This PRD adheres to the project's dev standards:
 
-**Approval Sign-Off** (Optional):
-- [ ] Product Manager: _________________
-- [ ] Engineering Lead: _________________
-- [ ] QA Lead: _________________
+- **POC first:** Phase 0 is explicitly a POC before any production code
+- **Build incrementally:** 4 phases, each independently useful
+- **Dependency hierarchy:** uses Postfix (system), Node stdlib where possible, adds only 3 libraries (mailauth, mailparser, opentimestamps-client) — all pass the checklist
+- **Lightweight over complex:** no new frameworks, no database migration, no vendor services
+- **Open-source only:** every dependency is MIT/Apache/BSD licensed
+- **Every line has a purpose:** the refactor deletes more code than it adds
 
 ---
 
-**End of Document**
+## 15. One-Paragraph Summary
 
-For questions or clarifications, contact the Product Manager.
+**GitDone v2 is a universal coordination protocol that lets an initiator define any cryptographically-verifiable action — a multi-step workflow (Event), a single-signer cryptographic record (Declaration), or a multi-signer attestation with N distinct signers (Attestation) — and receive immutable proof of completion. Participants act by replying to emails. Their replies are DKIM-verified by their mail providers, attachments are forwarded to the event owner (never stored on the server), and metadata is committed to a per-event git repository with OpenTimestamps anchors to Bitcoin. The result is immutable, independently verifiable proof, using infrastructure that's already deployed globally (DKIM, email, git), without requiring accounts, blockchains, vendor services, or user-managed cryptography. Two types cover every use case — Event (workflow) and Crypto (declaration or attestation). The initiator uses a minimal web UI. Participants never touch anything except their email client.**
 
+---
+
+**End of PRD.**

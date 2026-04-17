@@ -42,3 +42,6 @@ yarn-error.log*
 # OS
 Thumbs.db
 .DS_Store
+
+# Email samples — may contain private content
+*.eml
