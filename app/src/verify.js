@@ -216,4 +216,82 @@ async function buildVerificationReport(eventId, parsedForwardedEmail) {
   };
 }
 
-module.exports = { buildVerificationReport, findMatch, reverifyDkim, loadAllCommits };
+// Render a structured verify report (from buildVerificationReport) as
+// plain-text email body for sending back to the forwarder. Deliberately
+// compact; the machine-readable JSON stays in receive.log, not the email.
+function formatVerifyReportBody(report) {
+  const lines = [];
+  lines.push('GitDone verification report');
+  lines.push('===========================');
+  lines.push('');
+  lines.push(`Event ID: ${report.event_id}`);
+  if (report.verified_at) lines.push(`Checked at: ${report.verified_at}`);
+  if (typeof report.commit_count === 'number') {
+    lines.push(`Commits in event: ${report.commit_count}`);
+  }
+  lines.push(`Attachments submitted: ${report.attachment_count || 0}`);
+  lines.push('');
+
+  if (report.reason && !report.findings) {
+    lines.push(`Result: ${report.reason}`);
+    lines.push('');
+  } else if (!report.findings || report.findings.length === 0) {
+    lines.push('No verifiable attachments found in your message.');
+    lines.push('');
+    lines.push('To verify:');
+    lines.push('  (a) Attach the file (PDF, image, document) as a regular attachment, OR');
+    lines.push('  (b) Forward the email you want to verify as an attachment (.eml).');
+    lines.push('');
+  } else {
+    report.findings.forEach((f, i) => {
+      lines.push(`--- Attachment ${i + 1} ---`);
+      lines.push(`Filename: ${f.filename || '(no filename)'}`);
+      if (f.content_type) lines.push(`Content-Type: ${f.content_type}`);
+      lines.push(`Size: ${f.size} bytes`);
+      lines.push(`SHA-256: ${f.sha256}`);
+      if (f.match_type === 'none') {
+        lines.push('Result: NO MATCH.');
+        lines.push('  This content does not correspond to any recorded commit');
+        lines.push('  for this event. Either the content has been modified,');
+        lines.push('  or it was never part of this event.');
+      } else {
+        lines.push('Result: MATCH');
+        const explain = f.match_type === 'raw_email'
+          ? 'byte-identical raw email'
+          : f.match_type === 'message_id'
+            ? 'Message-ID match (RFC 5322-stable identifier)'
+            : 'attachment content hash match';
+        lines.push(`  Match type: ${f.match_type} (${explain})`);
+        lines.push(`  Matched commit: ${f.matched_commit}`);
+        if (f.dkim_reverify) {
+          if (f.dkim_reverify.ok) {
+            lines.push('  DKIM re-verification against archived key: PASS');
+          } else {
+            lines.push(`  DKIM re-verification: not available (${f.dkim_reverify.reason || 'unknown'})`);
+            lines.push('    Note: mail clients strip DKIM headers when forwarding');
+            lines.push('    as attachment, so re-verification from a forward is');
+            lines.push('    structurally limited. The original DKIM result was');
+            lines.push('    validated at reception time and is immutably recorded');
+            lines.push('    in the event\'s git history + OpenTimestamps anchor.');
+          }
+        }
+      }
+      lines.push('');
+    });
+  }
+
+  lines.push('---');
+  lines.push('This is an automated verification response.');
+  lines.push('The cryptographic guarantee for this event is recorded in its');
+  lines.push('git repository and anchored to Bitcoin via OpenTimestamps.');
+  lines.push('Every proof can be verified offline without contacting GitDone.');
+  return lines.join('\r\n');
+}
+
+module.exports = {
+  buildVerificationReport,
+  findMatch,
+  reverifyDkim,
+  loadAllCommits,
+  formatVerifyReportBody,
+};

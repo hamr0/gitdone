@@ -8,7 +8,7 @@ const path = require('node:path');
 const os = require('node:os');
 
 const { parseVerifyTag } = require('../../src/router');
-const { findMatch } = require('../../src/verify');
+const { findMatch, formatVerifyReportBody } = require('../../src/verify');
 
 const sha256Tagged = (buf) =>
   'sha256:' + crypto.createHash('sha256').update(buf).digest('hex');
@@ -99,4 +99,101 @@ test('buildVerificationReport: reports per-attachment findings with hashes', asy
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }
+});
+
+// formatVerifyReportBody — renders the verify report as email body text
+
+test('formatVerifyReportBody: happy path with raw_email match', () => {
+  const report = {
+    event_id: 'demo123',
+    verified_at: '2026-04-17T20:00:00Z',
+    commit_count: 2,
+    attachment_count: 1,
+    findings: [{
+      filename: 'contract.pdf',
+      content_type: 'application/pdf',
+      size: 1234,
+      sha256: 'sha256:abc',
+      match_type: 'raw_email',
+      matched_commit: 'commit-002.json',
+      dkim_reverify: { ok: true, result: 'pass' },
+    }],
+  };
+  const body = formatVerifyReportBody(report);
+  assert.match(body, /Event ID: demo123/);
+  assert.match(body, /Commits in event: 2/);
+  assert.match(body, /MATCH/);
+  assert.match(body, /commit-002\.json/);
+  assert.match(body, /DKIM re-verification against archived key: PASS/);
+  assert.doesNotMatch(body, /NO MATCH/);
+});
+
+test('formatVerifyReportBody: no-match case', () => {
+  const report = {
+    event_id: 'demo123',
+    verified_at: '2026-04-17T20:00:00Z',
+    commit_count: 5,
+    attachment_count: 1,
+    findings: [{
+      filename: 'not-ours.png',
+      size: 42,
+      sha256: 'sha256:zzz',
+      match_type: 'none',
+    }],
+  };
+  const body = formatVerifyReportBody(report);
+  assert.match(body, /NO MATCH/);
+  assert.match(body, /sha256:zzz/);
+  assert.doesNotMatch(body, /Matched commit/);
+});
+
+test('formatVerifyReportBody: no-attachments case has guidance', () => {
+  const report = {
+    event_id: 'demo123',
+    commit_count: 1,
+    attachment_count: 0,
+    findings: [],
+  };
+  const body = formatVerifyReportBody(report);
+  assert.match(body, /No verifiable attachments/);
+  assert.match(body, /Attach the file/);
+});
+
+test('formatVerifyReportBody: empty-event case (no commits)', () => {
+  const report = {
+    event_id: 'demo123',
+    matched: false,
+    reason: 'no commits found for event demo123',
+    attachment_count: 0,
+  };
+  const body = formatVerifyReportBody(report);
+  assert.match(body, /no commits found for event demo123/);
+});
+
+test('formatVerifyReportBody: DKIM re-verify failure is explained, not alarming', () => {
+  const report = {
+    event_id: 'demo123',
+    verified_at: '2026-04-17T20:00:00Z',
+    commit_count: 1,
+    attachment_count: 1,
+    findings: [{
+      filename: 'forwarded.eml',
+      size: 9999,
+      sha256: 'sha256:abc',
+      match_type: 'message_id',
+      matched_commit: 'commit-001.json',
+      dkim_reverify: { ok: false, reason: 'no DKIM-Signature header in forwarded content' },
+    }],
+  };
+  const body = formatVerifyReportBody(report);
+  assert.match(body, /DKIM re-verification: not available/);
+  assert.match(body, /mail clients strip DKIM headers/);
+  assert.match(body, /OpenTimestamps anchor/);
+});
+
+test('formatVerifyReportBody: output is CRLF-ready (no bare LF)', () => {
+  const report = { event_id: 'x', commit_count: 0, attachment_count: 0, findings: [] };
+  const body = formatVerifyReportBody(report);
+  // formatter uses \r\n joins; no bare \n anywhere
+  assert.ok(!/(?<!\r)\n/.test(body), 'must not contain bare LF');
 });

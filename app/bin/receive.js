@@ -19,7 +19,8 @@ const { parseEventTag, parseAddress, parseVerifyTag } = require('../src/router')
 const { loadEvent, findStep, senderMatchesStep } = require('../src/event-store');
 const { commitReply } = require('../src/gitrepo');
 const { fetchDkimKey, pickSignatureToArchive } = require('../src/dkim-archive');
-const { buildVerificationReport } = require('../src/verify');
+const { buildVerificationReport, formatVerifyReportBody } = require('../src/verify');
+const { sendmail, buildRawMessage } = require('../src/outbound');
 const logger = require('../src/logger');
 
 function readStdin() {
@@ -104,6 +105,35 @@ async function main() {
       from: from.address || null,
       report,
     });
+
+    // 1.L.1 send path: DKIM-signed report back to the forwarder.
+    // Recipient priority: envelope sender (what the MTA handed us) over
+    // the From header (which could be spoofed in a non-authed context).
+    // Either way, Auto-Submitted blocks loops via our own prefilter.
+    const to = envelope.sender || from.address || null;
+    if (to) {
+      const fromAddr = `verify+${verifyTag.eventId}@${config.domain}`;
+      const rawMessage = buildRawMessage({
+        from: `gitdone <${fromAddr}>`,
+        to,
+        subject: `[GitDone] Verification report for event ${verifyTag.eventId}`,
+        inReplyTo: parsed.messageId || null,
+        references: parsed.messageId || null,
+        body: formatVerifyReportBody(report),
+        domain: config.domain,
+      });
+      const sendResult = await sendmail({ from: fromAddr, rawMessage });
+      logger.emit({
+        kind: 'verify_reply_sent',
+        verify_event_id: verifyTag.eventId,
+        to,
+        from: fromAddr,
+        ok: sendResult.ok,
+        code: sendResult.code || null,
+        stderr: sendResult.stderr || null,
+        reason: sendResult.reason || null,
+      });
+    }
     return;
   }
 

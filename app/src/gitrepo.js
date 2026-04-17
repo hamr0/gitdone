@@ -21,7 +21,7 @@ const config = require('./config');
 const { stampFile, moveProofIntoTree } = require('./ots');
 
 const EVENT_ID_RE = /^[a-zA-Z0-9]+$/;
-const GIT_USER = { name: 'GitDone', email: `noreply@${config.domain}` };
+const GIT_USER = { name: 'gitdone', email: `noreply@${config.domain}` };
 
 function repoPath(eventId) {
   return path.join(config.dataDir, 'repos', eventId);
