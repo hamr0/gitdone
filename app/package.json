@@ -1,0 +1,20 @@
+{
+  "name": "gitdone-receive",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GitDone receive pipeline — Phase 1 production code.",
+  "main": "bin/receive.js",
+  "scripts": {
+    "test": "node --test tests/unit tests/integration",
+    "test:unit": "node --test tests/unit",
+    "test:integration": "node --test tests/integration"
+  },
+  "dependencies": {
+    "mailauth": "^4.6.0",
+    "mailparser": "^3.6.0",
+    "simple-git": "^3.20.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,136 @@
+'use strict';
+
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { spawn } = require('node:child_process');
+const path = require('node:path');
+
+const RECEIVE = path.join(__dirname, '..', '..', 'bin', 'receive.js');
+
+function runReceive(emlBuffer, envelopeArgs = []) {
+  return new Promise((resolve, reject) => {
+    const env = {
+      ...process.env,
+      // file logging disabled — stdout only, easy to capture
+      GITDONE_LOG_FILE: '',
+      GITDONE_LOG_STDOUT: 'true',
+    };
+    const proc = spawn('node', [RECEIVE, ...envelopeArgs], { env });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (c) => { stdout += c.toString(); });
+    proc.stderr.on('data', (c) => { stderr += c.toString(); });
+    proc.on('error', reject);
+    proc.on('close', (code) => resolve({ code, stdout, stderr }));
+    proc.stdin.end(emlBuffer);
+  });
+}
+
+const buildEml = (headers, body = 'hello\r\n') =>
+  Buffer.from(headers.join('\r\n') + '\r\n\r\n' + body);
+
+test('integration: unsigned email is accepted as unverified, fields parsed', async () => {
+  const eml = buildEml([
+    'From: alice@example.com',
+    'To: test+demo-step1@git-done.com',
+    'Subject: integration test',
+    'Message-ID: <test-001@example.com>',
+    'Date: Fri, 17 Apr 2026 10:00:00 +0000',
+  ]);
+  const { code, stdout, stderr } = await runReceive(eml, [
+    '198.51.100.1', 'mta.example.com', 'alice@example.com', 'test+demo-step1@git-done.com',
+  ]);
+  assert.equal(code, 0, `non-zero exit. stderr: ${stderr}`);
+  const out = JSON.parse(stdout.trim());
+  assert.equal(out.accepted, true);
+  assert.equal(out.trust_level, 'unverified'); // unsigned
+  assert.equal(out.from, 'alice@example.com');
+  assert.equal(out.subject, 'integration test');
+  assert.equal(out.envelope.client_ip, '198.51.100.1');
+  assert.equal(out.envelope.recipient, 'test+demo-step1@git-done.com');
+  assert.match(out.raw_sha256, /^sha256:[a-f0-9]{64}$/);
+});
+
+test('integration: Auto-Submitted is rejected, no DKIM work performed', async () => {
+  const eml = buildEml([
+    'From: ooo@example.com',
+    'To: test@git-done.com',
+    'Auto-Submitted: auto-replied',
+    'Subject: out of office',
+  ]);
+  const { code, stdout } = await runReceive(eml);
+  assert.equal(code, 0);
+  const out = JSON.parse(stdout.trim());
+  assert.equal(out.accepted, false);
+  assert.match(out.rejection_reason, /^auto-submitted/);
+  assert.equal(out.from, 'ooo@example.com');
+});
+
+test('integration: List-Id is rejected', async () => {
+  const eml = buildEml([
+    'From: announce@example.com',
+    'To: test@git-done.com',
+    'List-Id: <announce.example.com>',
+    'Subject: announcement',
+  ]);
+  const { code, stdout } = await runReceive(eml);
+  assert.equal(code, 0);
+  const out = JSON.parse(stdout.trim());
+  assert.equal(out.accepted, false);
+  assert.match(out.rejection_reason, /mailing list/);
+});
+
+test('integration: noreply@ sender is rejected', async () => {
+  const eml = buildEml([
+    'From: noreply@bigservice.com',
+    'To: test@git-done.com',
+    'Subject: reset',
+  ]);
+  const { code, stdout } = await runReceive(eml);
+  assert.equal(code, 0);
+  const out = JSON.parse(stdout.trim());
+  assert.equal(out.accepted, false);
+  assert.match(out.rejection_reason, /system sender/);
+});
+
+test('integration: empty stdin exits 2', async () => {
+  const { code, stderr } = await runReceive(Buffer.alloc(0));
+  assert.equal(code, 2);
+  assert.match(stderr, /empty stdin/);
+});
+
+test('integration: attachment hash is deterministic', async () => {
+  // Two MIME emails carrying the same attachment bytes should hash the same.
+  const boundary = 'BOUNDARY';
+  const attachContent = Buffer.from('hello attachment world').toString('base64');
+  const mkEml = (subject) => Buffer.from([
+    'From: alice@example.com',
+    'To: test@git-done.com',
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/plain',
+    '',
+    'see attached',
+    '',
+    `--${boundary}`,
+    'Content-Type: text/plain; name="hello.txt"',
+    'Content-Disposition: attachment; filename="hello.txt"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    attachContent,
+    '',
+    `--${boundary}--`,
+    '',
+  ].join('\r\n'));
+
+  const r1 = await runReceive(mkEml('first'));
+  const r2 = await runReceive(mkEml('second'));
+  const out1 = JSON.parse(r1.stdout.trim());
+  const out2 = JSON.parse(r2.stdout.trim());
+  assert.equal(out1.attachments.length, 1, 'expected one attachment');
+  assert.equal(out2.attachments.length, 1);
+  assert.equal(out1.attachments[0].sha256, out2.attachments[0].sha256, 'attachment hash should be deterministic');
+});
