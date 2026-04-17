@@ -45,3 +45,15 @@ Thumbs.db
 
 # Email samples — may contain private content
 *.eml
+
+# Cryptographic key material — never commit
+*.private
+*.pem
+*_rsa
+*_rsa.pub
+*.p12
+*.pfx
+# DKIM artifacts (opendkim-genkey outputs)
+*._domainkey*
+**/default.txt
+**/default.private

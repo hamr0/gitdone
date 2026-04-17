@@ -884,6 +884,18 @@ Phase 0 completed on a RackNerd VPS (AlmaLinux 8, Postfix 3.5.8, Node 20). All a
 
 15. **Direct-attachment hashing is deterministic across providers.** Validated with the same `braun-invoice.pdf` attached to a plain email and sent to `verify+{id}@` from both MSN Outlook and Gmail Web. Both produced byte-identical SHA-256 hashes and correctly matched `attachments[0]` of commit-002. A deliberately-wrong file (random PNG) produced a clean `match_type: none` with the computed hash returned for diagnostics. **Attach-a-raw-file is therefore the primary verification UX** — it works identically everywhere, unlike forward-as-attachment which is client-dependent (findings 11, 13). Practical implication: for attachment-heavy events (contracts, signed docs, evidence), users attach the disputed file and immediately get cryptographic proof of match or non-match.
 
+**Additional findings from Phase 1.F (outbound DKIM signing, 2026-04-17):**
+
+16. **opendkim on RHEL/AlmaLinux defaults to `Mode v`** (verify-only). Must be changed to `Mode sv` (sign + verify) in `/etc/opendkim.conf` before it will sign outbound. Easy to miss — the daemon starts happily in `v` mode and silently doesn't sign anything.
+
+17. **TCP milter socket is strictly simpler than unix for Postfix.** Default packaged opendkim uses `Socket local:/run/opendkim/opendkim.sock`. Postfix on RHEL runs in a chroot (`/var/spool/postfix`) and can't see `/run/opendkim/` without bind-mount gymnastics. Switching to `Socket inet:8891@127.0.0.1` + `smtpd_milters = inet:127.0.0.1:8891` eliminates the entire chroot concern with no security loss (localhost-only).
+
+18. **`milter_default_action = accept` is the right default, not `tempfail`.** If opendkim dies, `tempfail` (Postfix default) blocks all outbound mail with a 4xx deferral. `accept` lets mail flow unsigned — preferable to a service outage. We still notice via monitoring because outbound lands in spam without DKIM.
+
+19. **Brand-new domains land in Gmail Spam even with DKIM/SPF/DMARC all `pass`.** This is reputation, not cryptographic failure. The `Authentication-Results` header in the spam'd message shows all three `pass` cleanly. Solution is time + organic volume, not configuration. Future: add mailto-link "unspam" guidance in initial participant outbound, or consider TLS-RPT / MTA-STS for reputation signals.
+
+20. **`OversignHeaders From` (opendkim default) is a meaningful hardening against From-rewrite attacks.** It signs the From header twice (as a "strong" protection), so an intermediary rewriting From invalidates the signature. Keep as-is.
+
 ---
 
 ### Phase 4 — Optional (deferred)

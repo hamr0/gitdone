@@ -72,7 +72,7 @@ Modules are ordered so each is independently completable and verifiable.
 | **1.L.2** | Offline CLI `gitdone-verify` | 1.C | CLI takes a repo path + optional `--emails`; walks commits; reports verification status |
 | **1.L.3** | `reverify+{id}-{commitN}@` handler + `contested` flag | 1.C, 1.L.1, 1.F | Contested commits can be upgraded by forwarding evidence; history preserved |
 | — | **Initiator email commands** — stats+, remind+, close+ | 1.F | Replaces magic-link web clicks as primary initiator UX; DKIM + envelope auth |
-| **1.F** | Outbound DKIM signing (DNS + Postfix or opendkim) | independent | Gmail receives a message from us with DKIM pass |
+| **1.F** ✅ | Outbound DKIM signing (DNS + Postfix + opendkim) | independent | Gmail receives a message from us with DKIM pass — **done 2026-04-17**, selector `gd202604`, Gmail confirms dkim/spf/dmarc all `pass` |
 | **1.G** | Attachment forwarding to event owner | 1.C, 1.F | Owner inbox gets original email; SHA-256 in git matches forwarded copy |
 | **1.H** | Event creation UI (plain HTML) + magic-link management | independent | Initiator creates event in < 30s; gets management link |
 | **1.I** | Participant notification emails | 1.F, 1.H | Participant receives DKIM-signed prompt with reply-to event tag |
