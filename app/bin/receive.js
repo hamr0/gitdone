@@ -15,6 +15,8 @@ const config = require('../src/config');
 const { parseEnvelope } = require('../src/envelope');
 const { preFilter, extractHeaderBlock } = require('../src/prefilter');
 const { classifyTrust } = require('../src/classifier');
+const { parseEventTag, parseAddress } = require('../src/router');
+const { loadEvent, findStep, senderMatchesStep } = require('../src/event-store');
 const logger = require('../src/logger');
 
 function readStdin() {
@@ -79,6 +81,36 @@ async function main() {
   const headerBlock = extractHeaderBlock(raw, config.maxHeaderBytes);
   const filter = preFilter(headerBlock, from.address);
 
+  // Routing: resolve plus-tag → event/step, look up event JSON, check
+  // sender-vs-participant match. Accept-with-flag: never reject on routing
+  // failure. Initiator policy decides.
+  const addr = parseAddress(envelope.recipient);
+  const tag = parseEventTag(envelope.recipient);
+  let routing = {
+    matched: false,
+    address_kind: addr ? addr.kind : null,
+    event_id: tag ? tag.eventId : null,
+    step_id: tag ? tag.stepId : null,
+    step_found: null,
+    participant_match: null,
+  };
+  if (tag) {
+    try {
+      const event = await loadEvent(tag.eventId);
+      if (event) {
+        routing.matched = true;
+        const step = findStep(event, tag.stepId);
+        routing.step_found = !!step;
+        if (step) {
+          routing.participant_match = senderMatchesStep(envelope.sender || (from.address || null), step);
+        }
+      }
+    } catch (err) {
+      // Don't fail delivery on routing lookup error; record and continue.
+      routing.error = err.message || String(err);
+    }
+  }
+
   if (filter.rejected) {
     logger.emit({
       accepted: false,
@@ -107,6 +139,7 @@ async function main() {
       sender: envelope.sender,
       recipient: envelope.recipient,
     },
+    routing,
     from: from.address || null,
     from_domain: from.address ? from.address.split('@')[1] : null,
     to: (parsed.to && parsed.to.text) || null,
