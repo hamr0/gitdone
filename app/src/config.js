@@ -20,6 +20,7 @@ const config = {
   logFile: process.env.GITDONE_LOG_FILE || '/var/log/gitdone/receive.log',
   logToStdout: bool(process.env.GITDONE_LOG_STDOUT, true),
   maxHeaderBytes: num(process.env.GITDONE_MAX_HEADER_BYTES, 64 * 1024),
+  otsBin: process.env.GITDONE_OTS_BIN || '/usr/local/bin/ots',
 };
 
 module.exports = config;

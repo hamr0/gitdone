@@ -18,6 +18,7 @@ const path = require('node:path');
 const simpleGit = require('simple-git');
 
 const config = require('./config');
+const { stampFile, moveProofIntoTree } = require('./ots');
 
 const EVENT_ID_RE = /^[a-zA-Z0-9]+$/;
 const GIT_USER = { name: 'GitDone', email: `noreply@${config.domain}` };
@@ -149,6 +150,20 @@ async function commitReply(eventId, event, ctx) {
     metadata.dkim_archive = { error: ctx.dkimArchive.error };
   }
 
+  // Write metadata first so the file exists on disk and ots can stamp it.
+  await fs.writeFile(abs, JSON.stringify(metadata, null, 2) + '\n');
+
+  // 1.E: OpenTimestamps stamp the commit JSON. Pending proof returns
+  // immediately; auditors upgrade later for the full Bitcoin anchor.
+  const stampRes = await stampFile(abs);
+  if (stampRes.proof_path) {
+    const proofRel = await moveProofIntoTree(stampRes.proof_path, root, seqStr);
+    metadata.ots_proof_file = proofRel;
+    filesToAdd.push(proofRel);
+  } else if (stampRes.error) {
+    metadata.ots_archive = { error: stampRes.error };
+  }
+  // Rewrite metadata now that ots_proof_file is known (idempotent pass).
   await fs.writeFile(abs, JSON.stringify(metadata, null, 2) + '\n');
 
   const git = simpleGit(root);
@@ -161,6 +176,7 @@ async function commitReply(eventId, event, ctx) {
     sequence: seq,
     file: rel,
     dkim_key_file: metadata.dkim_key_file,
+    ots_proof_file: metadata.ots_proof_file,
     repo_path: root,
   };
 }
