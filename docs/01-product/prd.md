@@ -404,6 +404,25 @@ When the event completes, the initiator has:
 2. Their inbox full of forwarded emails with original attachments
 3. A permanent, verifiable record
 
+### 6.4 Initiator email commands (primary interaction)
+
+Per the moat (§0.1.4 — "invisible beats correct"), the initiator's day-to-day interactions with a running event happen via email, not web forms. The magic-link management URL exists as a fallback for initiators whose outbound DKIM is broken (corporate gateways) or who prefer a visual view.
+
+**Address namespace:**
+
+| Address | Purpose | Authentication |
+|---|---|---|
+| `event+{id}-{step}@` | participant reply → commit | DKIM + §7.4 trust classifier |
+| `verify+{id}@` | anyone forwards a raw `.eml` or attachment; gets a verification report back | none (public op) |
+| `stats+{id}@` | initiator: current event state + progress | DKIM + envelope sender == `event.initiator` |
+| `remind+{id}@` | initiator: resend reminders to pending-step participants | same |
+| `close+{id}@` | initiator: close event early | same |
+| `reverify+{id}-{commitN}@` | initiator or auditor: re-run verification on a specific commit with supplied evidence (raw `.eml`, attachment) | none |
+
+**Initiator authentication via DKIM:** when an inbound message is DKIM-verified and its envelope sender matches `event.initiator`, that's cryptographic proof that the initiator authorised the command. As strong as (and often stronger than) a magic link — DKIM can't be spoofed, magic links can be forwarded.
+
+**Every outbound email from GitDone includes a footer** pointing to `verify+{id}@` and `stats+{id}@` for the event. Zero-friction discoverability.
+
 ---
 
 ## 7. The Cryptographic Proof — What It Actually Guarantees
@@ -440,6 +459,38 @@ Any third party can verify a gitdone event by:
 3. If all verify, the chain of events is cryptographically sound
 
 No trust in gitdone the service is required. GitDone is a convenience layer; the proofs are self-contained.
+
+**Two UX paths for re-verification** (same cryptographic guarantees, different audiences):
+
+- **`verify+{id}@` by email** — forward the raw `.eml` or attachment to the event's verify address. GitDone re-runs checks and sends a DKIM-signed report back. Convenience UX; still requires GitDone to be running.
+- **Offline CLI** (`gitdone-verify`) — installable tool that works on any cloned repo without contacting GitDone. Principle §0.1.2 embodiment. Takes an optional `--emails` directory for full DKIM re-verification.
+
+The artifacts in the repo are the cryptographic truth; both paths are just different ways to run the same math.
+
+### 7.4.x Minimum trust threshold and contestation
+
+Events declare a minimum trust level that counts toward completion:
+
+```json
+{
+  "min_trust_level": "verified" | "forwarded" | "authorized" | "unverified"
+}
+```
+
+Commits with a trust level below the threshold are written to the repo (accept-with-flag) but marked `contested: true` in their metadata and **not counted** toward workflow-all-steps-done or attestation-threshold-reached.
+
+**Upgrade path:** the initiator (or the signer themselves) forwards the raw `.eml` to `reverify+{id}-{commitN}@`. GitDone:
+
+1. Re-runs DKIM verification against the commit's archived PEM using the supplied raw email
+2. If the signature validates cleanly, appends a new "re-verification" git commit that updates commit N's metadata: `trust_level_upgraded: from → to`, `contested: false`
+3. The original commit-N.json stays untouched (immutable history); the upgrade is a new commit layered on top
+4. Completion logic re-evaluates
+
+Default `min_trust_level` by event type:
+
+- **Event (workflow):** `verified`
+- **Crypto Declaration** (legal/compliance weight): `verified` — required, no fallback
+- **Crypto Attestation** (petitions, vouches): `authorized` — allows a broader audience while still rejecting entirely unauthenticated mail
 
 ### 7.4 Handling real-world DKIM fragility — trust levels and verification methods
 
@@ -808,6 +859,18 @@ Phase 0 completed on a RackNerd VPS (AlmaLinux 8, Postfix 3.5.8, Node 20). All a
 10. **POC `receive.js` ran as `nobody` under the alias-pipe.** For production, create a dedicated `gitdone` system user with restricted home (for git repos) and run the pipe under that identity.
 
 **Validated spec delta:** §3.3, §7.4, §8.1 are correct as written. §8.2 transport section needs the concrete pipe(8) config from finding 8. §9.2 setup steps need PrivateTmp / pipe-transport guidance. The Phase 1 design should incorporate findings 6–10 directly.
+
+**Additional findings from Phase 1.L.1 (verify+{id}@ email handler, 2026-04-17):**
+
+11. **Raw-byte email match is structurally unreliable across forward paths.** Tested with 5 real forwards (2 from MSN Outlook, 1 from Gmail web) of the same committed email; each produced a different SHA-256 from the stored `raw_sha256` (off by hundreds of bytes). Every major mail client normalises headers, line endings, charsets, or re-encodes MIME when exporting via "Forward as attachment." Conclusion: `raw_sha256` is a useful integrity anchor at reception time but unreliable for post-hoc matching from user-forwarded copies.
+
+12. **Message-ID is the only stable cross-client identifier.** RFC 5322 requires Message-ID to be preserved verbatim by any compliant client (it's how threading works). Forwards from MSN and Gmail both preserved the original Message-ID intact. Adding **`message_id_hash`** (salted, per §0.1.10) to commit schema v2 gave us reliable matching across all tested forward paths. Cascade order in verify: `raw_sha256` → `message_id_hash` → attachment `sha256`.
+
+13. **DKIM re-verification from forwarded .eml is not possible.** Gmail and MSN both strip the DKIM-Signature header when exporting an email as attachment. mailauth reports "message not signed" on every forwarded-as-attachment sample we tested, even when the original email was verifiably DKIM-signed. This is a universal limitation of mail clients, not our system.
+
+    **Implication for the trust model:** DKIM is verified ONCE at reception and its result is stored with an archived public key (1.D) + OTS anchor (1.E). The stored result is the truth; the OTS + git chain make tampering with that stored result detectable. Forwarded copies can only *identify* which commit they correspond to (Message-ID match) — they cannot be used to re-run DKIM. This does not weaken the cryptographic guarantee, because the guarantee never relied on repeated DKIM verification; it relied on the one-shot verification being immutable.
+
+14. **`verify+{id}@` email flow graduates on commit identification, not content re-verification.** The per-commit verification report tells the user: "this forwarded email corresponds to commit-N in event X, and here's what we recorded about it at reception (trust level, signatures, attachment hashes)." That's the practical upper bound given finding 13, and it's the useful outcome — the user can now cross-reference a specific reply to a specific recorded commit.
 
 ---
 

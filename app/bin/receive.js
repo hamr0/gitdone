@@ -15,10 +15,11 @@ const config = require('../src/config');
 const { parseEnvelope } = require('../src/envelope');
 const { preFilter, extractHeaderBlock } = require('../src/prefilter');
 const { classifyTrust } = require('../src/classifier');
-const { parseEventTag, parseAddress } = require('../src/router');
+const { parseEventTag, parseAddress, parseVerifyTag } = require('../src/router');
 const { loadEvent, findStep, senderMatchesStep } = require('../src/event-store');
 const { commitReply } = require('../src/gitrepo');
 const { fetchDkimKey, pickSignatureToArchive } = require('../src/dkim-archive');
+const { buildVerificationReport } = require('../src/verify');
 const logger = require('../src/logger');
 
 function readStdin() {
@@ -82,6 +83,29 @@ async function main() {
   const from = (parsed.from && parsed.from.value && parsed.from.value[0]) || {};
   const headerBlock = extractHeaderBlock(raw, config.maxHeaderBytes);
   const filter = preFilter(headerBlock, from.address);
+
+  // 1.L.1: verify+{id}@ — short-circuit before event routing / commit flow.
+  // Public verification endpoint: anyone can forward a raw .eml or attachment
+  // and get a report. No commit. No trust classifier. Just check and log.
+  const verifyTag = parseVerifyTag(envelope.recipient);
+  if (verifyTag && !filter.rejected) {
+    const report = await buildVerificationReport(verifyTag.eventId, parsed);
+    logger.emit({
+      kind: 'verify_report',
+      accepted: true,
+      verify_event_id: verifyTag.eventId,
+      received_at: new Date().toISOString(),
+      envelope: {
+        client_ip: envelope.clientIp,
+        client_helo: envelope.clientHelo,
+        sender: envelope.sender,
+        recipient: envelope.recipient,
+      },
+      from: from.address || null,
+      report,
+    });
+    return;
+  }
 
   // Routing: resolve plus-tag → event/step, look up event JSON, check
   // sender-vs-participant match. Accept-with-flag: never reject on routing
@@ -173,8 +197,6 @@ async function main() {
         from: from.address,
         trustLevel,
         participantMatch: routing.participant_match,
-        subject: parsed.subject,
-        bodyPreview,
         messageId: parsed.messageId,
         attachments,
         dkim: dkimSummary,

@@ -103,6 +103,21 @@ function saltedSenderHash(sender, salt) {
   return `sha256:${sha256Hex(material)}`;
 }
 
+// Normalise a Message-ID to a canonical form before hashing. RFC 5322
+// defines it as an opaque value in angle brackets (`<local@domain>`).
+// Treat case-insensitively for match stability across clients.
+function normaliseMessageId(mid) {
+  if (!mid) return null;
+  const s = String(mid).trim();
+  return s.replace(/^<|>$/g, '').toLowerCase();
+}
+
+function saltedMessageIdHash(mid, salt) {
+  const n = normaliseMessageId(mid);
+  if (!n) return null;
+  return `sha256:${sha256Hex(`${salt || ''}|${n}`)}`;
+}
+
 function buildCommitMetadata(seq, ctx, event) {
   const sender = ctx.envelope && ctx.envelope.sender ? ctx.envelope.sender
               : (ctx.from || null);
@@ -116,6 +131,10 @@ function buildCommitMetadata(seq, ctx, event) {
     received_at: ctx.receivedAt,
     sender_hash: saltedSenderHash(sender, salt),
     sender_domain: senderDomain,
+    // Salted Message-ID hash enables re-matching a forwarded .eml even when
+    // the forwarding client re-encoded the bytes. Message-ID is RFC-5322
+    // required to be preserved verbatim across any mail path.
+    message_id_hash: saltedMessageIdHash(ctx.messageId, salt),
     trust_level: ctx.trustLevel,
     participant_match: ctx.participantMatch,
     attachments: ctx.attachments || [],
@@ -208,6 +227,8 @@ module.exports = {
   commitReply,
   buildCommitMetadata,
   saltedSenderHash,
+  saltedMessageIdHash,
+  normaliseMessageId,
   generateEventSalt,
   repoPath,
 };

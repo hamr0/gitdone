@@ -37,4 +37,12 @@ function parseEventTag(recipient) {
   return { eventId, stepId };
 }
 
-module.exports = { parseAddress, parseEventTag };
+// verify+{eventId}@ — public verification endpoint. No step component.
+function parseVerifyTag(recipient) {
+  const a = parseAddress(recipient);
+  if (!a || a.kind !== 'verify') return null;
+  if (!EVENT_ID_RE.test(a.extension)) return null;
+  return { eventId: a.extension };
+}
+
+module.exports = { parseAddress, parseEventTag, parseVerifyTag };
