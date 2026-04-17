@@ -68,7 +68,7 @@ Modules are ordered so each is independently completable and verifiable.
 | **1.D** ✅ | DKIM key archival per commit | 1.C | `dkim_keys/commit-N.pem` written; offline re-verification works — **done 2026-04-17** |
 | **1.E** ✅ | OpenTimestamps async anchoring | 1.C | `ots_proofs/commit-N.ots` verifies against Bitcoin — **done 2026-04-17** |
 | **1.C+** ✅ | Principle §0.1.10 compliance (salted hash, drop plaintext) + OTS-verify fix | 1.C, §0 | No plaintext leaks in commit JSON; `ots verify` succeeds on final committed JSON — **done 2026-04-17** |
-| **1.L.1** ✅ | `verify+{id}@` email handler (POC, log-only — prod email send awaits 1.F) | 1.C | Forwarded `.eml` identifies matching commit via Message-ID cascade; full findings logged — **done 2026-04-17** |
+| **1.L.1** ✅ | `verify+{id}@` email handler + DKIM-signed reply send path | 1.C, 1.F | Forwarded `.eml` identifies matching commit via Message-ID cascade; plain-text report DKIM-signed and replied to forwarder via sendmail(8) — **done 2026-04-17** |
 | **1.L.2** | Offline CLI `gitdone-verify` | 1.C | CLI takes a repo path + optional `--emails`; walks commits; reports verification status |
 | **1.L.3** | `reverify+{id}-{commitN}@` handler + `contested` flag | 1.C, 1.L.1, 1.F | Contested commits can be upgraded by forwarding evidence; history preserved |
 | — | **Initiator email commands** — stats+, remind+, close+ | 1.F | Replaces magic-link web clicks as primary initiator UX; DKIM + envelope auth |

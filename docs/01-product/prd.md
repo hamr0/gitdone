@@ -896,6 +896,18 @@ Phase 0 completed on a RackNerd VPS (AlmaLinux 8, Postfix 3.5.8, Node 20). All a
 
 20. **`OversignHeaders From` (opendkim default) is a meaningful hardening against From-rewrite attacks.** It signs the From header twice (as a "strong" protection), so an intermediary rewriting From invalidates the signature. Keep as-is.
 
+**Additional findings from Phase 1.L.1 send path (2026-04-17):**
+
+21. **`sendmail(8)` + non_smtpd_milters is the minimal outbound plumbing.** Node pipes a raw RFC-822 message to `/usr/sbin/sendmail -t -i -f <env>`, Postfix queues it, opendkim signs via the non_smtpd milter hook, Gmail receives DKIM pass. Zero outbound-specific Node libraries; the stdlib `child_process.spawn` is enough. `mailparser` + `mailauth` handle inbound only — outbound is one module (`outbound.js`, ~40 lines of logic) pinned on the OS MTA.
+
+22. **EPIPE on child stdin is load-bearing to swallow.** If sendmail (or any test fake) exits before draining stdin, the pipe write raises EPIPE as an uncaughtException on the Writable stream. A no-op `child.stdin.on('error', () => {})` keeps the process alive; the `exit`-code handler is the authoritative signal for whether delivery was queued. This is Node-specific pattern more than mail-specific.
+
+23. **`Auto-Submitted: auto-replied` (RFC 3834) is the correct header for responses to a specific human action.** Pair with our prefilter (§7.4), which already rejects any inbound `Auto-Submitted`: this closes auto-responder loops cleanly — if a recipient's OOO replies to our verify report, prefilter drops it silently, no commit is written. `auto-generated` is the right value for standalone notifications (completion emails, reminders); keep `auto-replied` scoped to direct responses.
+
+24. **Envelope sender `verify+{id}@` is the right choice for the reply,** even though it looks like a loop hazard. Bounces from delivery failure arrive back at `verify+` with envelope sender `<>` and often `From: MAILER-DAEMON@...`. The prefilter's system-sender pattern (`mailer-daemon@`, `postmaster@`) rejects them before we do any work. Empty-envelope-sender (`-f ""`) would avoid bounces entirely but would weaken SPF alignment; not worth it given the prefilter already handles the bounce case.
+
+25. **Identity aliases are lowercase (`gitdone`, not `GitDone`).** Applies to the From display name on outbound and the git commit author name. Project convention; purely cosmetic but consistent.
+
 ---
 
 ### Phase 4 — Optional (deferred)
