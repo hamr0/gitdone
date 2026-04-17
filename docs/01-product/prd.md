@@ -908,6 +908,18 @@ Phase 0 completed on a RackNerd VPS (AlmaLinux 8, Postfix 3.5.8, Node 20). All a
 
 25. **Identity aliases are lowercase (`gitdone`, not `GitDone`).** Applies to the From display name on outbound and the git commit author name. Project convention; purely cosmetic but consistent.
 
+**Additional findings from Phase 1.L.2 offline verifier (2026-04-17):**
+
+26. **`ots verify` exit code is ambiguous — text parsing is authoritative.** The client exits 1 for BOTH tamper ("File does not match original!") AND unconfirmed-pending proofs (awaiting 6 Bitcoin confirmations). Exit code alone cannot distinguish the two. The verifier classifies by stdout text: `does not match` → invalid; `success!|bitcoin block #\d` → fully anchored; `timestamped by transaction|waiting for N confirmation` → in-bitcoin (tx exists, not yet final); `pending confirmation` → calendar-only. Regex `/bitcoin block/` is too loose — it false-matches "Bitcoin blockchain" in pending messages, so require `/bitcoin block #?\d/`.
+
+27. **Plaintext discipline is programmatically enforceable.** The verifier checks every committed JSON for forbidden keys (`sender`, `subject`, `body_preview`, `message_id`) and fails the schema check if any appear. This turns §0.1.10 from a manual review item into an automated regression test — if a future code change accidentally leaks plaintext, `gitdone-verify` catches it on the repo.
+
+28. **Tamper detection validated end-to-end on a real repo.** Flipping a single byte of `trust_level` in `commits/commit-002.json` (after OTS anchoring) caused `OpenTimestamps FAIL (1 bad proof)` and `Overall: FAIL (exit 1)`. This is principle §0.1.2 as a working test: every issued proof is immutable; post-hoc modifications are cryptographically detectable without calling GitDone.
+
+29. **Sequential-flow ordering is a first-class check.** For `flow: sequential` workflows, step N's accepted reply must have a lower `sequence` than step N+1's. Without this check, an out-of-order reply sequence still satisfies "every step has a reply" but violates the sequential workflow's intent. The verifier catches this as a WARN (not FAIL — the commits are still cryptographically valid, just not in the order the initiator declared).
+
+30. **Node stdlib is enough for the offline verifier** — no npm deps. `crypto.createPublicKey` parses PEMs, `child_process.spawnSync` wraps git/ots, `fs` + `path` do the rest. Single file at `tools/gitdone-verify/gitdone-verify.js` (~330 lines). Meets PRD §10.4's "single Python/Node file" constraint and principle §0.1.2's "fork freely" intent.
+
 ---
 
 ### Phase 4 — Optional (deferred)
