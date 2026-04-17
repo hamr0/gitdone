@@ -71,9 +71,9 @@ test('nextSequence: finds max then +1, ignores non-matching files', async () => 
   assert.equal(await nextSequence(root), 13);
 });
 
-test('commitReply: writes commit-NNN.json and creates a git commit', async () => {
-  const { commitReply, repoPath } = require('../../src/gitrepo');
-  const event = { id: 'testD', title: 'D', steps: [{ id: 'step1' }] };
+test('commitReply: writes commit-NNN.json (v2 schema) and creates a git commit', async () => {
+  const { commitReply, generateEventSalt } = require('../../src/gitrepo');
+  const event = { id: 'testD', title: 'D', salt: generateEventSalt(), steps: [{ id: 'step1' }] };
   const ctx = {
     eventId: 'testD',
     stepId: 'step1',
@@ -82,9 +82,6 @@ test('commitReply: writes commit-NNN.json and creates a git commit', async () =>
     from: 'alice@example.com',
     trustLevel: 'verified',
     participantMatch: true,
-    subject: 'hello',
-    bodyPreview: 'hi there',
-    messageId: '<abc@ex.com>',
     attachments: [{ filename: 'x.pdf', size: 100, sha256: 'sha256:deadbeef' }],
     dkim: { result: 'pass' },
     rawSha256: 'sha256:feed',
@@ -96,9 +93,15 @@ test('commitReply: writes commit-NNN.json and creates a git commit', async () =>
   assert.match(r.file, /^commits\/commit-001\.json$/);
 
   const saved = JSON.parse(await fs.readFile(path.join(r.repo_path, r.file), 'utf8'));
+  assert.equal(saved.schema_version, 2);
   assert.equal(saved.event_id, 'testD');
   assert.equal(saved.step_id, 'step1');
-  assert.equal(saved.sender, 'alice@example.com');
+  // Principle §0.1.10 — no plaintext leaks:
+  assert.equal(saved.sender, undefined);
+  assert.equal(saved.subject, undefined);
+  assert.equal(saved.body_preview, undefined);
+  assert.equal(saved.message_id, undefined);
+  // But hashed + domain survive:
   assert.equal(saved.sender_domain, 'example.com');
   assert.match(saved.sender_hash, /^sha256:[a-f0-9]{64}$/);
   assert.equal(saved.trust_level, 'verified');
@@ -115,11 +118,38 @@ test('commitReply: writes commit-NNN.json and creates a git commit', async () =>
   assert.equal(log.total, 3);
 });
 
-test('buildCommitMetadata: sender_hash is lower-cased then hashed (stable)', async () => {
+test('buildCommitMetadata: same salt + same sender → same hash (dedup works)', () => {
   const { buildCommitMetadata } = require('../../src/gitrepo');
+  const event = { salt: 'fixed-salt' };
   const ctx1 = { eventId: 'x', receivedAt: 'now', envelope: { sender: 'Alice@Example.com' }, from: null };
   const ctx2 = { eventId: 'x', receivedAt: 'now', envelope: { sender: 'alice@example.com' }, from: null };
-  const m1 = buildCommitMetadata(1, ctx1);
-  const m2 = buildCommitMetadata(1, ctx2);
-  assert.equal(m1.sender_hash, m2.sender_hash);
+  const m1 = buildCommitMetadata(1, ctx1, event);
+  const m2 = buildCommitMetadata(1, ctx2, event);
+  assert.equal(m1.sender_hash, m2.sender_hash); // lowercased → same
+});
+
+test('buildCommitMetadata: different salt → different hash (cross-event isolation)', () => {
+  const { buildCommitMetadata } = require('../../src/gitrepo');
+  const ctx = { eventId: 'x', receivedAt: 'now', envelope: { sender: 'alice@example.com' }, from: null };
+  const m1 = buildCommitMetadata(1, ctx, { salt: 'salt-A' });
+  const m2 = buildCommitMetadata(1, ctx, { salt: 'salt-B' });
+  assert.notEqual(m1.sender_hash, m2.sender_hash);
+});
+
+test('buildCommitMetadata: no salt falls back to unsalted hash (legacy compat)', () => {
+  const { buildCommitMetadata, saltedSenderHash } = require('../../src/gitrepo');
+  const ctx = { eventId: 'x', receivedAt: 'now', envelope: { sender: 'alice@example.com' }, from: null };
+  const m = buildCommitMetadata(1, ctx, {});
+  // Still produces a hash but predictable (without salt protection)
+  assert.match(m.sender_hash, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(m.sender_hash, saltedSenderHash('alice@example.com', null));
+});
+
+test('generateEventSalt: produces 64-char hex (32 bytes)', () => {
+  const { generateEventSalt } = require('../../src/gitrepo');
+  const a = generateEventSalt();
+  const b = generateEventSalt();
+  assert.match(a, /^[0-9a-f]{64}$/);
+  assert.match(b, /^[0-9a-f]{64}$/);
+  assert.notEqual(a, b);
 });

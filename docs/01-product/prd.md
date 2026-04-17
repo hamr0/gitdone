@@ -7,6 +7,63 @@
 
 ---
 
+## 0. Design Principles (non-negotiable)
+
+Every identity and authentication system for the past 60 years has drifted from its original design toward centralization, surveillance, or extraction. The following principles are structural defenses against that drift. Each is a lesson paid for by a failed or captured predecessor (see §0.2).
+
+### 0.1 Principles
+
+1. **No user accounts. Ever.** Every URL is event-scoped or public stats. No profile pages that span events. No "my gitdone." No "sign in." Participants never register — they reply to emails.
+
+2. **Proofs must verify without gitdone being alive.** A cloned repo + an open-source `gitdone-verify` script must validate every proof (DKIM signatures, OpenTimestamps anchors, content hashes) entirely offline, without calling any gitdone server. If gitdone the service dies tomorrow, every issued proof still works forever.
+
+3. **Don't become a standard.** Stay a tool. No RFC, no W3C, no foundation, no committee. Other implementations are welcome; endorsement-chasing is not.
+
+4. **Invisible beats correct.** The participant's action is "reply to email" or "tap mailto: link." If any proposed feature makes the participant think, reject it.
+
+5. **No analytics, no tracking, no cross-event aggregation.** Only public per-event stats and platform totals. No user-level views, no behavioral data, no telemetry. The business model is that there is no business model.
+
+6. **No public API in Phase 1.** The git repo IS the API. Integrators clone and parse. APIs attract integrations that lock in the current schema.
+
+7. **Federation is portability of proofs, not federation of service.** Anyone can run their own verifier. Proofs from verifier-A validate at verifier-B because DKIM + OpenTimestamps are independently verifiable. No cross-verifier trust protocol needed; none should be built.
+
+8. **Resist identity unification.** A person can have many `.vou` files across many email addresses, many events, many contexts. Forcing them together is the Facebook wave collapse — harmful by design.
+
+9. **Name the trust deposits explicitly.** Every system concentrates trust somewhere. GitDone concentrates it in: mail providers (DKIM), Bitcoin miners (OpenTimestamps), git collision resistance, and the maintainer council. These are named and unavoidable. Reducing them further would require new cryptography and is out of scope.
+
+10. **Plaintext discipline.** Sender addresses are hashed with public salt. Attachments never stored on the server (forwarded to event owner, only content hashes committed). Audit every commit payload for "plaintext equivalents."
+
+### 0.2 What these principles protect against (historical context)
+
+The principles above derive from the 5-part history of digital identity by Sar at Synthetic Auth, traced from CTSS (1961) through OAuth/OpenID Connect (2014):
+
+| Article | Failure mode gitdone must avoid |
+|---|---|
+| [Part 1 — The Birth of Digital Authentication](https://syntheticauth.ai/posts/synthetic-auth-the-making-of-digital-identity-01-the-birth-of-digital-authentication) | Plaintext storage, "whoever knows the secret IS the person" |
+| [Part 2 — The Cryptographic Solution](https://syntheticauth.ai/posts/the-making-of-digital-identity-02-the-cryptographic-solution) | Solving the wrong puzzle — identity isn't just secret-knowledge |
+| [Part 3 — The Network Era](https://syntheticauth.ai/posts/the-making-of-digital-identity-03-the-network-era) | The boundary problem — trust concentration when verifying strangers |
+| [Part 4 — The Web Identity Crisis](https://syntheticauth.ai/posts/the-making-of-digital-identity-04-the-web-identity-crisis) | Account proliferation, shadow profiles, user as product |
+| [Part 5 — The Federation Wars](https://syntheticauth.ai/posts/the-making-of-digital-identity-05-the-federation-wars) | Federation → oligopoly, identity merged with surveillance, OpenID lost to FB Connect on UX |
+
+### 0.3 The cumulative lessons (60+ years)
+
+- **Scale breaks trust.** Systems for known communities fail at stranger-scale.
+- **Trust always gets deposited somewhere.** "Trustless" is marketing. The design question is *who* you trust — name it.
+- **Mathematical purity loses to convenience every time.** OpenID (correct, hard) lost to Facebook Connect (dirty, easy).
+- **Commerce drives architecture.** Frictionless paths win even when they're technically wrong.
+- **Each solution breeds the next problem.** Passwords → hashing → federation → oligopoly → surveillance.
+- **The user becomes the product** whenever identity and business merge.
+- **Identity fragmentation is natural; forced unification is harmful.**
+- **Plaintext is the original sin** and still lurks in every stack.
+
+GitDone's core bet is that by being a *coordination* tool that produces cryptographically-verifiable git repos as a side effect — rather than an *identity* product — it can avoid the drift that captured every predecessor.
+
+### 0.4 The filter
+
+Every future feature request passes this test: "Does it violate a principle in §0.1?" If yes, reject, regardless of how clever, requested, or commercially tempting. The principles are the moat.
+
+---
+
 ## 1. What GitDone Is
 
 **GitDone is a universal coordination protocol for getting cryptographically verifiable multi-party actions, using email as the participant interface and git as the permanent record.**
@@ -536,12 +593,15 @@ Each `commit-NNN.json`:
 
 ```json
 {
+  "schema_version": 2,
   "event_id": "evt-abc123",
+  "step_id": "step-1",
   "sequence": 1,
   "received_at": "2026-04-16T14:22:00Z",
-  "sender_domain": "gmail.com",
   "sender_hash": "sha256:a1b2c3...",
-  "body_preview": "first 200 chars",
+  "sender_domain": "gmail.com",
+  "trust_level": "verified",
+  "participant_match": true,
   "attachments": [
     {
       "filename": "contract-signed.pdf",
@@ -549,16 +609,19 @@ Each `commit-NNN.json`:
       "sha256": "sha256:d4e5f6..."
     }
   ],
-  "dkim": {
-    "result": "pass",
-    "selector": "20230601",
-    "domain": "gmail.com",
-    "pubkey_file": "dkim_keys/commit-001.pem"
-  },
-  "ots_proof_file": "ots_proofs/commit-001.ots",
-  "step_id": "step-1"
+  "dkim": { "signatures": [ { "result": "pass", "aligned": "gmail.com", "selector": "20230601", "domain": "gmail.com" } ] },
+  "spf": { "result": "pass" },
+  "dmarc": { "result": "pass" },
+  "arc": { "result": "none" },
+  "envelope": { "client_ip": "209.85.218.52", "client_helo": "mail-ed1.google.com" },
+  "raw_sha256": "sha256:...",
+  "raw_size": 12345,
+  "dkim_key_file": "dkim_keys/commit-001.pem",
+  "ots_proof_file": "ots_proofs/commit-001.ots"
 }
 ```
+
+**Schema v2 rationale (per §0.1.10 plaintext discipline):** sender is represented only by its salted hash (salt lives in the event's `event.json`) and by domain. Subject, body preview, message ID, and plaintext sender are **not** stored in the committed metadata — they live only in the forwarded email to the event owner. The event salt is per-event public, so a verifier can re-hash a claimed address and match, but bulk correlation across events is infeasible.
 
 ---
 
@@ -606,10 +669,49 @@ Prove the core email-in pipeline works:
    - Verifies DKIM with `mailauth`
    - Logs sender, body, attachment list
 3. Send a test email, confirm processing
+4. **Independent verifier (`gitdone-verify`)** — the structural integrity check (see §10.4)
 
-**Graduation:** one real email, DKIM verified, metadata extracted, logged to console.
+**Graduation:** one real email, DKIM verified, metadata extracted, logged to console. `gitdone-verify` successfully validates a sample repo *without making any network call to gitdone's server* — only public DNS (for DKIM keys) and Bitcoin block headers (for OpenTimestamps).
 
 Validation results recorded in §10.5.
+
+### Phase 0 tail — `gitdone-verify` (independent verification)
+
+Principle §0.2 says **proofs must verify without gitdone being alive.** This isn't a Phase 3 nice-to-have — it's the one feature whose absence would make every other feature meaningless. If a customer can't verify their proof after gitdone dies, gitdone is just another Keybase waiting to happen.
+
+**What to build:**
+
+A single-file, open-source, zero-server-dependency verifier. Takes a cloned gitdone event repo as input; outputs a pass/fail report.
+
+```
+$ gitdone-verify ./some-cloned-event-repo/
+```
+
+**What it verifies, in order:**
+
+1. **Git integrity** — every commit is well-formed, the chain is intact, no rewriting.
+2. **DKIM signatures on each committed email** — using the DKIM public key archived *inside* the repo alongside the commit. No DNS call needed for the verification itself; optional DNS cross-check if current keys still exist.
+3. **OpenTimestamps proofs** — each commit's `.ots` proof is validated against Bitcoin block headers. Can run against a local Bitcoin node if available, or against any OTS calendar server (redundant, Bitcoin headers are the real anchor).
+4. **Attachment hashes** — if the event owner produces the original forwarded emails, their attachments are re-hashed and compared to the hash recorded in the commit.
+5. **Event-type rules** — for workflow events: all steps complete in valid order. For crypto/declaration: exactly one signer. For crypto/attestation: distinct senders per dedup rule, threshold met.
+
+**Constraints:**
+
+- **No call to any gitdone service.** Not `verify.gitdone.example`, not `api.gitdone.example`. Zero.
+- **Single binary or single Python/Node file.** No server, no database, no Docker. Run it anywhere.
+- **Open source under a permissive license (MIT or Apache-2.0).** So it can be forked, audited, or re-implemented.
+- **Deterministic output.** Same repo in, same report out. No timestamps, no flaky network retries.
+
+**Deliverable:** one file in the gitdone repo at `tools/gitdone-verify/` + a worked example verifying a sample event repo end-to-end. Checked into git, reproducibly buildable.
+
+**Definition of done:**
+
+- Disconnect the VPS from the internet.
+- Clone a real gitdone event repo to a different machine that has *never* talked to gitdone.
+- Run `gitdone-verify`.
+- Get a green pass.
+
+If that works, gitdone dying tomorrow doesn't invalidate a single proof ever issued. That's the entire architectural point, made concrete.
 
 ### Phase 1 — Core rebuild (2 weekends)
 
@@ -645,11 +747,11 @@ Add the crypto event primitive with both modes:
 
 1. Receipt emails to participants (with commit hash + OTS proof reference)
 2. Management dashboard improvements
-3. Third-party verification script (independent clone + verify)
-4. User documentation (what is a gitdone event, how verification works)
-5. Small landing page explaining the two event types
+3. User documentation (what is a gitdone event, how verification works)
+4. Small landing page explaining the two event types
+5. Publish `gitdone-verify` (built in Phase 0 tail) as a standalone GitHub repo with its own release + usage docs
 
-**Deliverable:** public launch with documentation, verification tool, sample events.
+**Deliverable:** public launch with documentation, standalone verifier, sample events.
 
 ### 10.5 Phase 0 Validation Results (2026-04-17)
 
@@ -721,10 +823,14 @@ Phase 0 completed on a RackNerd VPS (AlmaLinux 8, Postfix 3.5.8, Node 20). All a
 
 ## 11. Success Criteria
 
+**Phase 0 success:**
+- Postfix receives mail, `receive.js` verifies DKIM on the happy path (see §10.5)
+- `gitdone-verify` validates a sample repo on a disconnected machine that has never contacted gitdone — DKIM + OpenTimestamps + attachment hashes all pass offline (principle §0.1.2)
+
 **Phase 1 success:**
 - Postfix receives email, `receive.js` verifies DKIM, commits to git, forwards attachment to owner
 - Zero server-side attachment storage
-- OpenTimestamps anchor validates on independent verifier
+- OpenTimestamps anchor validates via `gitdone-verify` without any network call to gitdone
 - Initiator UI creates workflow event in < 30 seconds
 
 **Phase 2 success:**
@@ -734,13 +840,14 @@ Phase 0 completed on a RackNerd VPS (AlmaLinux 8, Postfix 3.5.8, Node 20). All a
 
 **Phase 3 (launch) success:**
 - One real user (not the developer) creates and completes an event
-- Third party independently verifies an event's proofs
+- Third party runs `gitdone-verify` on a cloned event repo — passes without access to gitdone.example
 - Documentation clear enough that a non-technical user understands what GitDone provides
 
 **Ongoing:**
 - Storage remains minimal (< 1 MB per 100 events, excluding git objects)
 - DKIM verification pass rate > 95% for major mail providers
 - No vendor dependencies beyond open-source libraries and Bitcoin
+- `gitdone-verify` passes on every released event repo (regression test — if a schema change breaks offline verification, it's a bug)
 
 ---
 

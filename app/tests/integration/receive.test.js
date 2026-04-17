@@ -107,7 +107,7 @@ test('integration: routing — matched event, matched step, matched participant'
   try {
     await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
     await fs.writeFile(path.join(tmp, 'events', 'demo123.json'), JSON.stringify({
-      id: 'demo123', type: 'event', flow: 'sequential',
+      id: 'demo123', type: 'event', flow: 'sequential', salt: 'test-salt-demo123',
       steps: [{ id: 'step1', participant: 'legal@example.com', status: 'pending' }],
     }));
     const eml = buildEml([
@@ -138,7 +138,8 @@ test('integration: routing — known event, sender does NOT match step participa
   try {
     await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
     await fs.writeFile(path.join(tmp, 'events', 'demo456.json'), JSON.stringify({
-      id: 'demo456', steps: [{ id: 'step1', participant: 'expected@example.com' }],
+      id: 'demo456', salt: 'test-salt-demo456',
+      steps: [{ id: 'step1', participant: 'expected@example.com' }],
     }));
     const eml = buildEml([
       'From: imposter@evil.com',
@@ -210,7 +211,9 @@ test('integration: 1.C — matched reply is committed to event git repo', async 
   try {
     await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
     await fs.writeFile(path.join(tmp, 'events', 'demoA.json'), JSON.stringify({
-      id: 'demoA', title: 'Commit test', steps: [{ id: 'step1', participant: 'alice@ex.com' }],
+      id: 'demoA', title: 'Commit test',
+      salt: 'test-salt-demoA',
+      steps: [{ id: 'step1', participant: 'alice@ex.com' }],
     }));
     const eml = buildEml([
       'From: alice@ex.com',
@@ -240,11 +243,18 @@ test('integration: 1.C — matched reply is committed to event git repo', async 
 
     // Read the commit metadata back
     const saved = JSON.parse(await fs.readFile(path.join(repoDir, 'commits', 'commit-001.json'), 'utf8'));
+    assert.equal(saved.schema_version, 2);
     assert.equal(saved.event_id, 'demoA');
     assert.equal(saved.step_id, 'step1');
-    assert.equal(saved.sender, 'alice@ex.com');
-    assert.equal(saved.participant_match, true);
+    // Principle §0.1.10 — no plaintext leaks in committed metadata
+    assert.equal(saved.sender, undefined);
+    assert.equal(saved.subject, undefined);
+    assert.equal(saved.body_preview, undefined);
+    assert.equal(saved.message_id, undefined);
+    // But salted hash + domain survive
+    assert.equal(saved.sender_domain, 'ex.com');
     assert.match(saved.sender_hash, /^sha256:[a-f0-9]{64}$/);
+    assert.equal(saved.participant_match, true);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }
@@ -255,7 +265,7 @@ test('integration: 1.C — second reply increments sequence', async () => {
   try {
     await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
     await fs.writeFile(path.join(tmp, 'events', 'demoB.json'), JSON.stringify({
-      id: 'demoB', steps: [{ id: 'step1', participant: 'a@b.com' }],
+      id: 'demoB', salt: 'test-salt-demoB', steps: [{ id: 'step1', participant: 'a@b.com' }],
     }));
     const env = { GITDONE_DATA_DIR: tmp };
     const mk = (msgId) => buildEml([

@@ -89,24 +89,35 @@ async function nextSequence(root) {
 
 function padSeq(n) { return String(n).padStart(3, '0'); }
 
-function buildCommitMetadata(seq, ctx) {
-  // ctx shape — keep this schema aligned with PRD §8.3.
+// Per PRD §0.1.10 (plaintext discipline): commit payloads record a salted
+// hash of the sender address, never the plaintext. Salt is a per-event
+// public random value stored in event.json — verifiers re-hash a claimed
+// address with the event's salt and match; random observers can't bulk
+// rainbow-table across events.
+//
+// Dropped from v2 schema (plaintext leaks): sender, subject, body_preview,
+// message_id. Those live only in the forwarded email to the event owner.
+function saltedSenderHash(sender, salt) {
+  if (!sender) return null;
+  const material = `${salt || ''}|${sender.toLowerCase()}`;
+  return `sha256:${sha256Hex(material)}`;
+}
+
+function buildCommitMetadata(seq, ctx, event) {
   const sender = ctx.envelope && ctx.envelope.sender ? ctx.envelope.sender
               : (ctx.from || null);
   const senderDomain = sender && sender.includes('@') ? sender.split('@')[1] : null;
+  const salt = (event && event.salt) || null;
   return {
+    schema_version: 2,
     event_id: ctx.eventId,
     step_id: ctx.stepId || null,
     sequence: seq,
     received_at: ctx.receivedAt,
-    sender: sender,                                   // plaintext (internal)
-    sender_hash: sender ? `sha256:${sha256Hex(sender.toLowerCase())}` : null,
+    sender_hash: saltedSenderHash(sender, salt),
     sender_domain: senderDomain,
     trust_level: ctx.trustLevel,
     participant_match: ctx.participantMatch,
-    subject: ctx.subject || null,
-    body_preview: ctx.bodyPreview || null,
-    message_id: ctx.messageId || null,
     attachments: ctx.attachments || [],
     dkim: ctx.dkim || null,
     spf: ctx.spf || null,
@@ -118,9 +129,9 @@ function buildCommitMetadata(seq, ctx) {
     },
     raw_sha256: ctx.rawSha256,
     raw_size: ctx.rawSize,
-    // Reserved for later modules:
-    dkim_key_file: null,      // populated by 1.D
-    ots_proof_file: null,     // populated by 1.E
+    // Populated after writing: dkim_key_file (1.D), ots_proof_file (1.E)
+    dkim_key_file: null,
+    ots_proof_file: null,
   };
 }
 
@@ -132,7 +143,7 @@ async function commitReply(eventId, event, ctx) {
   const rel = path.join('commits', filename);
   const abs = path.join(root, rel);
 
-  const metadata = buildCommitMetadata(seq, ctx);
+  const metadata = buildCommitMetadata(seq, ctx, event);
 
   // 1.D: if caller supplied a DKIM key (PEM), archive it alongside the commit
   // so future verification works even after DNS rotation.
@@ -150,21 +161,24 @@ async function commitReply(eventId, event, ctx) {
     metadata.dkim_archive = { error: ctx.dkimArchive.error };
   }
 
-  // Write metadata first so the file exists on disk and ots can stamp it.
+  // 1.E pre-finalization: set the deterministic OTS proof path in metadata
+  // BEFORE writing the JSON to disk, so the file we stamp matches the file
+  // we commit. (Any post-stamp modification would break `ots verify`.)
+  const expectedProofRel = path.join('ots_proofs', `commit-${seqStr}.ots`);
+  metadata.ots_proof_file = expectedProofRel;
   await fs.writeFile(abs, JSON.stringify(metadata, null, 2) + '\n');
 
-  // 1.E: OpenTimestamps stamp the commit JSON. Pending proof returns
-  // immediately; auditors upgrade later for the full Bitcoin anchor.
+  // Stamp the FINALIZED JSON.
   const stampRes = await stampFile(abs);
   if (stampRes.proof_path) {
-    const proofRel = await moveProofIntoTree(stampRes.proof_path, root, seqStr);
-    metadata.ots_proof_file = proofRel;
-    filesToAdd.push(proofRel);
-  } else if (stampRes.error) {
-    metadata.ots_archive = { error: stampRes.error };
+    await moveProofIntoTree(stampRes.proof_path, root, seqStr);
+    filesToAdd.push(expectedProofRel);
+  } else {
+    // Stamp failed: roll back — null the path, record the error, rewrite.
+    metadata.ots_proof_file = null;
+    metadata.ots_archive = { error: stampRes.error || 'ots stamp failed' };
+    await fs.writeFile(abs, JSON.stringify(metadata, null, 2) + '\n');
   }
-  // Rewrite metadata now that ots_proof_file is known (idempotent pass).
-  await fs.writeFile(abs, JSON.stringify(metadata, null, 2) + '\n');
 
   const git = simpleGit(root);
   await git.add(filesToAdd);
@@ -181,10 +195,19 @@ async function commitReply(eventId, event, ctx) {
   };
 }
 
+// Public random salt for a new event. 32 bytes of entropy, hex-encoded.
+// Used by buildCommitMetadata to salt sender_hash so the same address
+// hashes differently across events (prevents bulk correlation).
+function generateEventSalt() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
 module.exports = {
   initRepoIfNeeded,
   nextSequence,
   commitReply,
   buildCommitMetadata,
+  saltedSenderHash,
+  generateEventSalt,
   repoPath,
 };
