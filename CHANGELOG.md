@@ -19,6 +19,42 @@ internal refactors and commit-level churn stay in `git log`.
 
 ---
 
+## [Phase 1 — 1.G attachment forwarding] — 2026-04-18
+
+Completes §0.1.10 privacy story: received attachments are hashed into
+the git commit at reception, then handed to the event initiator's
+mailbox byte-for-byte. GitDone's filesystem never stores attachments.
+
+### Added
+- `app/src/forward.js` — `buildForwardMessage` (prepends
+  `X-GitDone-Event`, `-Step`, `-Commit`, `-Trust`, `-Received-At`,
+  `-Forwarded-At` headers before the original message's header block)
+  and `forwardToOwner` (byte-preserving resubmission via sendmail with
+  envelope rewrite).
+- `outbound.sendmail` positional-recipient mode: `to: [addr, ...]`
+  switches from `-t` (header-derived recipients) to `-- addr1 addr2`
+  (explicit positional). Used for forward-to-owner where we want to
+  preserve the original `To: event+{id}-{step}@` for context but route
+  to the initiator.
+- 10 new unit tests covering header prepending (incl. the no-blank-line
+  invariant), byte-preservation, the positional-recipient sendmail
+  path, and end-to-end forward via a fake sendmail capturing stdin.
+
+### Changed
+- `receive.js` now calls `forwardToOwner` after a successful
+  `commitReply` when `event.initiator` is set. Best-effort — forward
+  failure logs `forward.ok: false` but does not reject the inbound.
+
+### Verified
+- End-to-end from Gmail: reply to `event+demo123-step1@git-done.com`
+  → commit-003.json + commit-004.json in the event's git repo
+  → both forwards delivered to `avoidaccess@msn.com` (Microsoft
+  `250 Queued mail for delivery`, landed in inbox not junk).
+  Original `braun-invoice.pdf` attachment byte-intact on the
+  recipient side; `X-GitDone-*` tracking headers present.
+
+---
+
 ## [Phase 1 — 1.L.2 offline verifier] — 2026-04-17
 
 Principle §0.1.2 made executable: any cloned event repo can now be

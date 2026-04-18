@@ -133,6 +133,47 @@ test('sendmail: empty message fast-fails', async () => {
   assert.equal(r.reason, 'empty message');
 });
 
+test('sendmail: positional recipients mode uses `--` separator, no -t', async () => {
+  const tmp = path.join(os.tmpdir(), `outbound-args-${Date.now()}`);
+  fs.mkdirSync(tmp, { recursive: true });
+  const argsFile = path.join(tmp, 'args.txt');
+  const script = path.join(tmp, 'fake.sh');
+  fs.writeFileSync(script, `#!/bin/sh\necho "$@" > "${argsFile}"\nexit 0\n`, { mode: 0o755 });
+  try {
+    const r = await sendmail({
+      from: 'env@x',
+      rawMessage: 'hello',
+      binary: script,
+      to: ['a@x', 'b@x'],
+    });
+    assert.equal(r.ok, true);
+    const args = fs.readFileSync(argsFile, 'utf8').trim().split(/\s+/);
+    assert.ok(!args.includes('-t'), 'positional mode must not pass -t');
+    assert.ok(args.includes('--'), 'must use -- to terminate options');
+    assert.ok(args.includes('a@x'));
+    assert.ok(args.includes('b@x'));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('sendmail: default (no to[]) still uses -t', async () => {
+  const tmp = path.join(os.tmpdir(), `outbound-args2-${Date.now()}`);
+  fs.mkdirSync(tmp, { recursive: true });
+  const argsFile = path.join(tmp, 'args.txt');
+  const script = path.join(tmp, 'fake.sh');
+  fs.writeFileSync(script, `#!/bin/sh\necho "$@" > "${argsFile}"\nexit 0\n`, { mode: 0o755 });
+  try {
+    const r = await sendmail({ from: 'env@x', rawMessage: 'hi', binary: script });
+    assert.equal(r.ok, true);
+    const args = fs.readFileSync(argsFile, 'utf8').trim().split(/\s+/);
+    assert.ok(args.includes('-t'));
+    assert.ok(!args.includes('--'));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('sendmail: pipes rawMessage to stdin of binary', async () => {
   // Use `cat` as the fake sendmail — it copies stdin to stdout, exits 0.
   // We can't easily capture stdout from spawn here, but cat succeeds on

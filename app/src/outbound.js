@@ -80,18 +80,30 @@ function buildRawMessage({ from, to, subject, body, inReplyTo, references, autoS
 // Submit rawMessage to the local MTA. Returns { ok, code?, stderr? }.
 // Never throws under normal operation — failure is reported via the
 // resolved object so the caller can log + continue.
-function sendmail({ from, rawMessage, binary = SENDMAIL_BIN }) {
+//
+// Two addressing modes:
+//   - default: sendmail -t reads recipients from To/Cc/Bcc headers
+//     (used by the verify-report reply path in 1.L.1)
+//   - positional: pass `to: [addr, ...]` to override the envelope
+//     and ignore header recipients (used by 1.G forward-to-owner,
+//     where the original email's To: is the event+ address, not
+//     the initiator)
+function sendmail({ from, rawMessage, binary = SENDMAIL_BIN, to }) {
   if (!rawMessage) {
     return Promise.resolve({ ok: false, reason: 'empty message' });
   }
-  // -t: read recipients from To/Cc/Bcc headers.
   // -i: do NOT treat a line with a single "." as end-of-input
-  //     (our body may contain one).
-  // -f: envelope MAIL FROM. We pass verify+{id}@... so delivery
-  //     failures return to the verify handler (which rejects
-  //     MAILER-DAEMON via prefilter).
-  const args = ['-t', '-i'];
+  //     (message bodies and forwarded emails may contain one)
+  // -f: envelope MAIL FROM
+  // If `to` given, pass positional recipients; otherwise use -t and
+  // let Postfix parse To/Cc/Bcc out of headers.
+  const args = ['-i'];
   if (from) args.push('-f', from);
+  if (to && to.length) {
+    args.push('--', ...to);
+  } else {
+    args.push('-t');
+  }
 
   return new Promise((resolve) => {
     let child;

@@ -920,6 +920,18 @@ Phase 0 completed on a RackNerd VPS (AlmaLinux 8, Postfix 3.5.8, Node 20). All a
 
 30. **Node stdlib is enough for the offline verifier** — no npm deps. `crypto.createPublicKey` parses PEMs, `child_process.spawnSync` wraps git/ots, `fs` + `path` do the rest. Single file at `tools/gitdone-verify/gitdone-verify.js` (~330 lines). Meets PRD §10.4's "single Python/Node file" constraint and principle §0.1.2's "fork freely" intent.
 
+**Additional findings from Phase 1.G attachment forwarding (2026-04-18):**
+
+31. **sendmail(8) has two addressing modes; positional is right for forwarding.** `sendmail -t` reads recipients from To/Cc/Bcc headers (used by verify-reply). For forwarding, the original email's `To:` is the `event+{id}-{step}@` address, not the initiator — we want to preserve that for context but route to the owner. `sendmail -i -f envelope -- initiator@addr` does this: positional recipient, original headers untouched. The `--` terminator is load-bearing; without it, any recipient starting with `-` would be parsed as an option.
+
+32. **Byte-preserving forward is strictly better than MIME-wrapping.** Submitting the original email's raw bytes (with a small `X-GitDone-*` header block prepended BEFORE the first blank line) keeps the original DKIM-Signature intact, so recipients can independently re-verify the participant's signature. opendkim adds a second `d=git-done.com` signature on outbound; recipients see two DKIM passes on the same message. MIME-wrapping as `message/rfc822` would break inline body display in most clients for no cryptographic gain.
+
+33. **Prepending headers before the original blank line is subtle and load-bearing.** If the prepended block ends with `\r\n\r\n`, it terminates the forwarded message's header block and the original `From:`/`Subject:`/etc. become part of the body. Correct pattern: prepend `X-GitDone-*: value\r\n` lines (no trailing blank line) so they merge into the forwarded message's existing header block. Unit test catches this directly: `firstBlankIdx > 0 && headerBlock.includes('X-GitDone-Event') && headerBlock.includes('Subject:')`.
+
+34. **MSN/Outlook.com accepts forwarded mail with mismatched SPF when DMARC passes via DKIM alignment.** Gmail-From forwarded through `104.129.2.254` (git-done.com) fails SPF for gmail.com at the recipient — but DMARC still passes because the original DKIM signature is aligned with `From: @gmail.com`. MSN delivered both test forwards to the inbox (not junk), confirming our byte-preserving strategy plays nicely with mainstream receivers. Outbound reputation appears to be warming — earlier verify replies landed in spam; these arrived clean.
+
+35. **Attachments never touch disk on the GitDone server.** `mailparser` exposes attachment bytes as in-memory Buffers during `simpleParser`. 1.C hashes them and drops them; 1.G hands the original raw bytes to sendmail, which spools them into the Postfix queue, which hands them to the recipient's MTA. The `gitdone` user's filesystem sees only `commit-NNN.json` (metadata) and transient Postfix spool files. Verifiable via `ls /var/lib/gitdone/repos/*/` — no attachment files ever appear, matching §0.1.10 in runtime behaviour, not just policy.
+
 ---
 
 ### Phase 4 — Optional (deferred)

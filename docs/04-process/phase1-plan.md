@@ -73,7 +73,7 @@ Modules are ordered so each is independently completable and verifiable.
 | **1.L.3** | `reverify+{id}-{commitN}@` handler + `contested` flag | 1.C, 1.L.1, 1.F | Contested commits can be upgraded by forwarding evidence; history preserved |
 | — | **Initiator email commands** — stats+, remind+, close+ | 1.F | Replaces magic-link web clicks as primary initiator UX; DKIM + envelope auth |
 | **1.F** ✅ | Outbound DKIM signing (DNS + Postfix + opendkim) | independent | Gmail receives a message from us with DKIM pass — **done 2026-04-17**, selector `gd202604`, Gmail confirms dkim/spf/dmarc all `pass` |
-| **1.G** | Attachment forwarding to event owner | 1.C, 1.F | Owner inbox gets original email; SHA-256 in git matches forwarded copy |
+| **1.G** ✅ | Attachment forwarding to event owner | 1.C, 1.F | Owner inbox gets original email (byte-preserving); SHA-256 in git matches forwarded copy; X-GitDone-* tracking headers prepended — **done 2026-04-18**, validated end-to-end: Gmail → event+demo123-step1@ → MSN inbox of initiator, both test forwards delivered, attachment (PDF) intact |
 | **1.H** | Event creation UI (plain HTML) + magic-link management | independent | Initiator creates event in < 30s; gets management link |
 | **1.I** | Participant notification emails | 1.F, 1.H | Participant receives DKIM-signed prompt with reply-to event tag |
 | **1.J** | Completion logic (workflow / declaration / attestation) | 1.C, 1.H | Final reply triggers `event.close` + initiator notification |

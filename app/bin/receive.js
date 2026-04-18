@@ -21,6 +21,7 @@ const { commitReply } = require('../src/gitrepo');
 const { fetchDkimKey, pickSignatureToArchive } = require('../src/dkim-archive');
 const { buildVerificationReport, formatVerifyReportBody } = require('../src/verify');
 const { sendmail, buildRawMessage } = require('../src/outbound');
+const { forwardToOwner } = require('../src/forward');
 const logger = require('../src/logger');
 
 function readStdin() {
@@ -242,6 +243,33 @@ async function main() {
     }
   }
 
+  // 1.G: forward the original email (with attachments) to the event
+  // initiator. Best-effort — a forward failure does NOT reject the
+  // reply. The commit is authoritative; the forward is convenience.
+  let forward = null;
+  if (gitCommit && !gitCommit.error && event && event.initiator) {
+    try {
+      const result = await forwardToOwner({
+        rawEmail: raw,
+        initiator: event.initiator,
+        eventId: tag.eventId,
+        stepId: tag.stepId,
+        commitFile: gitCommit.file || null,
+        trustLevel,
+        receivedAt,
+      });
+      forward = {
+        attempted: true,
+        to: event.initiator,
+        ok: result.ok,
+        code: result.code || null,
+        reason: result.reason || null,
+      };
+    } catch (err) {
+      forward = { attempted: true, ok: false, reason: err.message || String(err) };
+    }
+  }
+
   logger.emit({
     accepted: true,
     trust_level: trustLevel,
@@ -254,6 +282,7 @@ async function main() {
     },
     routing,
     git_commit: gitCommit,
+    forward,
     from: from.address || null,
     from_domain: from.address ? from.address.split('@')[1] : null,
     to: (parsed.to && parsed.to.text) || null,
