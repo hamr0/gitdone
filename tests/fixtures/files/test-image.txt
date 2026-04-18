@@ -1,2 +1,0 @@
-This is a placeholder for a test image file.
-In actual tests, replace with real JPG/PNG files.

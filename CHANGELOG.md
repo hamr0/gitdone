@@ -19,6 +19,55 @@ internal refactors and commit-level churn stay in `git log`.
 
 ---
 
+## [Phase 1 — 1.H.1 v1 deletion + web skeleton] — 2026-04-18
+
+v1's Next.js + Express + Docker stack is retired. The whole v1
+surface area is gone from the tree (~2,235 files across `backend/`,
+`frontend/`, Dockerfiles, deploy scripts, test artefacts, and their
+entire `node_modules/` that shouldn't have been committed). Git
+history preserves v1 at commit `f9820ea` and before.
+
+No archive dir kept — the PRD's rebuild (Path B) doesn't need v1
+as a reuse source; any pattern that's genuinely useful can be
+pulled via `git show <sha>:<path>` on demand.
+
+### Added
+- `app/bin/server.js` — HTTP server for the initiator web UI,
+  vanilla Node `http` (no Express, stdlib only). Landing page +
+  `/health` for now.
+- `app/src/web/router.js` — tiny (method, path) router with
+  `:param` support.
+- `app/src/web/templates.js` — tagged-template `html\`...\``
+  primitive with automatic HTML-escape on interpolation + `raw()`
+  opt-out; shared `layout()` chrome.
+- `app/src/web/body.js` — stdlib body parser for
+  `application/x-www-form-urlencoded` and `application/json`,
+  256KB cap.
+- 34 new unit tests (router, templates, body-parse, end-to-end
+  server response).
+- On VPS: `/etc/systemd/system/gitdone-web.service` (runs as
+  `gitdone` user, bound to `127.0.0.1:3001`, sandbox-hardened).
+  Not yet publicly exposed — nginx + TLS will come at the end of
+  1.H once all initiator routes are working locally.
+
+### Removed
+- `backend/` (v1 Express + JSON + SMTP)
+- `frontend/` (v1 Next.js + React)
+- `Dockerfile`, `docker-compose.yml`, `docker_compose.yml`,
+  `deploy.sh`, `dev.sh`, `nginx.conf`, `playwright.config.ts`,
+  `package.json` (root), `README.md`, `start.sh`, `tests/` (v1
+  playwright), `test-results/`, `quick-start.sh`.
+- `data/` (v1 runtime events + magic tokens). Clean slate for v2.
+- `.env` (may have contained real credentials — shredded).
+- All v1 `node_modules/` (should never have been in git).
+
+### Changed
+- `docs/04-process/phase1-plan.md` — 1.H decomposed into 1.H.1
+  through 1.H.5 (and 1.H.2b for hybrid-flow tree UI). 1.H.1
+  marked done.
+
+---
+
 ## [Phase 1 — 1.E+ OTS upgrade scheduler] — 2026-04-18
 
 Closes the operational gap identified in 1.L.3 finding 41: proofs
