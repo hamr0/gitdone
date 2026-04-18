@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { parseAddress, parseEventTag } = require('../../src/router');
+const { parseAddress, parseEventTag, parseReverifyTag } = require('../../src/router');
 
 test('parseAddress: standard event+tag form', () => {
   assert.deepEqual(parseAddress('event+abc123-step1@git-done.com'), {
@@ -65,4 +65,57 @@ test('parseEventTag: rejects non-alphanumeric eventId (path traversal guard)', (
 test('parseEventTag: returns null when address fails parse', () => {
   assert.equal(parseEventTag('plain@git-done.com'), null);
   assert.equal(parseEventTag(null), null);
+});
+
+// reverify+{eventId}-{commitSeq}@ tests (1.L.3)
+
+test('parseReverifyTag: extracts eventId and commitSequence', () => {
+  assert.deepEqual(parseReverifyTag('reverify+demo123-3@git-done.com'), {
+    eventId: 'demo123',
+    commitSequence: 3,
+  });
+});
+
+test('parseReverifyTag: multi-digit commit sequences', () => {
+  assert.deepEqual(parseReverifyTag('reverify+demo-42@git-done.com'), {
+    eventId: 'demo',
+    commitSequence: 42,
+  });
+});
+
+test('parseReverifyTag: rejects non-reverify kinds', () => {
+  assert.equal(parseReverifyTag('verify+demo123@git-done.com'), null);
+  assert.equal(parseReverifyTag('event+demo123-3@git-done.com'), null);
+});
+
+test('parseReverifyTag: rejects when commit sequence missing', () => {
+  assert.equal(parseReverifyTag('reverify+demo123@git-done.com'), null);
+});
+
+test('parseReverifyTag: rejects non-numeric commit sequence', () => {
+  assert.equal(parseReverifyTag('reverify+demo123-abc@git-done.com'), null);
+  assert.equal(parseReverifyTag('reverify+demo123-3a@git-done.com'), null);
+});
+
+test('parseReverifyTag: rejects zero and out-of-range sequences', () => {
+  assert.equal(parseReverifyTag('reverify+demo123-0@git-done.com'), null);
+  assert.equal(parseReverifyTag('reverify+demo123-100000@git-done.com'), null);
+});
+
+test('parseReverifyTag: rejects traversal in eventId', () => {
+  assert.equal(parseReverifyTag('reverify+..-3@git-done.com'), null);
+  assert.equal(parseReverifyTag('reverify+a.b-3@git-done.com'), null);
+});
+
+test('parseReverifyTag: accepts last-dash split (eventId can have preceding characters but not dashes)', () => {
+  // eventId is alphanumeric only (same rule as event+), so dashes in the
+  // "eventId" portion of the extension are actually illegal — commit
+  // sequence is always after the last (and only) dash.
+  const r = parseReverifyTag('reverify+abc-5@git-done.com');
+  assert.equal(r.eventId, 'abc');
+  assert.equal(r.commitSequence, 5);
+});
+
+test('parseReverifyTag: rejects dashes in eventId', () => {
+  assert.equal(parseReverifyTag('reverify+abc-def-5@git-done.com'), null);
 });

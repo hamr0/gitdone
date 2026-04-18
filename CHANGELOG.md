@@ -19,6 +19,69 @@ internal refactors and commit-level churn stay in `git log`.
 
 ---
 
+## [Phase 1 — 1.L.3 reverify+ handler] — 2026-04-18
+
+Completes the verify trilogy (`event+` / `verify+` / `reverify+`). A
+commit that failed to reach the initiator's required trust level at
+reception can now be upgraded by supplying cryptographic evidence — a
+raw `.eml` whose DKIM signature validates against the commit's
+archived PEM. The original commit stays immutable; upgrades are
+layered as new `reverify-NNN.json` audit records.
+
+### Added
+- `app/src/router.js::parseReverifyTag` — `reverify+{eventId}-{seq}@`
+  parser with sequence bounds and traversal guards.
+- `app/src/gitrepo.js::commitReverify` — writes `commits/reverify-NNN.json`
+  (own sequence namespace, separate from `commit-NNN.json`), stamps with
+  OTS, commits to git. Never touches the target commit.
+- `app/src/gitrepo.js::loadCommit`, `nextReverifySequence` — helpers.
+- `app/src/reverify.js` — orchestrator: load target commit, pick signer
+  from its DKIM record, extract forwarded `.eml`, run DKIM re-verify
+  against archived PEM, build upgrade record with policy (`unverified`
+  / `authorized` / `forwarded` → `verified` on pass; already-verified
+  is a no-op audit entry).
+- `bin/receive.js` — handles `reverify+` before event routing. Writes
+  the reverify commit, sends DKIM-signed ack reply via 1.L.1 path.
+- `tools/gitdone-verify/gitdone-verify.js` — recognises `reverify-NNN.json`
+  files, validates their schema separately from reply commits, and
+  computes **effective trust** as `max(original, upgrade)` when
+  evaluating completion. Summary now shows "4 reply + 2 reverify
+  commit(s) conform to schema v2".
+- 29 new unit tests across router (10), gitrepo (4), reverify (15).
+
+### Verified
+- Three E2E paths on the production VPS against the demo123 repo:
+  1. `reverify+demo123-99@` (non-existent commit) → `not found`,
+     `git_record: null`, DKIM-signed reply sent explaining why.
+  2. `reverify+demo123-1@` (commit-001 was unsigned at reception) →
+     `no archived DKIM key`, `upgraded: false`, still written as an
+     audit entry (`reverify-001.json`).
+  3. `reverify+demo123-2@` (commit-002 already verified) →
+     `trust: verified → verified`, `upgraded: false` with policy note
+     "already verified", audit entry `reverify-002.json`.
+- Offline `gitdone-verify` re-run on the updated repo correctly
+  summarises: `4 reply + 2 reverify commit(s) conform to schema v2`,
+  OpenTimestamps passes all 6 proofs (2 anchored + 4 pending for the
+  new reverify OTS stamps).
+
+### Changed
+- `gitdone-verify` OTS classifier now treats `Got N attestation(s)
+  from cache` output as `anchored` (independent of exit code — `ots`
+  exits 1 both on tamper AND on cache-without-local-bitcoin-node,
+  so text signals are authoritative). Tamper detection still reliable
+  via `does not match` regex.
+
+### Known gap — tracked as module 1.E+
+`ots upgrade` is not yet automated. `.ots` proofs in the repo start as
+calendar-pending (attestations from 3-4 calendars, no Bitcoin tx yet).
+`ots verify` papers over this by querying calendars live, but if all
+calendars died before an upgrade, the proof would become unverifiable.
+**Planned:** 6-hour cron running `ots upgrade` across all event repos,
+making one idempotent git commit per upgraded event (`ots upgrade: N
+proofs anchored to Bitcoin block X`). See `phase1-plan.md`.
+
+---
+
 ## [Phase 1 — 1.G attachment forwarding] — 2026-04-18
 
 Completes §0.1.10 privacy story: received attachments are hashed into

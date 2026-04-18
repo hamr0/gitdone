@@ -45,4 +45,23 @@ function parseVerifyTag(recipient) {
   return { eventId: a.extension };
 }
 
-module.exports = { parseAddress, parseEventTag, parseVerifyTag };
+// reverify+{eventId}-{commitSeq}@ — contested-commit upgrade path (1.L.3).
+// commitSeq is the sequence of the commit being re-evaluated (e.g., 3 for
+// commit-003.json). Anyone may submit; the auth is cryptographic — the
+// submitter must supply a raw .eml that validates against the archived
+// DKIM key for that commit.
+function parseReverifyTag(recipient) {
+  const a = parseAddress(recipient);
+  if (!a || a.kind !== 'reverify') return null;
+  const dashIdx = a.extension.lastIndexOf('-');
+  if (dashIdx < 0) return null;
+  const eventId = a.extension.slice(0, dashIdx);
+  const seqStr = a.extension.slice(dashIdx + 1);
+  if (!EVENT_ID_RE.test(eventId)) return null;
+  if (!/^\d+$/.test(seqStr)) return null;
+  const commitSequence = parseInt(seqStr, 10);
+  if (commitSequence < 1 || commitSequence > 99999) return null;
+  return { eventId, commitSequence };
+}
+
+module.exports = { parseAddress, parseEventTag, parseVerifyTag, parseReverifyTag };

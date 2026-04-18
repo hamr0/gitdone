@@ -932,6 +932,20 @@ Phase 0 completed on a RackNerd VPS (AlmaLinux 8, Postfix 3.5.8, Node 20). All a
 
 35. **Attachments never touch disk on the GitDone server.** `mailparser` exposes attachment bytes as in-memory Buffers during `simpleParser`. 1.C hashes them and drops them; 1.G hands the original raw bytes to sendmail, which spools them into the Postfix queue, which hands them to the recipient's MTA. The `gitdone` user's filesystem sees only `commit-NNN.json` (metadata) and transient Postfix spool files. Verifiable via `ls /var/lib/gitdone/repos/*/` — no attachment files ever appear, matching §0.1.10 in runtime behaviour, not just policy.
 
+**Additional findings from Phase 1.L.3 reverify handler (2026-04-18):**
+
+36. **Reverify is append-only, not mutation.** The PRD hinted at this but 1.L.3 makes it concrete: a commit's original `trust_level` is never overwritten. An upgrade is written as a **new** `reverify-NNN.json` file with `target_commit: 'commit-MMM.json'` + `trust_level_before`/`trust_level_after`. Verifiers (1.L.2 and `gitdone-verify` clones) compute effective trust as `max(commit.trust_level, upgrade.trust_level_after)` at verification time. This preserves full audit history — someone reading the repo can see both the original reception state and every upgrade attempt.
+
+37. **Auth is cryptographic, not social.** Anyone can submit to `reverify+{id}-{commitN}@` — if they can produce a raw email whose DKIM validates against the archived PEM for that commit, they have cryptographic proof they hold the original. That IS the auth. No magic-link token, no sender-identity check, no rate limit. Failed attempts still get recorded as `upgraded: false` audit entries (with `dkim_reverify.reason` explaining why) — valuable for detecting contestation attempts even when they don't succeed.
+
+38. **Separate sequence namespace for reverify commits.** `commit-NNN.json` and `reverify-NNN.json` are independent counters. commit-001 might have zero or many reverifies; the first reverify anywhere in the event repo is `reverify-001.json` regardless of which commit it targets. Keeps the file namespace intuitive; the `target_commit` field handles the cross-reference.
+
+39. **Offline verifier needed a `kind` field to distinguish schemas.** Reply commits carry `sender_hash`, `raw_sha256`, `trust_level`, `message_id_hash`, etc. Reverify commits carry `target_commit`, `target_sequence`, `trust_level_before`, `trust_level_after`, `upgraded`, `dkim_reverify`. Trying to apply one schema check to both would produce false positives. Added `kind: 'reverify'` to reverify commits explicitly; absence of `kind` on reply commits is interpreted as `'reply'` (backward compat).
+
+40. **`ots verify` without a local Bitcoin node is not failure.** When proofs are already anchored to Bitcoin, the OTS client reads attestations from local cache and outputs "Got N attestation(s) from cache" — but since no Bitcoin node is reachable, it can't do a final block-header cross-check and exits 1. This is NOT tamper. Classifier updated to recognise `/got \d+ attestation/` as `anchored` independent of exit code. Tamper is still reliably caught by `/does not match/` (which triggers even before cache lookup).
+
+41. **KNOWN GAP — `ots upgrade` not yet automated.** `.ots` proofs in the repo at commit time are calendar-pending (attestation from 3-4 calendars, no Bitcoin tx yet). `ots verify` works today because it queries calendars live to fetch the completed Bitcoin attestation when needed — but if all calendars died before we ran `ots upgrade` to fold the Bitcoin attestation into the local `.ots` file, the proof would become unverifiable. **Scheduled as module 1.E+** in `phase1-plan.md`: a 6-hour cron that walks `ots_proofs/*.ots` across all event repos, runs `ots upgrade` on each, and makes one git commit per event repo for any proofs that got upgraded. Idempotent (no change = no commit). Closes this operational gap.
+
 ---
 
 ### Phase 4 — Optional (deferred)

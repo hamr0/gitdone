@@ -214,6 +214,117 @@ async function commitReply(eventId, event, ctx) {
   };
 }
 
+// 1.L.3 — load a committed reply by its sequence number so a reverify
+// submission can re-run DKIM against the archived PEM.
+async function loadCommit(eventId, sequence) {
+  if (!EVENT_ID_RE.test(eventId)) throw new Error(`invalid eventId: ${eventId}`);
+  const root = repoPath(eventId);
+  const seqStr = padSeq(sequence);
+  const abs = path.join(root, 'commits', `commit-${seqStr}.json`);
+  const raw = await readFileSafe(abs);
+  if (!raw) return null;
+  try { return JSON.parse(raw); }
+  catch { return null; }
+}
+
+// Next sequence number in the reverify-NNN.json namespace (separate
+// from the reply commit-NNN.json namespace).
+async function nextReverifySequence(root) {
+  const commitsDir = path.join(root, 'commits');
+  let files;
+  try { files = await fs.readdir(commitsDir); }
+  catch { return 1; }
+  let max = 0;
+  for (const f of files) {
+    const m = f.match(/^reverify-(\d+)\.json$/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > max) max = n;
+    }
+  }
+  return max + 1;
+}
+
+// 1.L.3 — append an immutable upgrade record layered on top of a commit.
+// Does NOT modify the original commit-NNN.json. The reverify-MMM.json
+// records the cryptographic evidence (DKIM re-verify result against the
+// archived PEM) and the trust delta.
+//
+// Input:
+//   eventId            — repo to write into
+//   event              — event JSON (unused here but part of the convention)
+//   targetSequence     — the reply commit being re-evaluated
+//   result             — {
+//     trust_level_before, trust_level_after,
+//     dkim_reverify: { ok, result, comment, signatures_found, ... },
+//     evidence: { raw_sha256, raw_size }
+//   }
+//   receivedAt         — ISO string
+async function commitReverify(eventId, event, targetSequence, result, receivedAt) {
+  if (!EVENT_ID_RE.test(eventId)) throw new Error(`invalid eventId: ${eventId}`);
+  const { root } = await initRepoIfNeeded(eventId, event);
+  const targetSeqStr = padSeq(targetSequence);
+  const mySeq = await nextReverifySequence(root);
+  const mySeqStr = padSeq(mySeq);
+  const rel = path.join('commits', `reverify-${mySeqStr}.json`);
+  const abs = path.join(root, rel);
+
+  const metadata = {
+    schema_version: 2,
+    kind: 'reverify',
+    event_id: eventId,
+    sequence: mySeq,
+    target_commit: `commit-${targetSeqStr}.json`,
+    target_sequence: targetSequence,
+    received_at: receivedAt,
+    trust_level_before: result.trust_level_before || null,
+    trust_level_after: result.trust_level_after || null,
+    upgraded: Boolean(result.upgraded),
+    dkim_reverify: result.dkim_reverify || null,
+    evidence: result.evidence || null,
+    ots_proof_file: null, // filled in below after stamp
+  };
+
+  const filesToAdd = [rel];
+
+  // OTS-stamp this upgrade record too. Same pattern as commitReply:
+  // finalize metadata (including expected proof path) BEFORE stamping.
+  const expectedProofRel = path.join('ots_proofs', `reverify-${mySeqStr}.ots`);
+  metadata.ots_proof_file = expectedProofRel;
+  await fs.writeFile(abs, JSON.stringify(metadata, null, 2) + '\n');
+
+  const stampRes = await stampFile(abs);
+  if (stampRes.proof_path) {
+    // moveProofIntoTree expects a seqStr; use reverify prefix inline
+    const targetAbs = path.join(root, expectedProofRel);
+    await fs.rename(stampRes.proof_path, targetAbs);
+    filesToAdd.push(expectedProofRel);
+  } else {
+    metadata.ots_proof_file = null;
+    metadata.ots_archive = { error: stampRes.error || 'ots stamp failed' };
+    await fs.writeFile(abs, JSON.stringify(metadata, null, 2) + '\n');
+  }
+
+  const git = simpleGit(root);
+  await git.add(filesToAdd);
+  const verb = result.upgraded ? 'upgraded' : 'checked';
+  const msg = `reverify ${mySeqStr}: commit-${targetSeqStr} ${verb}${
+    result.trust_level_after && result.trust_level_before
+      ? ` (${result.trust_level_before} -> ${result.trust_level_after})`
+      : ''
+  }`;
+  const commitRes = await git.commit(msg);
+
+  return {
+    sha: commitRes.commit || null,
+    sequence: mySeq,
+    file: rel,
+    target_commit: metadata.target_commit,
+    ots_proof_file: metadata.ots_proof_file,
+    repo_path: root,
+  };
+}
+
 // Public random salt for a new event. 32 bytes of entropy, hex-encoded.
 // Used by buildCommitMetadata to salt sender_hash so the same address
 // hashes differently across events (prevents bulk correlation).
@@ -231,4 +342,7 @@ module.exports = {
   normaliseMessageId,
   generateEventSalt,
   repoPath,
+  loadCommit,
+  nextReverifySequence,
+  commitReverify,
 };

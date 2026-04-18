@@ -15,14 +15,17 @@ const config = require('../src/config');
 const { parseEnvelope } = require('../src/envelope');
 const { preFilter, extractHeaderBlock } = require('../src/prefilter');
 const { classifyTrust } = require('../src/classifier');
-const { parseEventTag, parseAddress, parseVerifyTag } = require('../src/router');
+const { parseEventTag, parseAddress, parseVerifyTag, parseReverifyTag } = require('../src/router');
 const { loadEvent, findStep, senderMatchesStep } = require('../src/event-store');
 const { commitReply } = require('../src/gitrepo');
 const { fetchDkimKey, pickSignatureToArchive } = require('../src/dkim-archive');
 const { buildVerificationReport, formatVerifyReportBody } = require('../src/verify');
 const { sendmail, buildRawMessage } = require('../src/outbound');
 const { forwardToOwner } = require('../src/forward');
+const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
 const logger = require('../src/logger');
+const fs = require('node:fs/promises');
+const path = require('node:path');
 
 function readStdin() {
   return new Promise((resolve, reject) => {
@@ -132,6 +135,93 @@ async function main() {
         ok: sendResult.ok,
         code: sendResult.code || null,
         stderr: sendResult.stderr || null,
+        reason: sendResult.reason || null,
+      });
+    }
+    return;
+  }
+
+  // 1.L.3: reverify+{eventId}-{commitN}@ — contested-commit upgrade path.
+  // Auth is cryptographic (the submitter must supply a raw .eml that
+  // validates against the archived PEM). Writes an immutable
+  // reverify-NNN.json audit record; never modifies the original commit.
+  const reverifyTag = parseReverifyTag(envelope.recipient);
+  if (reverifyTag && !filter.rejected) {
+    const rEvent = await loadEvent(reverifyTag.eventId);
+    let record;
+    if (!rEvent) {
+      record = { found: false, reason: `event ${reverifyTag.eventId} not found` };
+    } else {
+      record = await buildReverifyRecord(
+        reverifyTag.eventId,
+        reverifyTag.commitSequence,
+        parsed,
+        {
+          readPem: async (rel) => {
+            try {
+              return await fs.readFile(
+                path.join(config.dataDir, 'repos', reverifyTag.eventId, rel),
+                'utf8',
+              );
+            } catch { return null; }
+          },
+        },
+      );
+    }
+
+    let gitRecord = null;
+    if (record.found) {
+      try {
+        gitRecord = await persistReverifyRecord(
+          reverifyTag.eventId, rEvent, reverifyTag.commitSequence, record,
+          new Date().toISOString(),
+        );
+      } catch (err) {
+        gitRecord = { error: err.message || String(err) };
+      }
+    }
+
+    logger.emit({
+      kind: 'reverify_report',
+      accepted: true,
+      reverify_event_id: reverifyTag.eventId,
+      target_commit_sequence: reverifyTag.commitSequence,
+      received_at: new Date().toISOString(),
+      envelope: {
+        client_ip: envelope.clientIp,
+        client_helo: envelope.clientHelo,
+        sender: envelope.sender,
+        recipient: envelope.recipient,
+      },
+      from: from.address || null,
+      upgraded: Boolean(record.upgraded),
+      trust_before: record.trust_level_before || null,
+      trust_after: record.trust_level_after || null,
+      git_record: gitRecord,
+    });
+
+    // DKIM-signed ack back to the submitter (reuse 1.L.1 send path)
+    const to = envelope.sender || from.address || null;
+    if (to) {
+      const fromAddr = `reverify+${reverifyTag.eventId}-${reverifyTag.commitSequence}@${config.domain}`;
+      const body = formatReverifyReportBody(reverifyTag.eventId, reverifyTag.commitSequence, record);
+      const rawMessage = buildRawMessage({
+        from: `gitdone <${fromAddr}>`,
+        to,
+        subject: `[GitDone] Re-verification report for ${reverifyTag.eventId} commit-${String(reverifyTag.commitSequence).padStart(3, '0')}`,
+        inReplyTo: parsed.messageId || null,
+        references: parsed.messageId || null,
+        body,
+        domain: config.domain,
+      });
+      const sendResult = await sendmail({ from: fromAddr, rawMessage });
+      logger.emit({
+        kind: 'reverify_reply_sent',
+        reverify_event_id: reverifyTag.eventId,
+        to,
+        from: fromAddr,
+        ok: sendResult.ok,
+        code: sendResult.code || null,
         reason: sendResult.reason || null,
       });
     }

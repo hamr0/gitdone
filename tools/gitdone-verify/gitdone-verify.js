@@ -144,16 +144,30 @@ function checkGitIntegrity(repoPath) {
 
 function loadCommits(repoPath) {
   const commitsDir = path.join(repoPath, 'commits');
-  const files = fs.readdirSync(commitsDir)
+  const entries = fs.readdirSync(commitsDir);
+  const reply = entries
     .filter((f) => /^commit-\d+\.json$/.test(f))
-    .sort();
-  return files.map((file) => {
-    const abs = path.join(commitsDir, file);
-    const raw = fs.readFileSync(abs);
-    const json = JSON.parse(raw);
-    const fileSeq = Number(file.match(/^commit-(\d+)\.json$/)[1]);
-    return { file, abs, raw, json, fileSeq };
-  });
+    .sort()
+    .map((file) => {
+      const abs = path.join(commitsDir, file);
+      const raw = fs.readFileSync(abs);
+      const json = JSON.parse(raw);
+      const fileSeq = Number(file.match(/^commit-(\d+)\.json$/)[1]);
+      return { kind: 'reply', file, abs, raw, json, fileSeq };
+    });
+  // 1.L.3: reverify-NNN.json files are immutable upgrade records that
+  // layer on top of specific commit-NNN.json files.
+  const reverify = entries
+    .filter((f) => /^reverify-\d+\.json$/.test(f))
+    .sort()
+    .map((file) => {
+      const abs = path.join(commitsDir, file);
+      const raw = fs.readFileSync(abs);
+      const json = JSON.parse(raw);
+      const fileSeq = Number(file.match(/^reverify-(\d+)\.json$/)[1]);
+      return { kind: 'reverify', file, abs, raw, json, fileSeq };
+    });
+  return [...reply, ...reverify];
 }
 
 function checkSchema(commits) {
@@ -163,36 +177,69 @@ function checkSchema(commits) {
     if (j.schema_version !== SCHEMA_V) {
       problems.push(`${c.file}: schema_version ${j.schema_version} != ${SCHEMA_V}`);
     }
-    for (const k of ['event_id', 'sequence', 'received_at', 'sender_hash', 'sender_domain', 'trust_level', 'raw_sha256']) {
-      if (j[k] === undefined) problems.push(`${c.file}: missing ${k}`);
-    }
     if (j.sequence !== c.fileSeq) {
       problems.push(`${c.file}: sequence ${j.sequence} != filename ${c.fileSeq}`);
     }
-    if (!/^sha256:[0-9a-f]{64}$/.test(j.sender_hash || '')) {
-      problems.push(`${c.file}: sender_hash format invalid`);
-    }
-    if (!/^sha256:[0-9a-f]{64}$/.test(j.raw_sha256 || '')) {
-      problems.push(`${c.file}: raw_sha256 format invalid`);
-    }
-    if (!TRUST_ORDER.includes(j.trust_level)) {
-      problems.push(`${c.file}: unknown trust_level ${j.trust_level}`);
-    }
-    // Plaintext discipline (§0.1.10) — none of these should be in a committed payload
-    for (const forbidden of ['sender', 'subject', 'body_preview', 'message_id']) {
-      if (j[forbidden] != null) {
-        problems.push(`${c.file}: plaintext leak — ${forbidden}`);
+    if (c.kind === 'reply') {
+      for (const k of ['event_id', 'sequence', 'received_at', 'sender_hash', 'sender_domain', 'trust_level', 'raw_sha256']) {
+        if (j[k] === undefined) problems.push(`${c.file}: missing ${k}`);
+      }
+      if (!/^sha256:[0-9a-f]{64}$/.test(j.sender_hash || '')) {
+        problems.push(`${c.file}: sender_hash format invalid`);
+      }
+      if (!/^sha256:[0-9a-f]{64}$/.test(j.raw_sha256 || '')) {
+        problems.push(`${c.file}: raw_sha256 format invalid`);
+      }
+      if (!TRUST_ORDER.includes(j.trust_level)) {
+        problems.push(`${c.file}: unknown trust_level ${j.trust_level}`);
+      }
+      // Plaintext discipline (§0.1.10) — none of these should be in a committed payload
+      for (const forbidden of ['sender', 'subject', 'body_preview', 'message_id']) {
+        if (j[forbidden] != null) {
+          problems.push(`${c.file}: plaintext leak — ${forbidden}`);
+        }
+      }
+    } else if (c.kind === 'reverify') {
+      // Reverify commits (1.L.3): immutable upgrade records
+      for (const k of ['event_id', 'sequence', 'target_commit', 'target_sequence', 'received_at']) {
+        if (j[k] === undefined) problems.push(`${c.file}: missing ${k}`);
+      }
+      if (j.kind !== 'reverify') {
+        problems.push(`${c.file}: kind field missing or != 'reverify'`);
+      }
+      if (!/^commit-\d+\.json$/.test(j.target_commit || '')) {
+        problems.push(`${c.file}: target_commit format invalid`);
+      }
+      if (j.trust_level_before != null && !TRUST_ORDER.includes(j.trust_level_before)) {
+        problems.push(`${c.file}: unknown trust_level_before ${j.trust_level_before}`);
+      }
+      if (j.trust_level_after != null && !TRUST_ORDER.includes(j.trust_level_after)) {
+        problems.push(`${c.file}: unknown trust_level_after ${j.trust_level_after}`);
+      }
+      // Same plaintext discipline — reverify records must not leak either
+      for (const forbidden of ['sender', 'subject', 'body_preview', 'message_id']) {
+        if (j[forbidden] != null) {
+          problems.push(`${c.file}: plaintext leak — ${forbidden}`);
+        }
       }
     }
   }
   if (problems.length) return { status: 'fail', detail: `${problems.length} problem(s)`, problems };
-  return { status: 'pass', detail: `${commits.length} commit(s) conform to schema v${SCHEMA_V}` };
+  const replyN = commits.filter((c) => c.kind === 'reply').length;
+  const reverifyN = commits.filter((c) => c.kind === 'reverify').length;
+  const summary = reverifyN > 0
+    ? `${replyN} reply + ${reverifyN} reverify commit(s) conform to schema v${SCHEMA_V}`
+    : `${replyN} commit(s) conform to schema v${SCHEMA_V}`;
+  return { status: 'pass', detail: summary };
 }
 
 function checkArchivedKeys(repoPath, commits) {
   const issues = [];
   let checked = 0;
-  for (const c of commits) {
+  // Reverify commits don't archive keys (they USE existing ones from
+  // their target commit) — skip them here.
+  const replies = commits.filter((c) => c.kind === 'reply');
+  for (const c of replies) {
     const keyRel = c.json.dkim_key_file;
     if (!keyRel) continue; // commit has no signature to archive
     const keyPath = path.join(repoPath, keyRel);
@@ -235,11 +282,16 @@ function checkOts(repoPath, commits, { binary = 'ots', timeoutMs = 30000 } = {})
     }
     const combined = (out.stdout || '') + (out.stderr || '');
     const lower = combined.toLowerCase();
-    // Classify by text. ots exits non-zero on both "File does not match"
-    // (tamper) AND "not yet fully confirmed" (pending), so exit code
-    // alone is ambiguous. Text signals are authoritative:
+    // Classify by text. ots exits non-zero on many non-failure paths
+    // (pending confirmation, cached-attestations-without-bitcoin-node),
+    // so exit code alone is ambiguous. Text signals are authoritative:
     //   - "file does not match" -> tamper (invalid)
-    //   - "success!" / "bitcoin block" -> fully anchored
+    //   - "success!" / "bitcoin block #N" -> fully anchored + verified
+    //   - "got N attestation(s) from cache" -> proof has Bitcoin attestations
+    //                                          (anchored; the "could not
+    //                                          connect to bitcoin node"
+    //                                          warning is normal when no
+    //                                          local Bitcoin node exists)
     //   - "timestamped by transaction" -> in a Bitcoin tx (partial anchor)
     //   - "pending confirmation" -> calendar has it, Bitcoin doesn't yet
     //   - non-zero exit with no known signal -> invalid (unclassified error)
@@ -247,6 +299,8 @@ function checkOts(repoPath, commits, { binary = 'ots', timeoutMs = 30000 } = {})
     if (/does not match/.test(lower)) {
       state = 'invalid';
     } else if (/success!|bitcoin block #?\d/.test(lower)) {
+      state = 'anchored';
+    } else if (/got \d+ attestation/.test(lower)) {
       state = 'anchored';
     } else if (/timestamped by transaction|waiting for \d+ confirmation/.test(lower)) {
       state = 'in-bitcoin';
@@ -287,8 +341,32 @@ function checkCompletion(repoPath, commits, minTrust) {
     return { status: 'skip', detail: `event type '${event.type}' not covered in Phase 1` };
   }
 
+  // 1.L.3: build a trust-upgrade map from reverify commits so the
+  // effective trust level for each reply is max(original, upgraded).
+  const upgrades = new Map(); // target_commit filename -> highest upgraded trust
+  for (const c of commits) {
+    if (c.kind !== 'reverify') continue;
+    if (!c.json.upgraded) continue;
+    const target = c.json.target_commit;
+    const after = c.json.trust_level_after;
+    if (!target || !after || !TRUST_ORDER.includes(after)) continue;
+    const prev = upgrades.get(target);
+    if (!prev || TRUST_ORDER.indexOf(after) > TRUST_ORDER.indexOf(prev)) {
+      upgrades.set(target, after);
+    }
+  }
+  function effectiveTrust(c) {
+    const upgraded = upgrades.get(c.file);
+    if (!upgraded) return c.json.trust_level;
+    return TRUST_ORDER.indexOf(upgraded) > TRUST_ORDER.indexOf(c.json.trust_level)
+      ? upgraded
+      : c.json.trust_level;
+  }
+
+  // Only reply commits are assigned to steps; reverify commits layer on top.
   const byStep = new Map();
   for (const c of commits) {
+    if (c.kind !== 'reply') continue;
     const sid = c.json.step_id;
     if (!sid) continue;
     if (!byStep.has(sid)) byStep.set(sid, []);
@@ -299,9 +377,9 @@ function checkCompletion(repoPath, commits, minTrust) {
   const complete = [];
   for (const step of (event.steps || [])) {
     const replies = byStep.get(step.id) || [];
-    // Latest-wins per PRD §4.1
+    // Latest-wins per PRD §4.1; effectiveTrust applies 1.L.3 upgrades
     const accepted = replies.filter((r) =>
-      r.json.participant_match === true && meetsTrust(r.json.trust_level, minTrust)
+      r.json.participant_match === true && meetsTrust(effectiveTrust(r), minTrust)
     );
     if (accepted.length === 0) {
       if (replies.length === 0) problems.push(`step ${step.id} (${step.name}): no reply`);
@@ -317,7 +395,7 @@ function checkCompletion(repoPath, commits, minTrust) {
     for (const step of event.steps) {
       const replies = byStep.get(step.id) || [];
       const accepted = replies.filter((r) =>
-        r.json.participant_match === true && meetsTrust(r.json.trust_level, minTrust)
+        r.json.participant_match === true && meetsTrust(effectiveTrust(r), minTrust)
       );
       if (accepted.length === 0) continue;
       const minSeq = Math.min(...accepted.map((r) => r.json.sequence));

@@ -153,3 +153,99 @@ test('generateEventSalt: produces 64-char hex (32 bytes)', () => {
   assert.match(b, /^[0-9a-f]{64}$/);
   assert.notEqual(a, b);
 });
+
+// 1.L.3 — reverify (contested-commit upgrade) tests
+
+test('loadCommit: returns null when commit missing', async () => {
+  const { loadCommit } = require('../../src/gitrepo');
+  const r = await loadCommit('nonexistent', 1);
+  assert.equal(r, null);
+});
+
+test('nextReverifySequence: starts at 1 on fresh repo', async () => {
+  const { initRepoIfNeeded, nextReverifySequence } = require('../../src/gitrepo');
+  const ev = { id: 'reverifyA', title: 'Reverify A', steps: [] };
+  const { root } = await initRepoIfNeeded('reverifyA', ev);
+  assert.equal(await nextReverifySequence(root), 1);
+});
+
+test('commitReverify: writes reverify-NNN.json (separate namespace from commit-NNN)', async () => {
+  const { initRepoIfNeeded, commitReply, commitReverify, buildCommitMetadata } = require('../../src/gitrepo');
+  const ev = { id: 'reverifyB', title: 'Reverify B', salt: 'pub-salt-b', steps: [] };
+  await initRepoIfNeeded('reverifyB', ev);
+
+  // Seed one reply commit
+  const ctx = { eventId: 'reverifyB', stepId: 'step1', receivedAt: '2026-04-18T00:00:00Z',
+    envelope: { sender: 'alice@example.com' }, from: 'alice@example.com',
+    trustLevel: 'authorized', participantMatch: true, attachments: [],
+    dkim: { signatures: [{ result: 'fail', domain: 'example.com', selector: 's' }] },
+    spf: { result: 'pass' }, dmarc: { result: 'pass' }, arc: { result: 'none' },
+    rawSha256: 'sha256:' + 'a'.repeat(64), rawSize: 100,
+    dkimArchive: null };
+  const replyRes = await commitReply('reverifyB', ev, ctx);
+  assert.equal(replyRes.file, path.join('commits', 'commit-001.json'));
+
+  // Now submit a reverify for commit-001
+  const reverifyRes = await commitReverify('reverifyB', ev, 1, {
+    trust_level_before: 'authorized',
+    trust_level_after: 'verified',
+    upgraded: true,
+    dkim_reverify: { ok: true, result: 'pass' },
+    evidence: { raw_sha256: 'sha256:' + 'b'.repeat(64), raw_size: 150 },
+  }, '2026-04-18T01:00:00Z');
+
+  assert.equal(reverifyRes.file, path.join('commits', 'reverify-001.json'));
+  assert.equal(reverifyRes.target_commit, 'commit-001.json');
+
+  // File exists with expected content
+  const fs2 = require('node:fs/promises');
+  const pathMod = require('node:path');
+  const { repoPath } = require('../../src/gitrepo');
+  const body = JSON.parse(await fs2.readFile(
+    pathMod.join(repoPath('reverifyB'), 'commits', 'reverify-001.json'), 'utf8'));
+  assert.equal(body.schema_version, 2);
+  assert.equal(body.kind, 'reverify');
+  assert.equal(body.target_commit, 'commit-001.json');
+  assert.equal(body.target_sequence, 1);
+  assert.equal(body.upgraded, true);
+  assert.equal(body.trust_level_before, 'authorized');
+  assert.equal(body.trust_level_after, 'verified');
+  assert.deepEqual(body.dkim_reverify, { ok: true, result: 'pass' });
+
+  // Original commit-001.json UNTOUCHED
+  const original = JSON.parse(await fs2.readFile(
+    pathMod.join(repoPath('reverifyB'), 'commits', 'commit-001.json'), 'utf8'));
+  assert.equal(original.trust_level, 'authorized'); // unchanged
+});
+
+test('commitReverify: sequence auto-increments independently of reply commits', async () => {
+  const { initRepoIfNeeded, commitReverify } = require('../../src/gitrepo');
+  const ev = { id: 'reverifyC', title: 'Reverify C', salt: 's', steps: [] };
+  await initRepoIfNeeded('reverifyC', ev);
+
+  const r1 = await commitReverify('reverifyC', ev, 1, { upgraded: false }, '2026-04-18T00:00:00Z');
+  const r2 = await commitReverify('reverifyC', ev, 1, { upgraded: true }, '2026-04-18T01:00:00Z');
+  assert.equal(r1.sequence, 1);
+  assert.equal(r2.sequence, 2);
+  assert.notEqual(r1.file, r2.file);
+});
+
+test('commitReverify: produces an OTS proof path (even if stamping fails gracefully)', async () => {
+  const { initRepoIfNeeded, commitReverify } = require('../../src/gitrepo');
+  const ev = { id: 'reverifyD', title: 'Reverify D', salt: 's', steps: [] };
+  await initRepoIfNeeded('reverifyD', ev);
+
+  const r = await commitReverify('reverifyD', ev, 5, {
+    upgraded: false,
+    dkim_reverify: { ok: false, reason: 'test' },
+  }, '2026-04-18T00:00:00Z');
+  // Either stamp ran and path is set, or stamp failed and path is null +
+  // ots_archive error is recorded. Both acceptable per existing 1.E contract.
+  const fs2 = require('node:fs/promises');
+  const pathMod = require('node:path');
+  const { repoPath } = require('../../src/gitrepo');
+  const body = JSON.parse(await fs2.readFile(
+    pathMod.join(repoPath('reverifyD'), r.file), 'utf8'));
+  // At least one of these is true:
+  assert.ok(body.ots_proof_file || (body.ots_archive && body.ots_archive.error));
+});
