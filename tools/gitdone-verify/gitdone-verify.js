@@ -306,6 +306,13 @@ function checkOts(repoPath, commits, { binary = 'ots', timeoutMs = 30000 } = {})
       state = 'in-bitcoin';
     } else if (/pending confirmation/.test(lower)) {
       state = 'pending';
+    } else if (/could not connect to bitcoin node/.test(lower)) {
+      // An upgraded proof has Bitcoin attestations embedded; `ots verify`
+      // tries to confirm them against a local Bitcoin node, fails to
+      // connect, exits 1. That's "anchored cryptographically, just not
+      // independently cross-checked against Bitcoin headers right now."
+      // Run on a machine with a local node for full independent verify.
+      state = 'anchored';
     } else if (out.status !== 0) {
       state = 'invalid';
     } else {

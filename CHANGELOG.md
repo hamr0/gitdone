@@ -19,6 +19,51 @@ internal refactors and commit-level churn stay in `git log`.
 
 ---
 
+## [Phase 1 — 1.E+ OTS upgrade scheduler] — 2026-04-18
+
+Closes the operational gap identified in 1.L.3 finding 41: proofs
+in the repo at commit time carry only calendar attestations, not
+Bitcoin ones. `ots verify` used to paper over this by querying
+calendars live. Now we periodically fold the Bitcoin attestations
+into the `.ots` files themselves, so the repo is self-contained
+against calendar-server outages.
+
+### Added
+- `app/bin/ots-upgrade.js` — worker that walks
+  `$dataDir/repos/*/ots_proofs/*.ots`, runs `ots upgrade` on each,
+  compares sha256 before/after to detect upgrades, and makes ONE
+  git commit per event repo if ≥1 proof got Bitcoin-anchored
+  (`ots upgrade: N proof(s) anchored to Bitcoin`). JSON-lines output
+  for journalctl. Idempotent: no changes = no commit.
+- `app/tests/unit/ots-upgrade.test.js` — 8 tests using a fake
+  `ots` binary that simulates upgrades selectively, validating
+  batched commit shape and idempotent re-runs.
+- VPS systemd units:
+  - `/etc/systemd/system/gitdone-ots-upgrade.service` — oneshot,
+    runs as `gitdone` user.
+  - `/etc/systemd/system/gitdone-ots-upgrade.timer` — 6h cadence,
+    5min post-boot jitter, `Persistent=true` so missed runs fire
+    on next boot.
+
+### Changed
+- `tools/gitdone-verify` OTS classifier now recognises an additional
+  post-upgrade state: when a proof has Bitcoin attestations embedded
+  and `ots verify` exits with "Could not connect to Bitcoin node"
+  and no failure signal, the proof is classified as `anchored`
+  (cryptographically valid; no Bitcoin node available for
+  independent cross-check). Tamper is still reliably caught by
+  `does not match`.
+
+### Verified
+- First production run on VPS upgraded 2 proofs (demo123
+  commit-001 and commit-002) — file sizes grew ~550→2620 bytes
+  and ~690→2760 bytes as Bitcoin Merkle-path attestations were
+  folded in. One git commit `b30a48f: ots upgrade: 2 proof(s)
+  anchored to Bitcoin`. Second run 30s later was a clean no-op.
+  Systemd timer scheduled: next run in ~6h.
+
+---
+
 ## [Phase 1 — 1.L.3 reverify+ handler] — 2026-04-18
 
 Completes the verify trilogy (`event+` / `verify+` / `reverify+`). A
