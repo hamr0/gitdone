@@ -41,7 +41,15 @@ const { layout: rawLayout, html, raw } = require('../src/web/templates');
 const { parseBody } = require('../src/web/body');
 const { validateWorkflowEvent, VALID_FLOWS, VALID_TRUST_LEVELS } = require('../src/web/validation');
 const { createEvent } = require('../src/event-store');
+const { createToken, loadToken } = require('../src/magic-token');
+const { sendmail, buildRawMessage } = require('../src/outbound');
 const devChannel = IS_DEV ? require('../src/web/dev-channel') : null;
+
+// Scheme/host used to build management URLs in outbound emails. Overrideable
+// for local dev (http://localhost:3001) and tests. Defaults to production.
+function publicBaseUrl() {
+  return process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
+}
 
 // Wrap layout() so every route automatically gets the dev HUD in dev mode.
 function layout(opts) {
@@ -262,6 +270,9 @@ router.post('/events', async (req, res) => {
     type: 'event',
     ...v.value,
   });
+  const token = await createToken({ eventId: event.id, initiator: event.initiator });
+  const manageUrl = `${publicBaseUrl()}/manage/${token.token}`;
+  const emailResult = await sendManagementEmail({ event, manageUrl });
   const msg = html`
     <h1>Event created</h1>
     <p><strong>${event.title}</strong> — ID: <code>${event.id}</code></p>
@@ -277,16 +288,61 @@ router.post('/events', async (req, res) => {
         </li>
       `)}
     </ul>
-    <p style="background:#ffc;padding:0.75rem;border:1px solid #cc9">
-      <strong>Next:</strong> management link (email notification) will be added in 1.H.4.
-      For now, you can verify the event exists:
-      <a href="/events/${event.id}">${event.id}</a>
-    </p>
+    ${emailResult.ok
+      ? html`<p style="background:#efe;padding:0.75rem;border:1px solid #9c9">
+          <strong>Management link sent to ${event.initiator}.</strong>
+          Check your inbox — the link is valid for 30 days and lets you see progress,
+          resend reminders, or close the event early.
+        </p>`
+      : html`<p style="background:#fee;padding:0.75rem;border:1px solid #c99">
+          <strong>Management link could not be emailed</strong> (${emailResult.reason || 'send failed'}).
+          Save this URL: <code>${manageUrl}</code>
+        </p>`}
     <p><a href="/">home</a></p>
   `;
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({ title: 'event created — gitdone', body: msg }));
 });
+
+// Compose + submit the management-link email. Plain text; outbound DKIM
+// signing is handled by the opendkim milter at the MTA (see outbound.js).
+async function sendManagementEmail({ event, manageUrl }) {
+  const from = `gitdone@${config.domain}`;
+  const stepsList = event.steps
+    .map((s, i) => `  ${i + 1}. ${s.name} — ${s.participant}`)
+    .join('\n');
+  const body = [
+    `You created the event "${event.title}" on gitdone.`,
+    ``,
+    `Event ID: ${event.id}`,
+    `Flow: ${event.flow}   Minimum trust: ${event.min_trust_level}`,
+    ``,
+    `Steps:`,
+    stepsList,
+    ``,
+    `Management link (valid 30 days — bookmark it):`,
+    `  ${manageUrl}`,
+    ``,
+    `Day-to-day commands happen by email. From the address you created`,
+    `the event with (${event.initiator}), reply from your own mail client to:`,
+    `  stats+${event.id}@${config.domain}    see current progress`,
+    `  remind+${event.id}@${config.domain}   nudge pending participants`,
+    `  close+${event.id}@${config.domain}    close the event early`,
+    ``,
+    `Anyone can verify a proof offline with the gitdone-verify CLI.`,
+    `See https://github.com/hamr0/gitdone`,
+  ].join('\n');
+  const rawMessage = buildRawMessage({
+    from,
+    to: event.initiator,
+    subject: `[gitdone] "${event.title}" — your management link`,
+    body,
+    autoSubmitted: 'auto-generated',
+    domain: config.domain,
+    extraHeaders: { 'X-GitDone-Event': event.id },
+  });
+  return sendmail({ from, rawMessage, to: [event.initiator] });
+}
 
 // Debug/read-only event view — helpful during dev; will be locked down
 // or removed when 1.H.5 (magic-link management) lands.
@@ -320,6 +376,49 @@ router.get('/events/:id', async (req, res, params) => {
         </ul>
       ` : raw('')}
       <p><a href="/">home</a></p>
+    `,
+  }));
+});
+
+// 1.H.4 — management link landing. Validates the token and shows a minimal
+// confirmation page. Full dashboard is 1.H.5.
+router.get('/manage/:token', async (req, res, params) => {
+  const rec = await loadToken(params.token);
+  if (!rec) {
+    res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(layout({
+      title: 'link invalid — gitdone',
+      body: html`<h1>Link invalid or expired</h1>
+        <p>This management link is no longer valid. Create a new event if you need one.</p>
+        <p><a href="/">home</a></p>`,
+    }));
+  }
+  const { loadEvent } = require('../src/event-store');
+  const event = await loadEvent(rec.event_id);
+  if (!event) {
+    res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(layout({
+      title: 'event missing — gitdone',
+      body: html`<h1>Event not found</h1>
+        <p>Token valid, but the underlying event is gone.</p>
+        <p><a href="/">home</a></p>`,
+    }));
+  }
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+  res.end(layout({
+    title: `manage — ${event.title}`,
+    body: html`
+      <h1>${event.title}</h1>
+      <p>Management link valid. Signed in as <code>${rec.initiator}</code>.</p>
+      <p>Event ID: <code>${event.id}</code> · Flow: <code>${event.flow}</code> · ${event.steps.length} step(s)</p>
+      <p style="background:#ffc;padding:0.75rem;border:1px solid #cc9">
+        Full dashboard (progress, reminders, close) lands in 1.H.5.
+        For now: day-to-day commands happen by email —
+        <code>stats+${event.id}@${config.domain}</code>,
+        <code>remind+${event.id}@${config.domain}</code>,
+        <code>close+${event.id}@${config.domain}</code>.
+      </p>
+      <p><a href="/events/${event.id}">read-only view</a> · <a href="/">home</a></p>
     `,
   }));
 });
