@@ -21,14 +21,33 @@
 'use strict';
 
 const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
 const { URL } = require('node:url');
+
+// Dev-mode detection FIRST — we may need to set GITDONE_DATA_DIR before
+// requiring config/event-store (which cache the value at load time).
+const IS_DEV = process.argv.includes('--dev') || process.env.GITDONE_DEV === '1';
+if (IS_DEV && !process.env.GITDONE_DATA_DIR) {
+  const devDataDir = path.join(process.cwd(), 'data-dev');
+  try { fs.mkdirSync(devDataDir, { recursive: true }); } catch {}
+  process.env.GITDONE_DATA_DIR = devDataDir;
+  process.stderr.write(`dev: using GITDONE_DATA_DIR=${devDataDir}\n`);
+}
 
 const config = require('../src/config');
 const { createRouter } = require('../src/web/router');
-const { layout, html, raw } = require('../src/web/templates');
+const { layout: rawLayout, html, raw } = require('../src/web/templates');
 const { parseBody } = require('../src/web/body');
 const { validateWorkflowEvent, VALID_FLOWS, VALID_TRUST_LEVELS } = require('../src/web/validation');
 const { createEvent } = require('../src/event-store');
+const devChannel = IS_DEV ? require('../src/web/dev-channel') : null;
+
+// Wrap layout() so every route automatically gets the dev HUD in dev mode.
+function layout(opts) {
+  if (!IS_DEV) return rawLayout(opts);
+  return rawLayout({ ...opts, dev: true, devHUD: devChannel.devHUD() });
+}
 
 const LISTEN_HOST = process.env.GITDONE_WEB_HOST || '127.0.0.1';
 const LISTEN_PORT = parseInt(process.env.GITDONE_WEB_PORT || '3001', 10);
@@ -62,35 +81,78 @@ router.get('/', async (req, res) => {
 
 // -------- event creation (workflow) --------
 
+// Design Lab variant F (synthesis winner, iteration 2): What+Who on one
+// row, How on a second row, compact step table with datetime-local
+// deadlines, explained dropdowns, numbered section headers.
+// Reference: docs/01-product/design/event-form-v1.md
+const WORKFLOW_FORM_CSS = `
+.vf-form h2 { font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.06em; color: #555; margin: 1rem 0 0.35rem; font-weight: 600; }
+.vf-form h2 .num { display: inline-block; width: 1.15em; height: 1.15em; background: #0645ad; color: #fff; border-radius: 50%; text-align: center; font-weight: 500; margin-right: 0.4rem; font-size: 0.78em; line-height: 1.15em; }
+.vf-form h2 .hint { font-size: 0.88em; color: #888; text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 0.3rem; }
+.vf-section { padding-left: 1.55rem; border-left: 2px solid #eef; margin-bottom: 0.35rem; padding-bottom: 0.35rem; }
+.vf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+.vf-row label { margin: 0; }
+.vf-row label span { font-size: 0.8em; color: #888; }
+.vf-row input, .vf-row select { padding: 0.35rem 0.45rem; font-size: 0.93em; }
+.vf-steps-table { width: 100%; border-collapse: collapse; font-size: 0.9em; margin-bottom: 0.35rem; table-layout: fixed; }
+.vf-steps-table th { text-align: left; font-weight: 500; color: #666; padding: 0.25rem 0.4rem; border-bottom: 1px solid #ddd; font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.04em; }
+.vf-steps-table td { padding: 0.22rem 0.28rem; border-bottom: 1px solid #f2f2f5; vertical-align: middle; }
+.vf-steps-table input[type=text], .vf-steps-table input[type=email], .vf-steps-table input[type=datetime-local] { width: 100%; padding: 0.28rem 0.4rem; border: 1px solid transparent; background: transparent; font-size: 0.9em; border-radius: 3px; }
+.vf-steps-table input:focus { border-color: #0645ad; background: #fff; outline: 0; box-shadow: 0 0 0 2px rgba(6,69,173,.12); }
+.vf-steps-table tr:hover input:not(:focus) { background: #fafafa; }
+.vf-steps-table .col-num { width: 28px; color: #999; font-variant-numeric: tabular-nums; text-align: right; padding-right: 0.35rem; font-size: 0.82em; }
+.vf-steps-table .col-name { width: 24%; }
+.vf-steps-table .col-email { width: 28%; }
+.vf-steps-table .col-dl { width: 30%; }
+.vf-steps-table .col-att { width: 40px; text-align: center; }
+.vf-add-row { margin: 0.3rem 0 0; font-size: 0.85em; }
+.vf-add-row button { background: none; border: 0; color: #0645ad; cursor: pointer; padding: 0; font: inherit; text-decoration: none; }
+.vf-add-row button:hover { text-decoration: underline; }
+.vf-submit { background: #0645ad; color: #fff; padding: 0.55rem 1.5rem; border: 0; border-radius: 4px; cursor: pointer; font-weight: 500; margin-top: 0.9rem; font-size: 0.95em; }
+.vf-submit:hover { background: #053590; }
+@media (max-width: 540px) { .vf-row { grid-template-columns: 1fr; } .vf-steps-table { font-size: 0.83em; } }
+`;
+
+const FLOW_LABELS = {
+  'sequential': 'sequential — one after another',
+  'non-sequential': 'non-sequential — any order',
+  'hybrid': 'hybrid — tree of parallel branches',
+};
+const TRUST_LABELS = {
+  verified: 'verified — strict DKIM + DMARC',
+  forwarded: 'forwarded — OK via trusted relay',
+  authorized: 'authorized — SPF-only OK',
+  unverified: 'unverified — accept anything',
+};
+
 function renderWorkflowForm({ values = {}, errors = [] } = {}) {
-  const stepRows = Math.max(2, (values.step_name || []).length || 2);
-  const flows = VALID_FLOWS.map((f) => html`
-    <option value="${f}" ${values.flow === f ? raw('selected') : ''}>${f}</option>
+  const names = values.step_name || [];
+  const participants = values.step_participant || [];
+  const deadlines = values.step_deadline || [];
+  const atts = values.step_requires_attachment || [];
+  const stepRows = Math.max(2, names.length || 2);
+  const selectedFlow = values.flow || 'sequential';
+  const selectedTrust = values.min_trust_level || 'verified';
+  const flowOpts = VALID_FLOWS.map((f) => html`
+    <option value="${f}" ${selectedFlow === f ? raw('selected') : ''}>${FLOW_LABELS[f] || f}</option>
   `);
-  const trusts = VALID_TRUST_LEVELS.map((t) => html`
-    <option value="${t}" ${values.min_trust_level === t ? raw('selected') : (!values.min_trust_level && t === 'verified' ? raw('selected') : '')}>${t}</option>
+  const trustOpts = VALID_TRUST_LEVELS.map((t) => html`
+    <option value="${t}" ${selectedTrust === t ? raw('selected') : ''}>${TRUST_LABELS[t] || t}</option>
   `);
-  const stepsHtml = [];
+  const rows = [];
   for (let i = 0; i < stepRows; i++) {
-    const n = (values.step_name && values.step_name[i]) || '';
-    const p = (values.step_participant && values.step_participant[i]) || '';
-    const d = (values.step_deadline && values.step_deadline[i]) || '';
-    stepsHtml.push(html`
-      <fieldset style="border:1px solid #eee;padding:0.75rem 1rem;margin-top:0.75rem">
-        <legend style="font-size:0.85em;color:#555">Step ${i + 1}</legend>
-        <label>Name
-          <input type="text" name="step_name" value="${n}" maxlength="200">
-        </label>
-        <label>Participant email
-          <input type="email" name="step_participant" value="${p}">
-        </label>
-        <label>Deadline <span>(optional, YYYY-MM-DD)</span>
-          <input type="date" name="step_deadline" value="${d}">
-        </label>
-        <label style="margin-top:0.5rem">
-          <input type="checkbox" name="step_requires_attachment" value="on"> requires attachment
-        </label>
-      </fieldset>
+    const n = names[i] || '';
+    const p = participants[i] || '';
+    const d = deadlines[i] || '';
+    const a = atts[i] === 'on' || atts[i] === true;
+    rows.push(html`
+      <tr>
+        <td class="col-num">${i + 1}</td>
+        <td class="col-name"><input type="text" name="step_name" value="${n}" maxlength="200" placeholder="step name"></td>
+        <td class="col-email"><input type="email" name="step_participant" value="${p}" placeholder="email@…"></td>
+        <td class="col-dl"><input type="datetime-local" name="step_deadline" value="${d}"></td>
+        <td class="col-att"><input type="checkbox" name="step_requires_attachment" value="on" ${a ? raw('checked') : ''} title="requires attachment"></td>
+      </tr>
     `);
   }
   const errBlock = errors.length
@@ -100,34 +162,60 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
       </div>`
     : raw('');
   return html`
-    <h1>Create Event (workflow)</h1>
+    <h1>Create Event</h1>
     <p><a href="/">← back</a></p>
     ${errBlock}
-    <form method="POST" action="/events">
-      <label>Title
-        <input type="text" name="title" value="${values.title || ''}" required maxlength="200">
-      </label>
-      <label>Your email <span>(you'll get a management link)</span>
-        <input type="email" name="initiator" value="${values.initiator || ''}" required>
-      </label>
-      <label>Flow
-        <select name="flow" required>${flows}</select>
-        <span>sequential: steps run in order. non-sequential: any order (use deadlines). hybrid: tree-like (coming later).</span>
-      </label>
-      <label>Minimum trust level for completion
-        <select name="min_trust_level">${trusts}</select>
-        <span>verified = strict DKIM+DMARC pass. authorized = SPF pass, DKIM may have broken in transit.</span>
-      </label>
-      <h2 style="margin-top:1.5rem">Steps</h2>
-      ${stepsHtml}
-      <p style="margin-top:0.75rem">
-        <button type="submit" formaction="/events/new" formmethod="GET" name="_add_step" value="1">
-          + Add another step
-        </button>
-      </p>
-      <p style="margin-top:1.5rem">
-        <input type="submit" value="Create event">
-      </p>
+    <style>${raw(WORKFLOW_FORM_CSS)}</style>
+    <form class="vf-form" method="POST" action="/events" data-variant-root="F">
+
+      <h2><span class="num">1</span>What + Who <span class="hint">event title and who runs it</span></h2>
+      <div class="vf-section">
+        <div class="vf-row">
+          <label>
+            <span>Title</span>
+            <input type="text" name="title" value="${values.title || ''}" required maxlength="200" placeholder="e.g. Q2 sign-off">
+          </label>
+          <label>
+            <span>Your email</span>
+            <input type="email" name="initiator" value="${values.initiator || ''}" required placeholder="you@example.com">
+          </label>
+        </div>
+      </div>
+
+      <h2><span class="num">2</span>How <span class="hint">how it runs, what counts</span></h2>
+      <div class="vf-section">
+        <div class="vf-row">
+          <label>
+            <span>Flow</span>
+            <select name="flow" required>${flowOpts}</select>
+          </label>
+          <label>
+            <span>Minimum trust</span>
+            <select name="min_trust_level">${trustOpts}</select>
+          </label>
+        </div>
+      </div>
+
+      <h2><span class="num">3</span>Steps <span class="hint">${String(stepRows)} · each gets a unique reply-to</span></h2>
+      <div class="vf-section">
+        <table class="vf-steps-table">
+          <thead>
+            <tr>
+              <th class="col-num">#</th>
+              <th class="col-name">Step</th>
+              <th class="col-email">Participant</th>
+              <th class="col-dl">Deadline (date + time)</th>
+              <th class="col-att" title="requires attachment">att</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <p class="vf-add-row">
+          <button type="submit" formaction="/events/new" formmethod="GET" name="_add_step" value="1">+ add step</button>
+        </p>
+      </div>
+
+      <button type="submit" class="vf-submit">Create event</button>
     </form>
   `;
 }
@@ -260,14 +348,26 @@ function notFound(res) {
 function serverError(res, err) {
   process.stderr.write(`server: ${err && err.stack || err}\n`);
   res.writeHead(500, { 'content-type': 'text/html; charset=utf-8' });
-  res.end(layout({
-    title: 'error',
-    body: html`<h1>500</h1><p>Something went wrong. <a href="/">home</a></p>`,
-  }));
+  // In dev mode, surface the real error so the feedback loop is fast.
+  // In production, generic 500 page; logs are where errors belong.
+  const body = IS_DEV
+    ? html`<h1>500 (dev)</h1>
+      <p>${err && err.message || String(err)}</p>
+      <pre style="background:#f3f3f3;padding:0.75rem;overflow:auto;font-size:0.85em">${err && err.stack || ''}</pre>
+      <p><a href="/">home</a></p>`
+    : html`<h1>500</h1><p>Something went wrong. <a href="/">home</a></p>`;
+  res.end(layout({ title: 'error', body }));
 }
 
 async function handle(req, res) {
   const u = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  // Dev-only endpoints before the main router
+  if (IS_DEV && u.pathname === '/dev/feedback' && req.method === 'POST') {
+    return devChannel.handleFeedback(req, res);
+  }
+  if (IS_DEV && u.pathname === '/dev/stream' && req.method === 'GET') {
+    return devChannel.handleStream(req, res);
+  }
   const m = router.match(req.method, u.pathname);
   if (!m) return notFound(res);
   try {

@@ -88,9 +88,8 @@ test('GET /events/new renders the workflow form', async () => {
 });
 
 test('GET /events/new?_add_step=1 adds a step slot', async () => {
-  const r1 = await get('/events/new');
   const r2 = await get('/events/new?_add_step=1&step_name=A&step_name=B');
-  const stepCount = (r2.body.match(/<legend[^>]*>Step \d+<\/legend>/g) || []).length;
+  const stepCount = (r2.body.match(/name="step_name"/g) || []).length;
   // With two step_name params + _add_step, we should have at least 3 slots
   assert.ok(stepCount >= 3, `got ${stepCount} steps`);
 });
