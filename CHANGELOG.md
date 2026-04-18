@@ -19,6 +19,109 @@ internal refactors and commit-level churn stay in `git log`.
 
 ---
 
+## [Phase 1 — 1.H.3 landing + crypto events] — 2026-04-19
+
+Landing page now uses a compact two-CTA block (Create Event / Create
+Crypto) with a one-paragraph explainer. Crypto events can be created
+at `/crypto/new` in either **declaration** mode (one DKIM-verified
+signer → one permanent record) or **attestation** mode (N distinct
+signers with a dedup rule). Winning design: Live Canvas variant F
+(dense 2-col grid, no numbered section headers, fields dim in place
+for the inactive mode). PRD §4.2 is now fully wired end-to-end.
+
+### Added
+- `validateCryptoEvent` in `app/src/web/validation.js` — branches per
+  mode. Declaration requires `signer`. Attestation requires integer
+  `threshold >= 1`, `dedup` ∈ `{unique, latest, accumulating}`,
+  optional `allow_anonymous`.
+- `GET /crypto/new` + `POST /crypto` in `app/bin/server.js`. Success
+  page spells out the shareable reply address (`event+{id}@domain`)
+  and, for attestation, includes a pre-filled `mailto:` helper for
+  posting to channels.
+- Crypto-specific management email body — explains mode, threshold,
+  reply address, and the email-command namespace.
+- Frozen design reference at
+  `docs/01-product/design/landing-and-crypto-v1.md`. `DESIGN_MEMORY.md`
+  gains the "dense-grid form" pattern (for ≤6-field forms).
+- 8 integration tests covering GET landing, GET form, declaration
+  success, attestation success, per-mode validation failures, and
+  magic-token generation for crypto events.
+
+### Changed
+- Landing (`GET /`) no longer uses the `btn-big` placeholders from
+  `templates.js`; it renders its own `.f-landing` block with the F
+  palette.
+
+---
+
+## [Phase 1 — 1.H.4 magic-link management URL + email] — 2026-04-19
+
+Creating an event now mints a 30-day opaque token (32 hex chars) and
+emails the initiator a management URL at `/manage/{token}`. Both
+workflow events and crypto events use the same token flow. Day-to-day
+commands still happen by email (§6.4); the URL is the visual fallback.
+
+### Added
+- `app/src/magic-token.js` — one-file-per-token store under
+  `data/magic_tokens/{token}.json`. File-per-token avoids RMW races
+  and matches `data/events/{id}.json` layout. Malformed tokens never
+  touch disk. Expired tokens read as null.
+- `GET /manage/{token}` renders a minimal valid-link landing that
+  points at the email commands; full dashboard is 1.H.5.
+- Management email composed in `sendManagementEmail` — sent via the
+  existing `sendmail(1)` path (opendkim milter signs it).
+- 7 unit tests for magic-token, 3 integration tests for the full
+  `POST /events` → email → `/manage/{token}` flow using a fake
+  sendmail shell script.
+
+### Design decision
+- **Opaque token, not JWT.** PRD §4 originally said JWT; we use
+  `crypto.randomBytes(16).toString('hex')` instead. Reasoning: single
+  host, file-backed, revocation by file delete, no need for
+  JWT-style statelessness. Every "real" JWT feature (one-time use,
+  revocation, listing active links) re-introduces a server lookup.
+
+---
+
+## [Phase 1 — 1.H.2.1 event form redesign] — 2026-04-18
+
+Event form at `/events/new` gets its v1 visual identity: Design Lab
+synthesis winner **variant F2**. Numbered section headers, What+Who
+on one row, How on a second, compact step table with datetime-local
+deadlines, inline explained dropdowns (`sequential — one after
+another`, `verified — strict DKIM + DMARC`).
+
+### Added
+- Frozen reference at `docs/01-product/design/event-form-v1.md`.
+- `DESIGN_MEMORY.md` — locked-in patterns (palette, numbered
+  headers, explained dropdowns, `datetime-local` for time-sensitive
+  fields). `DESIGN_PLAN.md` — remaining UI surfaces and when to
+  re-run Design Lab.
+
+### Changed
+- `renderWorkflowForm` in `app/bin/server.js` now emits the F2
+  markup (`vf-form`, `vf-row`, `vf-steps-table`) replacing the
+  scaffold from 1.H.2.
+- "Add step" uses `formaction=/events/new formmethod=GET` so values
+  round-trip in the query string — still no client JS.
+
+### Removed
+- The Design Lab route + loader (`/__design_lab`) added during 1.H.2.
+  Lab is recreated on demand by the `design-lab` / `live-canvas`
+  skills.
+
+### Also this day
+- Dev ergonomics (`bd52610`): `--dev` flag injects a
+  fixed-position feedback HUD (`/dev/feedback`, appends to
+  `dev-feedback.log` + stderr) and SSE live-reload (`/dev/stream`)
+  that reloads the browser on server restart. Production pages are
+  byte-identical.
+- CLAUDE.md rewritten (`0eb820a`) to match the actual Phase 1 stack
+  (vanilla `node:http` + tagged template literals, not the old
+  Next.js / Express description).
+
+---
+
 ## [Phase 1 — 1.H.2 workflow event creation] — 2026-04-18
 
 Event initiators can now create workflow events via a plain-HTML form
