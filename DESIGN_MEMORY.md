@@ -25,6 +25,23 @@ precedent here).
 - Code chip bg: `#f3f3f3`
 - Table hover: `#fafafa`
 
+## Dense-grid form (crypto pattern)
+
+For forms with ~6 fields or fewer, drop numbered section headers in
+favour of a flat 2-column grid. See `docs/01-product/design/landing-and-crypto-v1.md`.
+
+- **Segmented-control mode row** at the top for binary/ternary mode
+  choices: `[ mode-a | mode-b ]` with an inline right-aligned hint
+  describing the selected mode.
+- **Dim-in-place conditional fields.** When a field doesn't apply to
+  the picked mode, add class `dim` (opacity 0.42, pointer-events none)
+  and a `::after` label suffix (e.g. "· declaration only"). Keeps
+  layout stable across mode switches.
+- **No step/wizard.** A one-page form with conditional dimming beats
+  a two-step wizard for this field count.
+- **Small "Create →" button, right-aligned.** Less ceremonial than
+  the numbered-sections form's full-width primary.
+
 ## Form conventions
 
 - **Inline dropdown explanations:** every `<option>` carries a hyphenated

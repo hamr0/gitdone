@@ -39,7 +39,7 @@ const config = require('../src/config');
 const { createRouter } = require('../src/web/router');
 const { layout: rawLayout, html, raw } = require('../src/web/templates');
 const { parseBody } = require('../src/web/body');
-const { validateWorkflowEvent, VALID_FLOWS, VALID_TRUST_LEVELS } = require('../src/web/validation');
+const { validateWorkflowEvent, validateCryptoEvent, VALID_FLOWS, VALID_TRUST_LEVELS, VALID_CRYPTO_MODES, VALID_DEDUP_RULES } = require('../src/web/validation');
 const { createEvent } = require('../src/event-store');
 const { createToken, loadToken } = require('../src/magic-token');
 const { sendmail, buildRawMessage } = require('../src/outbound');
@@ -62,26 +62,40 @@ const LISTEN_PORT = parseInt(process.env.GITDONE_WEB_PORT || '3001', 10);
 
 const router = createRouter();
 
+// 1.H.3 Design Lab winner — landing page (variant F style).
+// Reference: docs/01-product/design/landing-and-crypto-v1.md
+const LANDING_CSS = `
+.f-landing { padding: 1.25rem 1.5rem; background: #fff; border: 1px solid #e3e6ee; border-radius: 5px; margin: 1rem 0 1.5rem; }
+.f-landing h1 { font-size: 1.4rem; font-weight: 500; margin: 0 0 0.25rem; }
+.f-landing .tag { color: #666; font-size: 0.95em; margin: 0 0 1rem; }
+.f-landing .cta-row { display: flex; gap: 0.6rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.f-landing .cta { padding: 0.6rem 1.2rem; border: 1px solid #0645ad; color: #0645ad; text-decoration: none; border-radius: 4px; font-weight: 500; font-size: 0.95em; background: #fff; display: inline-block; }
+.f-landing .cta.primary { background: #0645ad; color: #fff; }
+.f-landing .cta:hover { background: #053590; color: #fff; }
+.f-landing .cta.primary:hover { background: #053590; }
+.f-landing .how { font-size: 0.88em; color: #555; line-height: 1.55; margin: 0; padding-top: 0.75rem; border-top: 1px dashed #e3e6ee; }
+.f-landing .how strong { color: #222; }
+.f-landing .how code { background: #f3f3f3; padding: 0.05em 0.3em; border-radius: 2px; font-size: 0.92em; }
+`;
 router.get('/', async (req, res) => {
   const body = html`
-    <h1>gitdone</h1>
-    <p>Coordinate multi-party actions. Email is the interface. Git is the permanent record.</p>
-
-    <h2>Create</h2>
-    <a href="/events/new" class="btn-big">Create Event</a>
-    <a href="/crypto/new" class="btn-big">Create Crypto</a>
-
-    <h2>How it works</h2>
-    <p>An event (workflow with steps) or a crypto event (one or many
-    cryptographically-verifiable emails). Participants reply to a
-    unique email address; replies are DKIM-verified, OpenTimestamped,
-    and committed to a per-event git repository. Attachments are
-    forwarded to you directly and never stored on gitdone.</p>
-
-    <p>Every proof verifies independently on any machine — without
-    gitdone the service — using the open-source
-    <a href="https://github.com/hamr0/gitdone/tree/main/tools/gitdone-verify"><code>gitdone-verify</code></a>
-    tool. If gitdone disappears tomorrow, every proof still works.</p>
+    <style>${raw(LANDING_CSS)}</style>
+    <div class="f-landing">
+      <h1>gitdone</h1>
+      <p class="tag">Multi-party actions coordinated by email, proved by git.</p>
+      <div class="cta-row">
+        <a href="/events/new" class="cta primary">Create Event</a>
+        <a href="/crypto/new" class="cta">Create Crypto</a>
+      </div>
+      <p class="how">
+        <strong>Event</strong> — a workflow with ordered or parallel steps.
+        <strong>Crypto</strong> — one <em>declaration</em> (one signer) or an <em>attestation</em> (N distinct signers).
+        Participants reply to email; every reply is DKIM-verified, OpenTimestamped,
+        and committed to a per-event git repository. Proofs verify offline via
+        <a href="https://github.com/hamr0/gitdone/tree/main/tools/gitdone-verify"><code>gitdone-verify</code></a> —
+        if gitdone disappears tomorrow, every proof still works.
+      </p>
+    </div>
   `;
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({ title: 'gitdone', body }));
@@ -330,6 +344,232 @@ async function sendManagementEmail({ event, manageUrl }) {
     `  close+${event.id}@${config.domain}    close the event early`,
     ``,
     `Anyone can verify a proof offline with the gitdone-verify CLI.`,
+    `See https://github.com/hamr0/gitdone`,
+  ].join('\n');
+  const rawMessage = buildRawMessage({
+    from,
+    to: event.initiator,
+    subject: `[gitdone] "${event.title}" — your management link`,
+    body,
+    autoSubmitted: 'auto-generated',
+    domain: config.domain,
+    extraHeaders: { 'X-GitDone-Event': event.id },
+  });
+  return sendmail({ from, rawMessage, to: [event.initiator] });
+}
+
+// -------- crypto event creation (1.H.3) --------
+// Design Lab variant F: dense one-page grid, no numbered sections. Mode
+// picker (declaration | attestation) is a segmented row; fields that don't
+// apply to the picked mode stay on screen but dim. Reference:
+// docs/01-product/design/landing-and-crypto-v1.md
+const CRYPTO_FORM_CSS = `
+.cf { color: #222; }
+.cf .head { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 0.5rem; }
+.cf .head h1 { font-size: 1.15rem; font-weight: 500; color: #222; margin: 0; }
+.cf .head .mode-note { font-size: 0.82em; color: #888; }
+.cf .mode-row { display: flex; gap: 0.75rem; align-items: center; padding: 0.5rem 0.75rem; background: #f3f6fb; border-radius: 4px; margin-bottom: 0.75rem; font-size: 0.9em; }
+.cf .mode-row label { display: flex; align-items: center; gap: 0.3rem; cursor: pointer; margin: 0; }
+.cf .mode-row label input { accent-color: #0645ad; width: auto; }
+.cf .mode-row .hint { color: #666; margin-left: auto; font-size: 0.9em; }
+.cf .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem 0.7rem; }
+.cf .grid label { display: block; margin: 0; font-size: 0.9em; }
+.cf .grid label > span { display: block; font-size: 0.72em; color: #888; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.1rem; }
+.cf .grid input, .cf .grid select { width: 100%; padding: 0.32rem 0.45rem; font: inherit; border: 1px solid #ccc; border-radius: 3px; box-sizing: border-box; }
+.cf .grid input:focus, .cf .grid select:focus { border-color: #0645ad; outline: 0; box-shadow: 0 0 0 2px rgba(6,69,173,.12); }
+.cf .grid .full { grid-column: 1 / -1; }
+.cf .grid .dim { opacity: 0.42; pointer-events: none; }
+.cf .grid .dim > span::after { content: ' · declaration only'; color: #bbb; font-size: 0.9em; text-transform: none; letter-spacing: 0; }
+.cf .grid .att > span::after { content: ' · attestation only'; color: #bbb; font-size: 0.9em; text-transform: none; letter-spacing: 0; }
+.cf .checkbox { display: flex; align-items: center; gap: 0.35rem; font-size: 0.85em; grid-column: 1 / -1; color: #444; }
+.cf .checkbox input { width: auto; margin: 0; }
+.cf .actions { display: flex; justify-content: flex-end; margin-top: 0.9rem; }
+.cf .submit { background: #0645ad; color: #fff; padding: 0.5rem 1.3rem; border: 0; border-radius: 4px; cursor: pointer; font: inherit; font-weight: 500; }
+.cf .submit:hover { background: #053590; }
+@media (max-width: 540px) { .cf .grid { grid-template-columns: 1fr; } }
+`;
+
+function renderCryptoForm({ values = {}, errors = [] } = {}) {
+  const mode = values.mode === 'declaration' ? 'declaration' : 'attestation';
+  const dedup = values.dedup || 'unique';
+  const allowAnon = values.allow_anonymous === 'on' || values.allow_anonymous === true;
+  const dedupOpts = VALID_DEDUP_RULES.map((d) => html`
+    <option value="${d}" ${dedup === d ? raw('selected') : ''}>${d === 'unique'
+      ? 'unique — one per sender'
+      : d === 'latest'
+        ? 'latest — most-recent counts'
+        : 'accumulating — every email counts'}</option>
+  `);
+  const errBlock = errors.length
+    ? html`<div style="background:#fee;border:1px solid #c99;padding:0.75rem;margin-bottom:1rem">
+        <strong>Please fix:</strong>
+        <ul style="margin:0.3rem 0 0 1rem">${errors.map((e) => html`<li>${e}</li>`)}</ul>
+      </div>`
+    : raw('');
+  const signerDim = mode === 'attestation' ? raw('dim') : raw('');
+  const attDim = mode === 'declaration' ? raw('dim') : raw('');
+  const noteText = mode === 'declaration'
+    ? 'declaration · one signer replies, one permanent record'
+    : 'attestation · anyone you share the reply address with can sign';
+  return html`
+    <h1 style="margin:1rem 0 0.5rem">Create Crypto Event</h1>
+    <p style="margin:0 0 1rem"><a href="/">← back</a></p>
+    ${errBlock}
+    <style>${raw(CRYPTO_FORM_CSS)}</style>
+    <form class="cf" method="POST" action="/crypto" data-variant-root="F">
+      <div class="head">
+        <h1>New crypto event</h1>
+        <span class="mode-note">${noteText}</span>
+      </div>
+
+      <div class="mode-row" role="radiogroup" aria-label="Crypto event mode">
+        <strong>Mode:</strong>
+        <label><input type="radio" name="mode" value="declaration" ${mode === 'declaration' ? raw('checked') : ''}> declaration</label>
+        <label><input type="radio" name="mode" value="attestation" ${mode === 'attestation' ? raw('checked') : ''}> attestation</label>
+        <span class="hint">${mode === 'declaration'
+          ? 'one signer · one permanent record'
+          : 'N distinct signers reach a threshold'}</span>
+      </div>
+
+      <div class="grid">
+        <label class="full">
+          <span>Title</span>
+          <input type="text" name="title" required maxlength="200" value="${values.title || ''}" placeholder="e.g. Proof of being known">
+        </label>
+
+        <label>
+          <span>Your email</span>
+          <input type="email" name="initiator" required value="${values.initiator || ''}" placeholder="you@example.com">
+        </label>
+        <label class="${signerDim}">
+          <span>Signer's email</span>
+          <input type="email" name="signer" value="${values.signer || ''}" placeholder="witness@example.com">
+        </label>
+
+        <label class="${attDim}">
+          <span>Threshold (N distinct signers)</span>
+          <input type="number" name="threshold" min="1" value="${values.threshold || '10'}">
+        </label>
+        <label class="${attDim}">
+          <span>Dedup rule</span>
+          <select name="dedup">${dedupOpts}</select>
+        </label>
+
+        <label class="checkbox ${attDim}">
+          <input type="checkbox" name="allow_anonymous" value="on" ${allowAnon ? raw('checked') : ''}>
+          Allow anonymous replies
+        </label>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="submit">Create →</button>
+      </div>
+    </form>
+  `;
+}
+
+router.get('/crypto/new', async (req, res) => {
+  const u = new URL(req.url, `http://${req.headers.host}`);
+  const sp = u.searchParams;
+  const values = {
+    mode: sp.get('mode') || 'attestation',
+    title: sp.get('title') || '',
+    initiator: sp.get('initiator') || '',
+    signer: sp.get('signer') || '',
+    threshold: sp.get('threshold') || '',
+    dedup: sp.get('dedup') || 'unique',
+    allow_anonymous: sp.get('allow_anonymous') || '',
+  };
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+  res.end(layout({ title: 'create crypto — gitdone', body: renderCryptoForm({ values }) }));
+});
+
+router.post('/crypto', async (req, res) => {
+  let body;
+  try { body = await parseBody(req); }
+  catch (err) {
+    res.writeHead(400, { 'content-type': 'text/plain' });
+    return res.end(`bad request: ${err.message}`);
+  }
+  const v = validateCryptoEvent(body);
+  if (!v.ok) {
+    res.writeHead(422, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(layout({
+      title: 'fix errors — gitdone',
+      body: renderCryptoForm({ values: body, errors: v.errors }),
+    }));
+  }
+  const event = await createEvent(v.value);
+  const token = await createToken({ eventId: event.id, initiator: event.initiator });
+  const manageUrl = `${publicBaseUrl()}/manage/${token.token}`;
+  const emailResult = await sendCryptoManagementEmail({ event, manageUrl });
+  const replyAddr = event.mode === 'declaration'
+    ? `event+${event.id}@${config.domain}`
+    : `event+${event.id}@${config.domain}`;
+  const msg = event.mode === 'declaration'
+    ? html`
+      <h1>Declaration created</h1>
+      <p><strong>${event.title}</strong> — ID: <code>${event.id}</code></p>
+      <p>The signer you named will get a reply address. When they reply from <code>${event.signer}</code>
+      with a DKIM-verified email, it's committed to the event repo as a permanent record.</p>
+      <p>Signer: <code>${event.signer}</code><br>Reply-to: <code>${replyAddr}</code></p>
+    `
+    : html`
+      <h1>Attestation created</h1>
+      <p><strong>${event.title}</strong> — ID: <code>${event.id}</code></p>
+      <p>Share this reply address with potential signers (social media, mass email, QR code — up to you).
+      Every DKIM-verified reply counts; completion is <strong>${String(event.threshold)} distinct signers</strong> with
+      <code>${event.dedup}</code> dedup.</p>
+      <p>Reply-to: <code>${replyAddr}</code><br>
+      Share as: <code>mailto:${replyAddr}?subject=${encodeURIComponent('re: ' + event.title)}</code></p>
+    `;
+  const full = html`
+    ${msg}
+    ${emailResult.ok
+      ? html`<p style="background:#efe;padding:0.75rem;border:1px solid #9c9;margin-top:1rem">
+          <strong>Management link sent to ${event.initiator}.</strong>
+          Valid 30 days; lets you track progress and close the event.
+        </p>`
+      : html`<p style="background:#fee;padding:0.75rem;border:1px solid #c99;margin-top:1rem">
+          <strong>Management link could not be emailed</strong> (${emailResult.reason || 'send failed'}).
+          Save this URL: <code>${manageUrl}</code>
+        </p>`}
+    <p><a href="/">home</a></p>
+  `;
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+  res.end(layout({ title: 'crypto event created — gitdone', body: full }));
+});
+
+async function sendCryptoManagementEmail({ event, manageUrl }) {
+  const from = `gitdone@${config.domain}`;
+  const replyAddr = `event+${event.id}@${config.domain}`;
+  const modeDetails = event.mode === 'declaration'
+    ? [
+        `Mode: declaration — one DKIM-verified reply from the designated signer.`,
+        `Signer: ${event.signer}`,
+      ]
+    : [
+        `Mode: attestation — ${event.threshold} distinct signers needed (${event.dedup} dedup).`,
+        `Anonymous replies: ${event.allow_anonymous ? 'allowed' : 'not allowed'}`,
+        `Share the reply address below however you like — social, email, QR.`,
+      ];
+  const body = [
+    `You created the crypto event "${event.title}" on gitdone.`,
+    ``,
+    `Event ID: ${event.id}`,
+    ...modeDetails,
+    ``,
+    `Reply address (this is the one signers reply to):`,
+    `  ${replyAddr}`,
+    ``,
+    `Management link (valid 30 days):`,
+    `  ${manageUrl}`,
+    ``,
+    `Day-to-day commands by email from ${event.initiator}:`,
+    `  stats+${event.id}@${config.domain}    current state`,
+    `  close+${event.id}@${config.domain}    close early`,
+    ``,
+    `Proofs verify offline via gitdone-verify.`,
     `See https://github.com/hamr0/gitdone`,
   ].join('\n');
   const rawMessage = buildRawMessage({

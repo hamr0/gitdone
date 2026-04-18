@@ -178,8 +178,88 @@ function validateWorkflowEvent(form) {
   };
 }
 
+const VALID_CRYPTO_MODES = ['declaration', 'attestation'];
+const VALID_DEDUP_RULES = ['unique', 'latest', 'accumulating'];
+const MAX_THRESHOLD = 10000;
+
+// Crypto event validator — PRD §4.2. Branches on mode:
+//   declaration: { title, initiator, signer }
+//   attestation: { title, initiator, threshold, dedup, allow_anonymous }
+// Returns { ok, value?, errors? } in the same shape as validateWorkflowEvent.
+function validateCryptoEvent(form) {
+  const errors = [];
+
+  const mode = clean(form.mode).toLowerCase();
+  if (!VALID_CRYPTO_MODES.includes(mode)) {
+    errors.push(`mode must be one of ${VALID_CRYPTO_MODES.join(', ')}`);
+    return { ok: false, errors };
+  }
+
+  const title = validateTitle(form.title);
+  if (!title.ok) errors.push(title.reason);
+
+  const initiator = validateEmail(form.initiator);
+  if (!initiator.ok) errors.push(`initiator: ${initiator.reason}`);
+
+  const trust = validateTrustLevel(form.min_trust_level, 'verified');
+  if (!trust.ok) errors.push(trust.reason);
+
+  if (mode === 'declaration') {
+    const signer = validateEmail(form.signer);
+    if (!signer.ok) errors.push(`signer: ${signer.reason}`);
+    if (errors.length) return { ok: false, errors };
+    return {
+      ok: true,
+      value: {
+        type: 'crypto',
+        mode: 'declaration',
+        title: title.value,
+        initiator: initiator.value,
+        min_trust_level: trust.value,
+        signer: signer.value,
+      },
+    };
+  }
+
+  // attestation
+  const tRaw = clean(form.threshold);
+  const threshold = parseInt(tRaw, 10);
+  if (!tRaw || !Number.isFinite(threshold) || threshold < 1) {
+    errors.push('threshold must be an integer >= 1');
+  } else if (threshold > MAX_THRESHOLD) {
+    errors.push(`threshold too large (max ${MAX_THRESHOLD})`);
+  }
+
+  const dedup = clean(form.dedup).toLowerCase() || 'unique';
+  if (!VALID_DEDUP_RULES.includes(dedup)) {
+    errors.push(`dedup must be one of ${VALID_DEDUP_RULES.join(', ')}`);
+  }
+  const allowAnonymous = form.allow_anonymous === 'on'
+    || form.allow_anonymous === 'true'
+    || form.allow_anonymous === true;
+
+  if (errors.length) return { ok: false, errors };
+  return {
+    ok: true,
+    value: {
+      type: 'crypto',
+      mode: 'attestation',
+      title: title.value,
+      initiator: initiator.value,
+      min_trust_level: trust.value,
+      threshold,
+      dedup,
+      allow_anonymous: allowAnonymous,
+      replies: [],
+    },
+  };
+}
+
 module.exports = {
   validateWorkflowEvent,
+  validateCryptoEvent,
+  VALID_CRYPTO_MODES,
+  VALID_DEDUP_RULES,
   validateEmail,
   validateTitle,
   validateTrustLevel,

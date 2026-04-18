@@ -6,14 +6,15 @@ Remaining UI surfaces in Phase 1 and how the Design Lab applies to each.
 
 - **1.H.2.1 — Event creation form** (`/events/new`). Design Lab
   synthesis winner (variant F2). Reference: `docs/01-product/design/event-form-v1.md`.
+- **1.H.4 — Magic-link management URL + email** (`/manage/:token`).
+- **1.H.3 — Landing + Crypto form** (`/`, `/crypto/new`, `POST /crypto`).
+  Live Canvas winner (variant F). Reference: `docs/01-product/design/landing-and-crypto-v1.md`.
 
 ## Upcoming (Phase 1)
 
 | Module | Surface | Design Lab? | Notes |
 |---|---|---|---|
 | 1.H.2b | Hybrid tree editor | yes — novel | Only the Steps section changes; chrome + sections 1/2 stay. |
-| 1.H.3 | Crypto event create form | no — reuse v1 patterns | Same `vf-form` shell, different field set. |
-| 1.H.4 | Magic-link email templates | maybe | Plain-text first; HTML only if needed. |
 | 1.H.5 | Management dashboard | yes — novel | Read-only view + close action; different shape from forms. |
 | 1.I | Participant notification emails | no | Plain-text, mirrors 1.H.4. |
 
