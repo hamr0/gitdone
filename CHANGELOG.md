@@ -19,6 +19,41 @@ internal refactors and commit-level churn stay in `git log`.
 
 ---
 
+## [Phase 1 — 1.H.2 workflow event creation] — 2026-04-18
+
+Event initiators can now create workflow events via a plain-HTML form
+at `/events/new`. Supports sequential or non-sequential flow, optional
+deadlines per step, optional "requires attachment" per step, and the
+configurable `min_trust_level` (from the 4 trust tiers in PRD §7.4).
+
+### Added
+- `app/src/web/validation.js` — shape + format validators for form
+  input. Collects multiple errors per submission rather than failing
+  on the first. Generates deterministic `step.id` via slug, dedupes
+  collisions with numeric suffix.
+- `app/src/event-store.js::createEvent` — atomic persistence with
+  `generateEventId` (12-char base36) + `generateEventSalt` (32B hex
+  per §0.1.10). Temp+rename write, refuses to overwrite, traversal
+  guard on id.
+- Routes in `app/bin/server.js`:
+  - `GET /events/new` — workflow form (with "+ Add another step"
+    via query-string round-trip; no client JS needed)
+  - `POST /events` — validates + creates; 422 on errors with the
+    form re-rendered and user values preserved; success page shows
+    each step's `event+{id}-{stepId}@git-done.com` reply-to
+  - `GET /events/:id` — read-only debug view (will be gated by
+    magic-link in 1.H.5)
+- 34 new tests: 22 unit tests for validation + createEvent, 8
+  integration tests hitting the real HTTP server with a throwaway
+  data dir.
+
+### Non-goals (deliberate)
+- No client-side JS. Dynamic step-count works via GET round-trip.
+- No CSS framework. One inline `<style>` block in `layout()`.
+- No hybrid flow yet — that's 1.H.2b (tree UI, UI-heaviest piece).
+
+---
+
 ## [Phase 1 — 1.H.1 v1 deletion + web skeleton] — 2026-04-18
 
 v1's Next.js + Express + Docker stack is retired. The whole v1

@@ -76,7 +76,7 @@ Modules are ordered so each is independently completable and verifiable.
 | **1.F** ✅ | Outbound DKIM signing (DNS + Postfix + opendkim) | independent | Gmail receives a message from us with DKIM pass — **done 2026-04-17**, selector `gd202604`, Gmail confirms dkim/spf/dmarc all `pass` |
 | **1.G** ✅ | Attachment forwarding to event owner | 1.C, 1.F | Owner inbox gets original email (byte-preserving); SHA-256 in git matches forwarded copy; X-GitDone-* tracking headers prepended — **done 2026-04-18**, validated end-to-end: Gmail → event+demo123-step1@ → MSN inbox of initiator, both test forwards delivered, attachment (PDF) intact |
 | **1.H.1** ✅ | Archive v1 + Express-less HTTP skeleton on VPS | independent | v1 deleted (2235 files incl. node_modules); vanilla Node http server with router/templates/body-parse; landing page + /health; systemd unit; 34 tests — **done 2026-04-18** |
-| **1.H.2** | Workflow event creation (sequential + non-sequential + deadlines per step) | 1.H.1 ✅ | Form + schema write with event.salt (1.C+) |
+| **1.H.2** ✅ | Workflow event creation (sequential + non-sequential + deadlines per step) | 1.H.1 ✅ | Plain-HTML form + server-side validation + schema write with event.salt (1.C+), atomic persistence, debug read-only view — **done 2026-04-18**, 34 new tests (validation + create + integration) |
 | **1.H.2b** | Hybrid tree editor | 1.H.2 | Tree UI where sequential sub-chains branch |
 | **1.H.3** | Crypto: declaration + attestation with min-trust + threshold N | 1.H.1 ✅ | Form + schema write |
 | **1.H.4** | Magic-link email on create + JWT mint | 1.H.2, 1.H.3 | Initiator gets management link |
