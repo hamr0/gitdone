@@ -38,8 +38,10 @@ function html(strings, ...values) {
 }
 
 // Shared page chrome. Keep it minimal per §0.1.4 ("invisible beats
-// correct") — whitespace, no branding chrome, no JS.
-function layout({ title, body }) {
+// correct") — whitespace, no branding chrome, no JS in production.
+// In dev mode (layout called with { dev: true, devHUD: "..." }),
+// injects the feedback/reload HUD.
+function layout({ title, body, dev, devHUD }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -65,7 +67,9 @@ ${(body && body[RAW_MARK]) ? body.html : escapeHTML(body || '')}
 <div class="footer">
   <a href="/">gitdone</a> &middot; proofs verify offline &middot;
   <a href="https://github.com/hamr0/gitdone">source</a>
+${dev ? ' &middot; <strong style="color:#0645ad">DEV MODE</strong>' : ''}
 </div>
+${dev && devHUD ? devHUD : ''}
 </body>
 </html>
 `;

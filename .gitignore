@@ -57,3 +57,7 @@ Thumbs.db
 *._domainkey*
 **/default.txt
 **/default.private
+
+# Dev mode artifacts (not shipped)
+/data-dev/
+/dev-feedback.log
