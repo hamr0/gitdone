@@ -40,10 +40,9 @@ test('GET / returns landing page with both create buttons', async () => {
     const r = await get(port, '/');
     assert.equal(r.status, 200);
     assert.match(r.headers['content-type'], /text\/html/);
-    assert.match(r.body, /Create Event/);
-    assert.match(r.body, /Create Crypto/);
     assert.match(r.body, /href="\/events\/new"/);
     assert.match(r.body, /href="\/crypto\/new"/);
+    assert.match(r.body, /git.*done/i);
   } finally {
     server.close();
   }

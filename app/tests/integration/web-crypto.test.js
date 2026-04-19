@@ -79,12 +79,12 @@ function get(p) {
   });
 }
 
-test('GET / renders the F-style landing with two CTAs', async () => {
+test('GET / renders the landing with two CTAs', async () => {
   const r = await get('/');
   assert.equal(r.status, 200);
-  assert.match(r.body, /f-landing/);
-  assert.match(r.body, /href="\/events\/new"[^>]*class="cta primary"/);
-  assert.match(r.body, /href="\/crypto\/new"[^>]*class="cta"/);
+  assert.match(r.body, /data-variant-root="F"/);
+  assert.match(r.body, /href="\/events\/new"[^>]*class="cell"/);
+  assert.match(r.body, /href="\/crypto\/new"[^>]*class="cell"/);
 });
 
 test('GET /crypto/new renders the crypto form', async () => {
