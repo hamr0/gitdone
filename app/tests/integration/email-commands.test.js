@@ -73,13 +73,13 @@ test('stats+ from the initiator: reply lists step statuses', async () => {
     const { fake, captureDir } = makeFakeSendmail(tmp);
     await fs.mkdir(path.join(tmp, 'events'));
     await fs.writeFile(path.join(tmp, 'events', 'evstats01.json'), JSON.stringify({
-      id: 'evstats01', type: 'event', flow: 'sequential',
+      id: 'evstats01', type: 'event',
       min_trust_level: 'unverified',      // accept unsigned test mail
       initiator: 'boss@ex.com', title: 'Q2',
       salt: 'salt-stats',
       steps: [
-        { id: 'one', name: 'Legal', participant: 'l@ex.com', status: 'complete', completed_at: '2026-04-19T00:00:00Z' },
-        { id: 'two', name: 'Design', participant: 'd@ex.com', status: 'pending' },
+        { id: 'one', name: 'Legal', participant: 'l@ex.com', status: 'complete', completed_at: '2026-04-19T00:00:00Z', depends_on: [] },
+        { id: 'two', name: 'Design', participant: 'd@ex.com', status: 'pending', depends_on: ['one'] },
       ],
     }));
     const eml = buildEml([
@@ -111,10 +111,10 @@ test('stats+ from a random sender: rejected with reason', async () => {
     const { fake, captureDir } = makeFakeSendmail(tmp);
     await fs.mkdir(path.join(tmp, 'events'));
     await fs.writeFile(path.join(tmp, 'events', 'evna01.json'), JSON.stringify({
-      id: 'evna01', type: 'event', flow: 'sequential',
+      id: 'evna01', type: 'event',
       min_trust_level: 'unverified', initiator: 'boss@ex.com', title: 't',
       salt: 'salt-na',
-      steps: [{ id: 'a', participant: 'a@ex.com', status: 'pending' }],
+      steps: [{ id: 'a', participant: 'a@ex.com', status: 'pending', depends_on: [] }],
     }));
     const eml = buildEml([
       'From: random@elsewhere.com', 'To: stats+evna01@git-done.com', 'Subject: stats',
@@ -140,12 +140,12 @@ test('remind+ resends invitation to pending-first-step participant', async () =>
     const { fake, captureDir } = makeFakeSendmail(tmp);
     await fs.mkdir(path.join(tmp, 'events'));
     await fs.writeFile(path.join(tmp, 'events', 'evr01.json'), JSON.stringify({
-      id: 'evr01', type: 'event', flow: 'sequential',
+      id: 'evr01', type: 'event',
       min_trust_level: 'unverified', initiator: 'boss@ex.com', title: 'Q3',
       salt: 'salt-r',
       steps: [
-        { id: 'one', name: 'Legal', participant: 'l@ex.com', status: 'pending' },
-        { id: 'two', name: 'Design', participant: 'd@ex.com', status: 'pending' },
+        { id: 'one', name: 'Legal', participant: 'l@ex.com', status: 'pending', depends_on: [] },
+        { id: 'two', name: 'Design', participant: 'd@ex.com', status: 'pending', depends_on: ['one'] },
       ],
     }));
     const eml = buildEml([

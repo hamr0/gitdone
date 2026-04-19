@@ -80,10 +80,10 @@ test('GET /events/new renders the workflow form', async () => {
   assert.match(r.body, /<h1>Create Event/);
   assert.match(r.body, /name="title"/);
   assert.match(r.body, /name="initiator"/);
-  assert.match(r.body, /name="flow"/);
   assert.match(r.body, /name="step_name"/);
   assert.match(r.body, /name="step_participant"/);
   assert.match(r.body, /name="step_deadline"/);
+  assert.match(r.body, /name="step_depends_on"/);
   assert.match(r.body, /name="min_trust_level"/);
 });
 
@@ -98,62 +98,59 @@ test('POST /events creates a valid event and shows confirmation', async () => {
   const r = await post('/events', {
     title: 'Integration test event',
     initiator: 'dev@example.com',
-    flow: 'sequential',
     min_trust_level: 'verified',
     step_name: 'Legal review',
     step_participant: 'legal@example.com',
     step_deadline: '',
+    step_depends_on: '',
   });
   assert.equal(r.status, 200);
   assert.match(r.body, /Event created/);
   assert.match(r.body, /Integration test event/);
-  // Extract the event ID from the rendered page
   const m = r.body.match(/ID: <code>([a-z0-9]{12})<\/code>/);
   assert.ok(m, 'event id should be rendered');
   const eventId = m[1];
 
-  // File should exist on disk
   const file = path.join(tmp, 'events', `${eventId}.json`);
   const parsed = JSON.parse(await fs.readFile(file, 'utf8'));
   assert.equal(parsed.id, eventId);
   assert.equal(parsed.type, 'event');
   assert.equal(parsed.title, 'Integration test event');
   assert.equal(parsed.initiator, 'dev@example.com');
-  assert.equal(parsed.flow, 'sequential');
+  assert.equal(parsed.flow, undefined, 'flow field is gone');
   assert.equal(parsed.min_trust_level, 'verified');
   assert.match(parsed.salt, /^[0-9a-f]{64}$/);
   assert.equal(parsed.steps.length, 1);
   assert.equal(parsed.steps[0].id, 'legal-review');
   assert.equal(parsed.steps[0].participant, 'legal@example.com');
+  assert.deepEqual(parsed.steps[0].depends_on, []);
 });
 
 test('POST /events (invalid) returns 422 with errors', async () => {
   const r = await post('/events', {
     title: '', initiator: 'bogus',
-    flow: 'parallel',
     step_name: '', step_participant: '',
   });
   assert.equal(r.status, 422);
   assert.match(r.body, /Please fix/);
   assert.match(r.body, /title/i);
   assert.match(r.body, /initiator/i);
-  assert.match(r.body, /flow/i);
+  assert.match(r.body, /name required/i);
 });
 
 test('GET /events/:id shows the event read-only', async () => {
-  // Create one
   const r = await post('/events', {
-    title: 'read-back', initiator: 'a@b.com', flow: 'non-sequential',
+    title: 'read-back', initiator: 'a@b.com',
     step_name: ['one', 'two'],
     step_participant: ['x@y.com', 'z@y.com'],
     step_deadline: ['2026-06-01', ''],
+    step_depends_on: ['', ''],
   });
   const m = r.body.match(/ID: <code>([a-z0-9]{12})<\/code>/);
   const id = m[1];
   const view = await get(`/events/${id}`);
   assert.equal(view.status, 200);
   assert.match(view.body, /read-back/);
-  assert.match(view.body, /non-sequential/);
   assert.match(view.body, /x@y\.com/);
   assert.match(view.body, /z@y\.com/);
   assert.match(view.body, /deadline 2026-06-01/);
@@ -166,12 +163,13 @@ test('GET /events/bogus-id returns 404 (traversal guard)', async () => {
 
 test('POST /events with multi-step deadlines is persisted correctly', async () => {
   const r = await post('/events', {
-    title: 'multi', initiator: 'a@b.com', flow: 'non-sequential',
+    title: 'multi', initiator: 'a@b.com',
     min_trust_level: 'authorized',
     step_name: ['A', 'B', 'C'],
     step_participant: ['a@x.com', 'b@x.com', 'c@x.com'],
     step_deadline: ['2026-05-01', '', '2026-05-15'],
     step_requires_attachment: ['on', '', 'on'],
+    step_depends_on: ['', '', ''],
   });
   assert.equal(r.status, 200);
   const id = r.body.match(/ID: <code>([a-z0-9]{12})<\/code>/)[1];

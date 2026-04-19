@@ -15,13 +15,14 @@ Remaining UI surfaces in Phase 1 and how the Design Lab applies to each.
   attestation-with-dedup; cascades to the next sequential step.
 - **§6.4 initiator email commands** — `stats+{id}@`, `remind+{id}@`,
   `close+{id}@`. DKIM-authenticated via initiator match.
+- **1.H.2b — Dependency graph** — collapsed flow modes into a
+  `depends_on` column on the step table. No flow dropdown.
 
 ## Upcoming (Phase 1)
 
 | Module | Surface | Design Lab? | Notes |
 |---|---|---|---|
-| 1.H.2b | Hybrid tree editor | yes — novel | Only the Steps section changes; chrome + sections 1/2 stay. |
-| 1.H.5 | Management dashboard | yes — novel | Read-only view + close action; different shape from forms. |
+| 1.H.5 | Management dashboard | yes — novel | Read-only view + close action; different shape from forms. Email commands already cover the functional need. |
 
 ## How to apply
 

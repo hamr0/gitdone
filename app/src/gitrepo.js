@@ -345,7 +345,6 @@ async function commitCompletion(eventId, event, completionCtx) {
     event_id: eventId,
     event_type: event.type,
     event_mode: event.mode || null,
-    flow: event.flow || null,
     completed_at: completionCtx.completedAt,
     triggering_commit_sequence: completionCtx.triggeringSequence,
     // Per-mode summary fields — enough to reconstruct the why without

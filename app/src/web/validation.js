@@ -17,7 +17,6 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2
 const MAX_TITLE = 200;
 const MAX_STEPS = 50;
 const MAX_STEP_NAME = 200;
-const VALID_FLOWS = ['sequential', 'non-sequential', 'hybrid'];
 const VALID_TRUST_LEVELS = ['unverified', 'authorized', 'forwarded', 'verified'];
 
 function clean(s) {
@@ -56,12 +55,71 @@ function validateTrustLevel(level, defaultLevel) {
   return { ok: true, value: l };
 }
 
-function validateFlow(flow) {
-  const f = clean(flow).toLowerCase();
-  if (!VALID_FLOWS.includes(f)) {
-    return { ok: false, reason: `flow must be one of ${VALID_FLOWS.join(', ')}` };
+// Parse a "depends on" input into a list of step indices (0-based).
+// Accepted tokens: 1-based step numbers ("1", "2", "3"), comma-separated.
+// Empty input → []. Non-numeric or out-of-range tokens collected as errors.
+// The caller decides the total step count so "out of range" is accurate.
+function parseDependsOn(raw, totalSteps, myIndex) {
+  const s = clean(raw);
+  if (!s) return { ok: true, value: [] };
+  const tokens = s.split(',').map((t) => t.trim()).filter(Boolean);
+  const indices = [];
+  const errs = [];
+  const seen = new Set();
+  for (const t of tokens) {
+    if (!/^\d+$/.test(t)) {
+      errs.push(`"${t}" is not a step number`);
+      continue;
+    }
+    const n = parseInt(t, 10);
+    if (n < 1 || n > totalSteps) {
+      errs.push(`step ${n} is out of range (1..${totalSteps})`);
+      continue;
+    }
+    const idx = n - 1;
+    if (idx === myIndex) {
+      errs.push(`a step cannot depend on itself`);
+      continue;
+    }
+    if (seen.has(idx)) continue;     // silently dedupe
+    seen.add(idx);
+    indices.push(idx);
   }
-  return { ok: true, value: f };
+  if (errs.length) return { ok: false, reason: errs.join('; ') };
+  return { ok: true, value: indices };
+}
+
+// DFS-detect cycles in a dependency graph. Steps is an array; each step has
+// `depends_on_indices: [number]` (0-based). Returns null on success, or
+// an error message with the offending chain.
+function detectDependencyCycles(steps) {
+  const WHITE = 0, GREY = 1, BLACK = 2;
+  const color = steps.map(() => WHITE);
+  const stack = [];
+  function dfs(i) {
+    color[i] = GREY;
+    stack.push(i);
+    for (const dep of steps[i].depends_on_indices || []) {
+      if (color[dep] === GREY) {
+        const chain = stack.slice(stack.indexOf(dep)).map((x) => x + 1).concat(dep + 1).join(' → ');
+        return `cycle detected: ${chain}`;
+      }
+      if (color[dep] === WHITE) {
+        const r = dfs(dep);
+        if (r) return r;
+      }
+    }
+    color[i] = BLACK;
+    stack.pop();
+    return null;
+  }
+  for (let i = 0; i < steps.length; i++) {
+    if (color[i] === WHITE) {
+      const r = dfs(i);
+      if (r) return r;
+    }
+  }
+  return null;
 }
 
 // Deadline: optional. Accept YYYY-MM-DD or full ISO-8601. Reject anything
@@ -90,12 +148,18 @@ function slugifyStepId(name, index) {
 }
 
 // Full workflow event validator. Accepts parsed form body shape:
-//   { title, initiator, flow, min_trust_level,
+//   { title, initiator, min_trust_level,
 //     step_name: [..], step_participant: [..], step_deadline: [..],
-//     step_requires_attachment: [..] (checkboxes — present = yes) }
+//     step_requires_attachment: [..] (checkboxes — present = yes),
+//     step_depends_on: [..] (comma-separated 1-based step numbers per row) }
 //
-// Returns { ok, value?: { title, initiator, flow, min_trust_level,
-// steps: [{id, name, participant, deadline, requires_attachment}] },
+// `flow` was removed in 1.H.2b — a step's position in the dependency
+// graph replaces it. Empty depends_on = runs immediately (was
+// "non-sequential"); chain-each-to-previous = "sequential"; mixed = DAG.
+//
+// Returns { ok, value?: { title, initiator, min_trust_level,
+// steps: [{id, name, participant, deadline, requires_attachment,
+//          depends_on: [stepId]}] },
 // errors?: [string] }
 function validateWorkflowEvent(form) {
   const errors = [];
@@ -106,9 +170,6 @@ function validateWorkflowEvent(form) {
   const initiator = validateEmail(form.initiator);
   if (!initiator.ok) errors.push(`initiator: ${initiator.reason}`);
 
-  const flow = validateFlow(form.flow);
-  if (!flow.ok) errors.push(flow.reason);
-
   const trust = validateTrustLevel(form.min_trust_level, 'verified');
   if (!trust.ok) errors.push(trust.reason);
 
@@ -116,6 +177,7 @@ function validateWorkflowEvent(form) {
   const participants = asArray(form.step_participant);
   const deadlines = asArray(form.step_deadline);
   const attachmentFlags = asArray(form.step_requires_attachment);
+  const dependsOnRaw = asArray(form.step_depends_on);
 
   if (names.length === 0) {
     errors.push('at least one step is required');
@@ -146,8 +208,12 @@ function validateWorkflowEvent(form) {
       errors.push(`step ${i + 1} deadline: ${d.reason}`);
       continue;
     }
+    const deps = parseDependsOn(dependsOnRaw[i], names.length, i);
+    if (!deps.ok) {
+      errors.push(`step ${i + 1} depends on: ${deps.reason}`);
+      continue;
+    }
     let id = slugifyStepId(n, i);
-    // Ensure step id uniqueness within the event
     if (seenStepIds.has(id)) {
       let suffix = 2;
       while (seenStepIds.has(`${id}-${suffix}`)) suffix++;
@@ -162,8 +228,21 @@ function validateWorkflowEvent(form) {
       deadline: d.value,
       requires_attachment: attachmentFlags[i] === 'on' || attachmentFlags[i] === 'true' || attachmentFlags[i] === true,
       status: 'pending',
+      // carried through the cycle-check as 0-based indices, then resolved
+      // to step ids once every step's id is assigned.
+      depends_on_indices: deps.value,
     });
   }
+
+  // Resolve indices → step ids, then cycle-check.
+  for (const s of steps) {
+    s.depends_on = (s.depends_on_indices || []).map((idx) => steps[idx] && steps[idx].id).filter(Boolean);
+  }
+  if (steps.length && !errors.length) {
+    const cycleErr = detectDependencyCycles(steps);
+    if (cycleErr) errors.push(cycleErr);
+  }
+  for (const s of steps) delete s.depends_on_indices;
 
   if (errors.length) return { ok: false, errors };
   return {
@@ -171,7 +250,6 @@ function validateWorkflowEvent(form) {
     value: {
       title: title.value,
       initiator: initiator.value,
-      flow: flow.value,
       min_trust_level: trust.value,
       steps,
     },
@@ -263,10 +341,10 @@ module.exports = {
   validateEmail,
   validateTitle,
   validateTrustLevel,
-  validateFlow,
   validateDeadline,
+  parseDependsOn,
+  detectDependencyCycles,
   slugifyStepId,
-  VALID_FLOWS,
   VALID_TRUST_LEVELS,
   EMAIL_RE,
   ISO_DATE_RE,

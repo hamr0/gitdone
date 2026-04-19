@@ -8,9 +8,10 @@ const {
   validateEmail,
   validateTitle,
   validateTrustLevel,
-  validateFlow,
   validateDeadline,
   slugifyStepId,
+  parseDependsOn,
+  detectDependencyCycles,
 } = require('../../src/web/validation');
 
 // ---- small validators --------------------------------------------------
@@ -59,11 +60,60 @@ test('validateTrustLevel: rejects unknown', () => {
   assert.equal(validateTrustLevel('paranoid').ok, false);
 });
 
-test('validateFlow: accepts three canonical values', () => {
-  for (const f of ['sequential', 'non-sequential', 'hybrid']) {
-    assert.equal(validateFlow(f).value, f);
-  }
-  assert.equal(validateFlow('parallel').ok, false);
+test('parseDependsOn: empty / whitespace → []', () => {
+  assert.deepEqual(parseDependsOn('', 3, 2), { ok: true, value: [] });
+  assert.deepEqual(parseDependsOn('   ', 3, 2), { ok: true, value: [] });
+  assert.deepEqual(parseDependsOn(null, 3, 2), { ok: true, value: [] });
+});
+
+test('parseDependsOn: comma-separated step numbers → 0-based indices', () => {
+  assert.deepEqual(parseDependsOn('1, 2', 4, 3), { ok: true, value: [0, 1] });
+  assert.deepEqual(parseDependsOn('3', 4, 0), { ok: true, value: [2] });
+});
+
+test('parseDependsOn: dedupes silently', () => {
+  assert.deepEqual(parseDependsOn('1,1,2', 4, 3), { ok: true, value: [0, 1] });
+});
+
+test('parseDependsOn: rejects self-reference, out-of-range, non-numeric', () => {
+  const self = parseDependsOn('3', 3, 2);
+  assert.equal(self.ok, false);
+  assert.match(self.reason, /itself/);
+
+  const oor = parseDependsOn('5', 3, 0);
+  assert.equal(oor.ok, false);
+  assert.match(oor.reason, /out of range/);
+
+  const nan = parseDependsOn('foo, 2', 3, 0);
+  assert.equal(nan.ok, false);
+  assert.match(nan.reason, /"foo"/);
+});
+
+test('detectDependencyCycles: self-loop by chain', () => {
+  // step 1 depends on 2, step 2 depends on 1 (indices 0<->1)
+  const steps = [
+    { id: 'a', depends_on_indices: [1] },
+    { id: 'b', depends_on_indices: [0] },
+  ];
+  assert.match(detectDependencyCycles(steps), /cycle/);
+});
+
+test('detectDependencyCycles: longer cycle', () => {
+  const steps = [
+    { id: 'a', depends_on_indices: [1] },
+    { id: 'b', depends_on_indices: [2] },
+    { id: 'c', depends_on_indices: [0] },
+  ];
+  assert.match(detectDependencyCycles(steps), /cycle/);
+});
+
+test('detectDependencyCycles: DAG returns null', () => {
+  const steps = [
+    { id: 'a', depends_on_indices: [] },
+    { id: 'b', depends_on_indices: [0] },
+    { id: 'c', depends_on_indices: [0, 1] },
+  ];
+  assert.equal(detectDependencyCycles(steps), null);
 });
 
 test('validateDeadline: optional (empty ok), YYYY-MM-DD accepted', () => {
@@ -101,59 +151,79 @@ test('slugifyStepId: empty name falls back to step-N', () => {
 
 // ---- validateWorkflowEvent end-to-end ----------------------------------
 
-test('validateWorkflowEvent: happy path two steps sequential', () => {
+test('validateWorkflowEvent: happy path two steps, second depends on first', () => {
   const form = {
     title: 'Q2 Contract',
     initiator: 'ceo@example.com',
-    flow: 'sequential',
     min_trust_level: 'verified',
     step_name: ['Legal review', 'CEO approval'],
     step_participant: ['legal@example.com', 'ceo@example.com'],
     step_deadline: ['2026-04-30', ''],
     step_requires_attachment: ['on', ''],
+    step_depends_on: ['', '1'],
   };
   const r = validateWorkflowEvent(form);
   assert.equal(r.ok, true);
   assert.equal(r.value.title, 'Q2 Contract');
-  assert.equal(r.value.flow, 'sequential');
   assert.equal(r.value.min_trust_level, 'verified');
   assert.equal(r.value.steps.length, 2);
   assert.equal(r.value.steps[0].id, 'legal-review');
-  assert.equal(r.value.steps[0].participant, 'legal@example.com');
+  assert.deepEqual(r.value.steps[0].depends_on, []);
+  assert.deepEqual(r.value.steps[1].depends_on, ['legal-review']);
   assert.equal(r.value.steps[0].requires_attachment, true);
   assert.match(r.value.steps[0].deadline, /^2026-04-30/);
-  assert.equal(r.value.steps[1].requires_attachment, false);
-  assert.equal(r.value.steps[1].deadline, null);
 });
 
 test('validateWorkflowEvent: single-step form (not array) still works', () => {
   const form = {
-    title: 'x', initiator: 'a@b.com', flow: 'non-sequential',
+    title: 'x', initiator: 'a@b.com',
     step_name: 'Only step', step_participant: 'p@q.com', step_deadline: '',
   };
   const r = validateWorkflowEvent(form);
   assert.equal(r.ok, true);
   assert.equal(r.value.steps.length, 1);
+  assert.deepEqual(r.value.steps[0].depends_on, []);
 });
 
 test('validateWorkflowEvent: collects multiple errors', () => {
   const r = validateWorkflowEvent({
     title: '',
     initiator: 'bogus',
-    flow: 'parallel',
     step_name: [],
   });
   assert.equal(r.ok, false);
-  assert.ok(r.errors.length >= 4);
+  assert.ok(r.errors.length >= 3);
   assert.ok(r.errors.some((e) => /title/.test(e)));
   assert.ok(r.errors.some((e) => /initiator/.test(e)));
-  assert.ok(r.errors.some((e) => /flow/.test(e)));
   assert.ok(r.errors.some((e) => /step is required/.test(e)));
+});
+
+test('validateWorkflowEvent: rejects circular dependency', () => {
+  // step 1 depends on 2, step 2 depends on 1
+  const r = validateWorkflowEvent({
+    title: 'x', initiator: 'a@b.com',
+    step_name: ['A', 'B'],
+    step_participant: ['a@x.com', 'b@x.com'],
+    step_depends_on: ['2', '1'],
+  });
+  assert.equal(r.ok, false);
+  assert.ok(r.errors.some((e) => /cycle/.test(e)));
+});
+
+test('validateWorkflowEvent: rejects dependency on nonexistent step', () => {
+  const r = validateWorkflowEvent({
+    title: 'x', initiator: 'a@b.com',
+    step_name: ['only'],
+    step_participant: ['a@x.com'],
+    step_depends_on: ['5'],
+  });
+  assert.equal(r.ok, false);
+  assert.ok(r.errors.some((e) => /out of range/.test(e)));
 });
 
 test('validateWorkflowEvent: dedupes step ids with numeric suffix', () => {
   const form = {
-    title: 'x', initiator: 'a@b.com', flow: 'sequential',
+    title: 'x', initiator: 'a@b.com',
     step_name: ['Review', 'Review'],
     step_participant: ['a@b.com', 'c@d.com'],
     step_deadline: ['', ''],
@@ -166,7 +236,7 @@ test('validateWorkflowEvent: dedupes step ids with numeric suffix', () => {
 
 test('validateWorkflowEvent: per-step error cites step number', () => {
   const form = {
-    title: 'x', initiator: 'a@b.com', flow: 'sequential',
+    title: 'x', initiator: 'a@b.com',
     step_name: ['ok', 'also ok'],
     step_participant: ['a@b.com', 'not-an-email'],
     step_deadline: ['', ''],
@@ -178,7 +248,7 @@ test('validateWorkflowEvent: per-step error cites step number', () => {
 
 test('validateWorkflowEvent: defaults min_trust_level to verified', () => {
   const form = {
-    title: 'x', initiator: 'a@b.com', flow: 'sequential',
+    title: 'x', initiator: 'a@b.com',
     step_name: 's', step_participant: 'p@q.com',
   };
   const r = validateWorkflowEvent(form);
@@ -189,7 +259,7 @@ test('validateWorkflowEvent: too many steps rejected', () => {
   const names = Array.from({ length: 51 }, (_, i) => `step ${i}`);
   const participants = names.map(() => 'p@q.com');
   const r = validateWorkflowEvent({
-    title: 'x', initiator: 'a@b.com', flow: 'sequential',
+    title: 'x', initiator: 'a@b.com',
     step_name: names, step_participant: participants, step_deadline: [],
   });
   assert.equal(r.ok, false);

@@ -19,6 +19,51 @@ internal refactors and commit-level churn stay in `git log`.
 
 ---
 
+## [Phase 1 — 1.H.2b dependency graph] — 2026-04-19
+
+Collapses the three workflow "flow" modes (sequential, non-sequential,
+hybrid) into a single primitive: each step has an optional `depends_on`
+list. Empty = runs immediately. Populated = eligible when every named
+dependency is complete. **The `flow` field is gone from the schema.**
+
+### UI
+- Event-creation form drops the "Flow" dropdown. The "How" section
+  becomes "Trust" (just `min_trust_level`).
+- Step table gains one new column: **Depends on**. Text input taking
+  comma-separated 1-based step numbers: `1, 2`.
+- Placeholder example: `e.g. 1`. Empty = runs immediately.
+
+### Validator
+- `parseDependsOn` resolves comma-separated step numbers to 0-based
+  indices; rejects self-references, out-of-range, and non-numeric
+  tokens.
+- `detectDependencyCycles` runs a 3-color DFS over the dep graph.
+- Resolved to step ids at store time, so each persisted step carries
+  `depends_on: ["step-id-1", ...]`.
+
+### Completion engine
+- `shouldCountWorkflow`: a step is eligible iff every id in its
+  `depends_on` is already complete. Replaces the old sequential /
+  non-sequential branching.
+- `eligibleSteps(event)` helper filters to steps that are both pending
+  AND have deps met — used by remind+ and the cascade path.
+- Cascade on step complete now notifies *every* newly-eligible
+  downstream step (not just the "next one" in a linear chain).
+
+### Notifications
+- On create: notifies every step with empty `depends_on`. Everyone
+  downstream waits for the cascade.
+- `remind+`: notifies every currently-eligible step; tells the
+  initiator when all pending steps are blocked on upstream deps.
+
+### Migration
+- Clean cut. No back-compat shim for events created before 1.H.2b
+  (would have `flow` and no `depends_on`). Pre-launch = no real prod
+  events affected. `data-dev/` fixtures get invalidated; tests
+  updated.
+
+---
+
 ## [Phase 1 — §6.4 initiator email commands] — 2026-04-19
 
 The initiator's primary day-to-day surface, per PRD §6.4, is email —

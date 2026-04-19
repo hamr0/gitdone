@@ -1,15 +1,14 @@
-// 1.I — participant notifications.
+// 1.I — participant notifications (1.H.2b-aware).
 //
-// On event creation, tell the people who need to reply:
-//   - Workflow non-sequential → every step's participant gets an email.
-//   - Workflow sequential     → only step 1 gets an email. Step 2+ are
-//                               notified by the completion engine (1.J)
-//                               when their predecessor completes.
-//   - Workflow hybrid         → not yet shipped (1.H.2b). Falls back to
-//                               notifying every step for now.
-//   - Crypto declaration      → the designated signer gets one email.
-//   - Crypto attestation      → no notification. Initiator shares the
-//                               reply address manually (PRD §6.1).
+// A workflow step is "root" if its depends_on is empty. Root steps get
+// notified at create time; downstream steps get notified by the
+// completion engine (1.J) when every id in their depends_on has been
+// marked complete. Crypto rules unchanged:
+//
+//   - Workflow               → every step with depends_on=[] at creation.
+//   - Crypto declaration     → the designated signer gets one email.
+//   - Crypto attestation     → no notification. Initiator shares the
+//                              reply address manually (PRD §6.1).
 //
 // Every message is plain-text (§0.1.4 "invisible beats correct"). Outbound
 // DKIM signing is handled by opendkim at the MTA; this module only composes.
@@ -96,19 +95,21 @@ async function sendOne({ to, subject, body, event }) {
   return { to, ok: result.ok, reason: result.reason, code: result.code };
 }
 
-// Returns [{to, ok, reason?}] — caller logs per-recipient. Non-sequential
-// sends in parallel; sequential sends one (step 1 only).
-async function notifyWorkflowParticipants(event) {
+// Returns [{to, ok, reason?}] — caller logs per-recipient. Sends in
+// parallel. If `stepsOverride` is supplied, notifies exactly those steps
+// (used by the cascade path after a dependency completes, and by
+// remind+). Otherwise notifies every step whose depends_on is empty —
+// the "roots" of the dependency graph.
+async function notifyWorkflowParticipants(event, { stepsOverride } = {}) {
   if (!event || event.type !== 'event' || !Array.isArray(event.steps) || event.steps.length === 0) {
     return [];
   }
-  const flow = event.flow || 'sequential';
   const total = event.steps.length;
-  const eligible = flow === 'sequential'
-    ? [event.steps[0]]
-    : event.steps;
+  const target = stepsOverride
+    ? stepsOverride
+    : event.steps.filter((s) => !s.depends_on || s.depends_on.length === 0);
   const subj = `[gitdone] "${event.title}" — your step`;
-  const jobs = eligible.map((step) => {
+  const jobs = target.map((step) => {
     const idx = event.steps.indexOf(step);
     return sendOne({
       to: step.participant,

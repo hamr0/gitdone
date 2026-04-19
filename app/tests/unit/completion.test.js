@@ -17,13 +17,16 @@ const {
 
 // -- builders --
 
+// Default fixture = two-step chain (step 'two' depends on 'one'). Tests
+// that want the old non-sequential behaviour pass `depends_on: []` for
+// both steps via overrides.
 function mkWorkflow(overrides = {}) {
   return {
-    id: 'ev1', type: 'event', flow: 'sequential', min_trust_level: 'verified',
+    id: 'ev1', type: 'event', min_trust_level: 'verified',
     salt: 'a'.repeat(64),
     steps: [
-      { id: 'one', name: 'one', participant: 'one@x.com', status: 'pending' },
-      { id: 'two', name: 'two', participant: 'two@x.com', status: 'pending' },
+      { id: 'one', name: 'one', participant: 'one@x.com', status: 'pending', depends_on: [] },
+      { id: 'two', name: 'two', participant: 'two@x.com', status: 'pending', depends_on: ['one'] },
     ],
     ...overrides,
   };
@@ -67,18 +70,23 @@ test('meetsTrust: strict ordering', () => {
   assert.equal(meetsTrust({ trust_level: 'forwarded' }, strict), false);
 });
 
-// -- workflow sequential --
+// -- workflow with dependency graph --
 
-test('workflow sequential: step 1 counts, step 2 out-of-order does not', () => {
-  const ev = mkWorkflow();
-  assert.deepEqual(shouldCount(ev, mkCommit({ step_id: 'one' })).count, true);
-  const oos = shouldCount(ev, mkCommit({ step_id: 'two' }));
-  assert.equal(oos.count, false);
-  assert.match(oos.reason, /out of sequence/);
+test('workflow: step with unmet deps does not count', () => {
+  const ev = mkWorkflow();   // two depends on one; one is pending
+  assert.equal(shouldCount(ev, mkCommit({ step_id: 'one' })).count, true);
+  const blocked = shouldCount(ev, mkCommit({ step_id: 'two' }));
+  assert.equal(blocked.count, false);
+  assert.match(blocked.reason, /unmet dependencies/);
 });
 
-test('workflow non-sequential: any pending step counts', () => {
-  const ev = mkWorkflow({ flow: 'non-sequential' });
+test('workflow: no-dependency steps both count independently', () => {
+  const ev = mkWorkflow({
+    steps: [
+      { id: 'one', participant: 'a@x.com', status: 'pending', depends_on: [] },
+      { id: 'two', participant: 'b@x.com', status: 'pending', depends_on: [] },
+    ],
+  });
   assert.equal(shouldCount(ev, mkCommit({ step_id: 'two' })).count, true);
 });
 

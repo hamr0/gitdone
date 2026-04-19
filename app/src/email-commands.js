@@ -15,7 +15,7 @@
 'use strict';
 
 const config = require('./config');
-const { meetsTrust, applyReply, updateEventAtomic, firstPendingStep, isComplete } = require('./completion');
+const { meetsTrust, applyReply, updateEventAtomic, eligibleSteps, isComplete } = require('./completion');
 const { notifyWorkflowParticipants, notifyDeclarationSigner } = require('./notifications');
 
 function normaliseEmail(s) {
@@ -42,7 +42,7 @@ function workflowStatsBody(event) {
   const lines = [];
   lines.push(`Event: ${event.title}`);
   lines.push(`ID: ${event.id}`);
-  lines.push(`Flow: ${event.flow}   Minimum trust: ${event.min_trust_level}`);
+  lines.push(`Minimum trust: ${event.min_trust_level}`);
   lines.push(`Status: ${isComplete(event) ? 'complete' : 'open'}`);
   if (isComplete(event) && event.completion && event.completion.completed_at) {
     lines.push(`Completed at: ${event.completion.completed_at}`);
@@ -51,8 +51,11 @@ function workflowStatsBody(event) {
   lines.push('Steps:');
   for (const s of (event.steps || [])) {
     const tick = s.status === 'complete' ? '[x]' : '[ ]';
+    const deps = (s.depends_on && s.depends_on.length)
+      ? ` · after ${s.depends_on.join(', ')}`
+      : '';
     const extra = s.status === 'complete' && s.completed_at ? ` · ${s.completed_at}` : '';
-    lines.push(`  ${tick} ${s.name} → ${s.participant}${extra}`);
+    lines.push(`  ${tick} ${s.name} → ${s.participant}${deps}${extra}`);
   }
   return lines.join('\n');
 }
@@ -81,10 +84,13 @@ function statsBody(event) {
 }
 
 // Re-send invites to participants who haven't completed yet.
-//   workflow sequential      → the current first-pending step
-//   workflow non-sequential  → every pending step
-//   declaration              → signer, if event not yet signed
-//   attestation              → n/a, no participant list
+//   workflow     → every step that is (a) not complete AND (b) has all
+//                  dependencies satisfied. Steps blocked on upstream
+//                  deps are deliberately not reminded — their nudge
+//                  comes from the cascade when their predecessor
+//                  finishes.
+//   declaration  → signer, if event not yet signed
+//   attestation  → n/a, no participant list
 // Returns { body, sentTo: [{to, ok}] }
 async function executeRemind(event) {
   if (isComplete(event)) {
@@ -92,19 +98,17 @@ async function executeRemind(event) {
   }
   let results = [];
   if (event.type === 'event') {
-    if ((event.flow || 'sequential') === 'sequential') {
-      const pending = firstPendingStep(event);
-      if (!pending) {
-        return { body: 'No pending steps.', sentTo: [] };
-      }
-      results = await notifyWorkflowParticipants({ ...event, steps: [pending] });
-    } else {
-      const pendingSteps = (event.steps || []).filter((s) => s.status !== 'complete');
-      if (pendingSteps.length === 0) {
-        return { body: 'No pending steps.', sentTo: [] };
-      }
-      results = await notifyWorkflowParticipants({ ...event, steps: pendingSteps });
+    const eligible = eligibleSteps(event);
+    if (eligible.length === 0) {
+      const anyPending = (event.steps || []).some((s) => s.status !== 'complete');
+      return {
+        body: anyPending
+          ? 'No eligible steps — every pending step is waiting on upstream dependencies.'
+          : 'No pending steps.',
+        sentTo: [],
+      };
     }
+    results = await notifyWorkflowParticipants(event, { stepsOverride: eligible });
   } else if (event.type === 'crypto' && event.mode === 'declaration') {
     results = await notifyDeclarationSigner(event);
   } else if (event.type === 'crypto' && event.mode === 'attestation') {

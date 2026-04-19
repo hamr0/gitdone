@@ -107,8 +107,8 @@ test('integration: routing — matched event, matched step, matched participant'
   try {
     await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
     await fs.writeFile(path.join(tmp, 'events', 'demo123.json'), JSON.stringify({
-      id: 'demo123', type: 'event', flow: 'sequential', salt: 'test-salt-demo123',
-      steps: [{ id: 'step1', participant: 'legal@example.com', status: 'pending' }],
+      id: 'demo123', type: 'event', salt: 'test-salt-demo123',
+      steps: [{ id: 'step1', participant: 'legal@example.com', status: 'pending', depends_on: [] }],
     }));
     const eml = buildEml([
       'From: legal@example.com',

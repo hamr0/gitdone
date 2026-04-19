@@ -102,18 +102,18 @@ async function capturedRecipients() {
     .map((f) => f.replace(/\.eml$/, '').replace('_at_', '@'));
 }
 
-test('sequential workflow notifies only step 1', async () => {
+test('chain of dependencies notifies only the root (step 1)', async () => {
   await clearCaptures();
   const r = await post('/events', {
-    title: 'Seq',
+    title: 'Chain',
     initiator: 'organiser@ex.com',
-    flow: 'sequential',
     step_name: ['one', 'two', 'three'],
     step_participant: ['one@ex.com', 'two@ex.com', 'three@ex.com'],
+    // step 2 depends on 1, step 3 depends on 2 → chain
+    step_depends_on: ['', '1', '2'],
   });
   assert.equal(r.status, 200);
   const recipients = await capturedRecipients();
-  // Management email to organiser + step-1 invitation only
   assert.ok(recipients.includes('organiser@ex.com'));
   assert.ok(recipients.includes('one@ex.com'));
   assert.ok(!recipients.includes('two@ex.com'));
@@ -124,14 +124,14 @@ test('sequential workflow notifies only step 1', async () => {
   assert.match(step1, /event\+[a-z0-9]{12}-one@/);
 });
 
-test('non-sequential workflow notifies every step', async () => {
+test('no-dependency (all root) workflow notifies every step', async () => {
   await clearCaptures();
   const r = await post('/events', {
-    title: 'NonSeq',
+    title: 'Parallel',
     initiator: 'nonseq@ex.com',
-    flow: 'non-sequential',
     step_name: ['a', 'b'],
     step_participant: ['a@ex.com', 'b@ex.com'],
+    step_depends_on: ['', ''],
   });
   assert.equal(r.status, 200);
   const recipients = await capturedRecipients();

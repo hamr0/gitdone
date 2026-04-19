@@ -17,13 +17,13 @@ const {
 
 function mkWorkflow(o = {}) {
   return {
-    id: 'ev1', type: 'event', flow: 'sequential',
+    id: 'ev1', type: 'event',
     min_trust_level: 'verified', initiator: 'boss@ex.com',
     title: 'Q2 sign-off',
     salt: 'a'.repeat(64),
     steps: [
-      { id: 'one', name: 'one', participant: 'one@ex.com', status: 'pending' },
-      { id: 'two', name: 'two', participant: 'two@ex.com', status: 'pending' },
+      { id: 'one', name: 'one', participant: 'one@ex.com', status: 'pending', depends_on: [] },
+      { id: 'two', name: 'two', participant: 'two@ex.com', status: 'pending', depends_on: ['one'] },
     ],
     ...o,
   };
@@ -113,7 +113,7 @@ test('cryptoStatsBody attestation: threshold + dedup + reply count', () => {
 test('statsBody: dispatches based on event.type', () => {
   const wf = mkWorkflow();
   const cr = { id: 'x', type: 'crypto', mode: 'declaration', title: 't', signer: 's@x.x', min_trust_level: 'verified' };
-  assert.match(statsBody(wf), /Flow: sequential/);
+  assert.match(statsBody(wf), /ID: ev1/);
   assert.match(statsBody(cr), /Type: declaration/);
 });
 

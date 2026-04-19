@@ -464,24 +464,27 @@ async function main() {
         }
       }
 
-      // Cascade: sequential workflow, a step just completed, event not yet
-      // done → notify the newly-first-pending step.
+      // Cascade: a step just completed → notify every newly-eligible
+      // downstream step (one whose depends_on lists the now-complete step
+      // AND whose other deps are all complete). 1.H.2b: this is how the
+      // dependency graph fires reminders.
       if (changed && nextEvent.type === 'event'
-          && (nextEvent.flow || 'sequential') === 'sequential'
           && !applied.completedEvent
           && applied.completedStep) {
-        const idx = nextEvent.steps.findIndex((s) => s.status !== 'complete');
-        if (idx >= 0) {
-          const nextStep = nextEvent.steps[idx];
-          const results = await notifyWorkflowParticipants({
-            ...nextEvent,
-            steps: [nextStep],       // notifier iterates; restrict to the one step
-          }).catch((e) => [{ to: nextStep.participant, ok: false, reason: e.message || String(e) }]);
-          completion.cascade = { step_id: nextStep.id, to: nextStep.participant, results };
-          didCascade = true;
+        const { eligibleSteps } = require('../src/completion');
+        const newlyEligible = eligibleSteps(nextEvent)
+          .filter((s) => (s.depends_on || []).includes(applied.completedStep));
+        if (newlyEligible.length) {
+          const results = await notifyWorkflowParticipants(nextEvent, {
+            stepsOverride: newlyEligible,
+          }).catch((e) => newlyEligible.map((s) => ({ to: s.participant, ok: false, reason: e.message || String(e) })));
+          completion.cascade = {
+            triggered_by: applied.completedStep,
+            notified: newlyEligible.map((s) => s.id),
+            results,
+          };
         }
       }
-      void didCascade;
     } catch (err) {
       completion = { error: err.message || String(err) };
     }

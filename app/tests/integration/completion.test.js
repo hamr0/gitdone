@@ -64,13 +64,13 @@ test('sequential workflow: step 1 reply completes step 1 and cascades to step 2'
     const { fake, captureDir } = makeFakeSendmail(tmp);
     await fs.mkdir(path.join(tmp, 'events'));
     await fs.writeFile(path.join(tmp, 'events', 'evseq01.json'), JSON.stringify({
-      id: 'evseq01', type: 'event', flow: 'sequential',
+      id: 'evseq01', type: 'event',
       min_trust_level: 'unverified',   // let unsigned mail count in tests
       initiator: 'boss@ex.com',
       salt: 'salt-seq-01',
       steps: [
-        { id: 'one', name: 'Step one', participant: 'one@ex.com', status: 'pending' },
-        { id: 'two', name: 'Step two', participant: 'two@ex.com', status: 'pending' },
+        { id: 'one', name: 'Step one', participant: 'one@ex.com', status: 'pending', depends_on: [] },
+        { id: 'two', name: 'Step two', participant: 'two@ex.com', status: 'pending', depends_on: ['one'] },
       ],
     }));
 
@@ -88,8 +88,8 @@ test('sequential workflow: step 1 reply completes step 1 and cascades to step 2'
     assert.equal(out1.completion.applied, true);
     assert.equal(out1.completion.completed_step, 'one');
     assert.equal(out1.completion.completed_event, false);
-    assert.equal(out1.completion.cascade.step_id, 'two');
-    assert.equal(out1.completion.cascade.to, 'two@ex.com');
+    assert.deepEqual(out1.completion.cascade.notified, ['two']);
+    assert.equal(out1.completion.cascade.triggered_by, 'one');
 
     // step 2 should have a notification capture file
     const captures = await fs.readdir(captureDir);
@@ -135,12 +135,12 @@ test('non-sequential workflow: replies count in any order, no cascade', async ()
     const { fake } = makeFakeSendmail(tmp);
     await fs.mkdir(path.join(tmp, 'events'));
     await fs.writeFile(path.join(tmp, 'events', 'evns01.json'), JSON.stringify({
-      id: 'evns01', type: 'event', flow: 'non-sequential',
+      id: 'evns01', type: 'event',
       min_trust_level: 'unverified', initiator: 'boss@ex.com',
       salt: 'salt-ns-01',
       steps: [
-        { id: 'a', participant: 'a@ex.com', status: 'pending' },
-        { id: 'b', participant: 'b@ex.com', status: 'pending' },
+        { id: 'a', participant: 'a@ex.com', status: 'pending', depends_on: [] },
+        { id: 'b', participant: 'b@ex.com', status: 'pending', depends_on: [] },
       ],
     }));
     // Reply to step B first — non-sequential accepts it.

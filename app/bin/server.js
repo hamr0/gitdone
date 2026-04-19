@@ -39,7 +39,7 @@ const config = require('../src/config');
 const { createRouter } = require('../src/web/router');
 const { layout: rawLayout, html, raw } = require('../src/web/templates');
 const { parseBody } = require('../src/web/body');
-const { validateWorkflowEvent, validateCryptoEvent, VALID_FLOWS, VALID_TRUST_LEVELS, VALID_CRYPTO_MODES, VALID_DEDUP_RULES } = require('../src/web/validation');
+const { validateWorkflowEvent, validateCryptoEvent, VALID_TRUST_LEVELS, VALID_CRYPTO_MODES, VALID_DEDUP_RULES } = require('../src/web/validation');
 const { createEvent } = require('../src/event-store');
 const { createToken, loadToken } = require('../src/magic-token');
 const { sendmail, buildRawMessage } = require('../src/outbound');
@@ -124,9 +124,10 @@ const WORKFLOW_FORM_CSS = `
 .vf-steps-table input:focus { border-color: #0645ad; background: #fff; outline: 0; box-shadow: 0 0 0 2px rgba(6,69,173,.12); }
 .vf-steps-table tr:hover input:not(:focus) { background: #fafafa; }
 .vf-steps-table .col-num { width: 28px; color: #999; font-variant-numeric: tabular-nums; text-align: right; padding-right: 0.35rem; font-size: 0.82em; }
-.vf-steps-table .col-name { width: 24%; }
-.vf-steps-table .col-email { width: 28%; }
-.vf-steps-table .col-dl { width: 30%; }
+.vf-steps-table .col-name { width: 20%; }
+.vf-steps-table .col-email { width: 22%; }
+.vf-steps-table .col-dl { width: 24%; }
+.vf-steps-table .col-deps { width: 12%; }
 .vf-steps-table .col-att { width: 40px; text-align: center; }
 .vf-add-row { margin: 0.3rem 0 0; font-size: 0.85em; }
 .vf-add-row button { background: none; border: 0; color: #0645ad; cursor: pointer; padding: 0; font: inherit; text-decoration: none; }
@@ -136,11 +137,6 @@ const WORKFLOW_FORM_CSS = `
 @media (max-width: 540px) { .vf-row { grid-template-columns: 1fr; } .vf-steps-table { font-size: 0.83em; } }
 `;
 
-const FLOW_LABELS = {
-  'sequential': 'sequential — one after another',
-  'non-sequential': 'non-sequential — any order',
-  'hybrid': 'hybrid — tree of parallel branches',
-};
 const TRUST_LABELS = {
   verified: 'verified — strict DKIM + DMARC',
   forwarded: 'forwarded — OK via trusted relay',
@@ -153,12 +149,9 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
   const participants = values.step_participant || [];
   const deadlines = values.step_deadline || [];
   const atts = values.step_requires_attachment || [];
+  const depsArr = values.step_depends_on || [];
   const stepRows = Math.max(2, names.length || 2);
-  const selectedFlow = values.flow || 'sequential';
   const selectedTrust = values.min_trust_level || 'verified';
-  const flowOpts = VALID_FLOWS.map((f) => html`
-    <option value="${f}" ${selectedFlow === f ? raw('selected') : ''}>${FLOW_LABELS[f] || f}</option>
-  `);
   const trustOpts = VALID_TRUST_LEVELS.map((t) => html`
     <option value="${t}" ${selectedTrust === t ? raw('selected') : ''}>${TRUST_LABELS[t] || t}</option>
   `);
@@ -168,12 +161,14 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
     const p = participants[i] || '';
     const d = deadlines[i] || '';
     const a = atts[i] === 'on' || atts[i] === true;
+    const dep = depsArr[i] || '';
     rows.push(html`
       <tr>
         <td class="col-num">${i + 1}</td>
         <td class="col-name"><input type="text" name="step_name" value="${n}" maxlength="200" placeholder="step name"></td>
         <td class="col-email"><input type="email" name="step_participant" value="${p}" placeholder="email@…"></td>
         <td class="col-dl"><input type="datetime-local" name="step_deadline" value="${d}"></td>
+        <td class="col-deps"><input type="text" name="step_depends_on" value="${dep}" placeholder="e.g. 1" title="step numbers this step waits for, comma-separated"></td>
         <td class="col-att"><input type="checkbox" name="step_requires_attachment" value="on" ${a ? raw('checked') : ''} title="requires attachment"></td>
       </tr>
     `);
@@ -205,21 +200,15 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
         </div>
       </div>
 
-      <h2><span class="num">2</span>How <span class="hint">how it runs, what counts</span></h2>
+      <h2><span class="num">2</span>Trust <span class="hint">minimum authentication to count a reply</span></h2>
       <div class="vf-section">
-        <div class="vf-row">
-          <label>
-            <span>Flow</span>
-            <select name="flow" required>${flowOpts}</select>
-          </label>
-          <label>
-            <span>Minimum trust</span>
-            <select name="min_trust_level">${trustOpts}</select>
-          </label>
-        </div>
+        <label style="max-width:360px">
+          <span>Minimum trust</span>
+          <select name="min_trust_level">${trustOpts}</select>
+        </label>
       </div>
 
-      <h2><span class="num">3</span>Steps <span class="hint">${String(stepRows)} · each gets a unique reply-to</span></h2>
+      <h2><span class="num">3</span>Steps <span class="hint">${String(stepRows)} · each gets a unique reply-to · <em>Depends on</em>: step numbers, comma-separated; empty = runs immediately</span></h2>
       <div class="vf-section">
         <table class="vf-steps-table">
           <thead>
@@ -227,7 +216,8 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
               <th class="col-num">#</th>
               <th class="col-name">Step</th>
               <th class="col-email">Participant</th>
-              <th class="col-dl">Deadline (date + time)</th>
+              <th class="col-dl">Deadline</th>
+              <th class="col-deps" title="step numbers this step waits for">Depends on</th>
               <th class="col-att" title="requires attachment">att</th>
             </tr>
           </thead>
@@ -250,17 +240,18 @@ router.get('/events/new', async (req, res) => {
   const values = {
     title: sp.get('title') || '',
     initiator: sp.get('initiator') || '',
-    flow: sp.get('flow') || 'sequential',
     min_trust_level: sp.get('min_trust_level') || 'verified',
     step_name: sp.getAll('step_name'),
     step_participant: sp.getAll('step_participant'),
     step_deadline: sp.getAll('step_deadline'),
+    step_depends_on: sp.getAll('step_depends_on'),
   };
   // If _add_step is set, add an empty step slot
   if (sp.get('_add_step')) {
     values.step_name.push('');
     values.step_participant.push('');
     values.step_deadline.push('');
+    values.step_depends_on.push('');
   }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({ title: 'create event — gitdone', body: renderWorkflowForm({ values }) }));
@@ -297,7 +288,7 @@ router.post('/events', async (req, res) => {
   const msg = html`
     <h1>Event created</h1>
     <p><strong>${event.title}</strong> — ID: <code>${event.id}</code></p>
-    <p>Flow: <code>${event.flow}</code> | Min trust: <code>${event.min_trust_level}</code> | ${event.steps.length} step(s)</p>
+    <p>Min trust: <code>${event.min_trust_level}</code> | ${event.steps.length} step(s)</p>
     <h2>Participant reply addresses</h2>
     <p>Each step has a unique reply-to address. Participants reply to these; every reply is DKIM-verified, timestamped, and committed to the event's git repository.</p>
     <ul>
@@ -336,7 +327,7 @@ async function sendManagementEmail({ event, manageUrl }) {
     `You created the event "${event.title}" on gitdone.`,
     ``,
     `Event ID: ${event.id}`,
-    `Flow: ${event.flow}   Minimum trust: ${event.min_trust_level}`,
+    `Minimum trust: ${event.min_trust_level}`,
     ``,
     `Steps:`,
     stepsList,
@@ -615,7 +606,7 @@ router.get('/events/:id', async (req, res, params) => {
     body: html`
       <h1>${event.title}</h1>
       <p>ID: <code>${event.id}</code></p>
-      <p>Type: <code>${event.type}</code> | Flow: <code>${event.flow || '—'}</code> | Min trust: <code>${event.min_trust_level || '—'}</code></p>
+      <p>Type: <code>${event.type}</code>${event.mode ? html` · Mode: <code>${event.mode}</code>` : raw('')} | Min trust: <code>${event.min_trust_level || '—'}</code></p>
       <p>Created: <code>${event.created_at}</code></p>
       ${event.steps ? html`
         <h2>Steps</h2>
@@ -663,7 +654,7 @@ router.get('/manage/:token', async (req, res, params) => {
     body: html`
       <h1>${event.title}</h1>
       <p>Management link valid. Signed in as <code>${rec.initiator}</code>.</p>
-      <p>Event ID: <code>${event.id}</code> · Flow: <code>${event.flow}</code> · ${event.steps.length} step(s)</p>
+      <p>Event ID: <code>${event.id}</code>${event.steps ? html` · ${String(event.steps.length)} step(s)` : html` · ${event.mode || 'crypto'}`}</p>
       <p style="background:#ffc;padding:0.75rem;border:1px solid #cc9">
         Full dashboard (progress, reminders, close) lands in 1.H.5.
         For now: day-to-day commands happen by email —

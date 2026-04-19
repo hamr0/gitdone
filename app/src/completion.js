@@ -82,6 +82,23 @@ function firstPendingStep(event) {
 
 // --- per-mode shouldCount ---
 
+// A step is eligible for completion iff every id in its depends_on list
+// is already complete. Empty depends_on → always eligible. Replaces the
+// old sequential / non-sequential branching.
+function stepDepsMet(event, step) {
+  const deps = step.depends_on || [];
+  if (deps.length === 0) return true;
+  for (const depId of deps) {
+    const dep = (event.steps || []).find((s) => s.id === depId);
+    if (!dep || dep.status !== 'complete') return false;
+  }
+  return true;
+}
+
+function eligibleSteps(event) {
+  return (event.steps || []).filter((s) => s.status !== 'complete' && stepDepsMet(event, s));
+}
+
 function shouldCountWorkflow(event, commit) {
   if (isComplete(event)) return { count: false, reason: 'event already complete' };
   if (!meetsTrust(commit, event)) return { count: false, reason: 'trust below min_trust_level' };
@@ -90,11 +107,8 @@ function shouldCountWorkflow(event, commit) {
   const step = (event.steps || []).find((s) => s.id === commit.step_id);
   if (!step) return { count: false, reason: `unknown step ${commit.step_id}` };
   if (step.status === 'complete') return { count: false, reason: 'step already complete' };
-  if ((event.flow || 'sequential') === 'sequential') {
-    const pending = firstPendingStep(event);
-    if (!pending || pending.id !== commit.step_id) {
-      return { count: false, reason: 'step arrived out of sequence' };
-    }
+  if (!stepDepsMet(event, step)) {
+    return { count: false, reason: 'step has unmet dependencies' };
   }
   return { count: true, step };
 }
@@ -231,6 +245,8 @@ module.exports = {
   applyDedup,
   isComplete,
   firstPendingStep,
+  stepDepsMet,
+  eligibleSteps,
   meetsTrust,
   hashSender,
   senderMatchesSigner,

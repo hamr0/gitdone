@@ -103,7 +103,6 @@ test('POST /events mints a magic token and sends management email', async () => 
   // because sendmail is spawned asynchronously from the POST handler.
   const r = await post('/events', {
     title: 'Manage me', initiator: 'boss@example.com',
-    flow: 'sequential',
     step_name: 'Step 1', step_participant: 'one@example.com',
   });
   assert.equal(r.status, 200);
@@ -135,7 +134,6 @@ test('POST /events mints a magic token and sends management email', async () => 
 test('GET /manage/:token renders a valid management page', async () => {
   const r = await post('/events', {
     title: 'Link check', initiator: 'owner@example.com',
-    flow: 'non-sequential',
     step_name: 'A', step_participant: 'a@x.com',
   });
   assert.equal(r.status, 200);
