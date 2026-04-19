@@ -297,6 +297,33 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
 
       <button type="submit" class="vf-submit">Create event</button>
     </form>
+    <script>${raw(`
+      (function(){
+        // Deadline hint: when a step has a depends_on, the deadline becomes
+        // a hard-cap SLA on top of the implicit "wait for deps" rule.
+        // Surface this by dimming the deadline cell and showing a tooltip
+        // so users know it's optional when deps are set.
+        var tbody = document.querySelector('.vf-steps-table tbody');
+        if (!tbody) return;
+        function sync(row){
+          var dep = row.querySelector('input[name="step_depends_on"]');
+          var dl  = row.querySelector('input[name="step_deadline"]');
+          if (!dep || !dl) return;
+          var hasDep = dep.value.trim().length > 0;
+          dl.style.opacity = hasDep ? '0.55' : '1';
+          dl.title = hasDep
+            ? 'Optional — step already waits for its dependencies. Set only if you need a wall-clock cap.'
+            : '';
+        }
+        tbody.addEventListener('input', function(e){
+          if (e.target && (e.target.name === 'step_depends_on' || e.target.name === 'step_deadline')) {
+            sync(e.target.closest('tr'));
+          }
+        });
+        // initial sync
+        Array.prototype.forEach.call(tbody.querySelectorAll('tr'), sync);
+      })();
+    `)}</script>
   `;
 }
 
@@ -324,6 +351,129 @@ router.get('/events/new', async (req, res) => {
   res.end(layout({ title: 'create event — gitdone', body: renderWorkflowForm({ values }) }));
 });
 
+const { renderFlowProse, levelsByStep } = require('../src/web/flow-prose');
+
+// Reusable preview/confirmation page. Called on first POST to /events;
+// users can then confirm to create, or go back to edit the form.
+const PREVIEW_CSS = `
+.pv { margin: 1rem 0 1.5rem; }
+.pv h1 { font-size: 1.4rem; margin: 0 0 0.4rem; letter-spacing: -0.02em; }
+.pv .lede { color: #8b949e; font-size: 0.92em; margin: 0 0 1.2rem; }
+.pv h2 { font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.12em; color: #8b949e; margin: 1.1rem 0 0.4rem; }
+.pv .kv { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1rem; font-size: 0.93em; }
+.pv .kv dt { color: #8b949e; }
+.pv .kv dd { margin: 0; }
+.pv .kv dd code { background: #161b22; color: #ffb000; }
+.pv .flow { background: #161b22; border: 1px solid #30363d; padding: 0.7rem 0.9rem; font-size: 0.95em; color: #3fb950; }
+.pv ol.steps { margin: 0; padding: 0; list-style: none; border: 1px solid #30363d; }
+.pv ol.steps li { padding: 0.55rem 0.85rem; border-bottom: 1px solid #21262d; display: grid; grid-template-columns: 2.2rem 1fr; gap: 0.7rem; align-items: baseline; }
+.pv ol.steps li:last-child { border-bottom: 0; }
+.pv ol.steps .n { color: #3fb950; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.pv ol.steps .name { font-weight: 600; color: #c9d1d9; margin-right: 0.5em; }
+.pv ol.steps .sub { color: #8b949e; font-size: 0.88em; margin-top: 0.2em; }
+.pv ol.steps .sub code { background: #161b22; }
+.pv ol.steps .chip { display: inline-block; font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.1em;
+                     color: #58a6ff; border: 1px solid #58a6ff; padding: 0.1em 0.45em; margin-right: 0.4em; }
+.pv ol.steps .chip.att { color: #ffb000; border-color: #ffb000; }
+.pv ol.steps .chip.dep { color: #3fb950; border-color: #3fb950; }
+.pv .actions { display: flex; gap: 0.7rem; margin-top: 1.3rem; flex-wrap: wrap; }
+.pv .actions button { font-family: inherit; font-size: 0.9em; padding: 0.65rem 1.4rem; border-radius: 0;
+                      cursor: pointer; letter-spacing: 0.05em; text-transform: uppercase; font-weight: 600; }
+.pv .actions .confirm { background: #3fb950; color: #0d1117; border: 0; }
+.pv .actions .confirm:hover { background: #ffb000; }
+.pv .actions .edit { background: transparent; color: #8b949e; border: 1px solid #30363d; }
+.pv .actions .edit:hover { background: #161b22; color: #c9d1d9; }
+`;
+
+const TRUST_LABEL_SHORT = {
+  verified: 'verified (strict DKIM + DMARC)',
+  forwarded: 'forwarded (trusted mail relays OK)',
+  authorized: 'authorized (SPF-only OK)',
+  unverified: 'unverified (any reply)',
+};
+
+function renderPreview({ validated, rawBody }) {
+  const { title, initiator, min_trust_level, steps } = validated;
+  // Order steps by execution level so the list reads top-down in run order.
+  const levels = levelsByStep(steps);
+  const ordered = steps.map((s, i) => ({ s, i, level: levels[i] }))
+    .sort((a, b) => a.level - b.level || a.i - b.i);
+  const flow = renderFlowProse(steps);
+
+  // Hidden fields to carry the form state across the confirm/edit POST.
+  const hidden = [];
+  function hid(name, value) {
+    hidden.push(html`<input type="hidden" name="${name}" value="${value == null ? '' : String(value)}">`);
+  }
+  hid('title', rawBody.title);
+  hid('initiator', rawBody.initiator);
+  hid('min_trust_level', rawBody.min_trust_level);
+  const rowArr = (k) => Array.isArray(rawBody[k]) ? rawBody[k] : (rawBody[k] != null ? [rawBody[k]] : []);
+  const names = rowArr('step_name');
+  const parts = rowArr('step_participant');
+  const dls = rowArr('step_deadline');
+  const atts = rowArr('step_requires_attachment');
+  const deps = rowArr('step_depends_on');
+  for (let i = 0; i < names.length; i++) {
+    hid('step_name', names[i]);
+    hid('step_participant', parts[i]);
+    hid('step_deadline', dls[i]);
+    hid('step_depends_on', deps[i]);
+    // Checkbox semantics: only include the hidden when it was on.
+    if (atts[i] === 'on' || atts[i] === true) hid('step_requires_attachment', 'on');
+    else hid('step_requires_attachment', '');
+  }
+
+  return html`
+    <style>${raw(PREVIEW_CSS)}</style>
+    <div class="pv">
+      <h1>Preview — confirm to create</h1>
+      <p class="lede">Review below. When you confirm, each participant receives an email invite.</p>
+
+      <h2>Event</h2>
+      <dl class="kv">
+        <dt>Title</dt><dd><strong>${title}</strong></dd>
+        <dt>Organizer</dt><dd><code>${initiator}</code></dd>
+        <dt>Min trust</dt><dd>${TRUST_LABEL_SHORT[min_trust_level] || min_trust_level}</dd>
+      </dl>
+
+      <h2>Flow</h2>
+      <p class="flow">${flow}</p>
+
+      <h2>Steps, in execution order</h2>
+      <ol class="steps">
+        ${ordered.map(({ s, i }) => {
+          const depLabels = (s.depends_on || []).map((depId) => {
+            const idx = steps.findIndex((x) => x.id === depId);
+            return idx >= 0 ? `step ${idx + 1}` : depId;
+          });
+          return html`
+            <li>
+              <span class="n">${i + 1}</span>
+              <div>
+                <span class="name">${s.name}</span> → <code>${s.participant}</code>
+                <div class="sub">
+                  ${depLabels.length ? html`<span class="chip dep">after ${depLabels.join(', ')}</span>` : raw('')}
+                  ${s.requires_attachment ? html`<span class="chip att">attachment required</span>` : raw('')}
+                  ${s.deadline ? html`deadline: <code>${s.deadline.slice(0, 10)}</code>` : html`<span style="color:#6e7681">no deadline</span>`}
+                </div>
+              </div>
+            </li>
+          `;
+        })}
+      </ol>
+
+      <form method="POST" action="/events">
+        ${hidden}
+        <div class="actions">
+          <button name="_action" value="confirm" class="confirm">Confirm &amp; send invites ▸</button>
+          <button name="_action" value="edit" class="edit" formnovalidate>← Go back to edit</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
 router.post('/events', async (req, res) => {
   let body;
   try { body = await parseBody(req); }
@@ -331,6 +481,18 @@ router.post('/events', async (req, res) => {
     res.writeHead(400, { 'content-type': 'text/plain' });
     return res.end(`bad request: ${err.message}`);
   }
+
+  // Two-step flow:
+  //   first POST (no _action)           → validate + show preview
+  //   POST with _action=edit            → re-render form with values
+  //   POST with _action=confirm         → re-validate + createEvent + emails
+  const action = String(body._action || '').toLowerCase();
+
+  if (action === 'edit') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(layout({ title: 'edit event — gitdone', body: renderWorkflowForm({ values: body }) }));
+  }
+
   const v = validateWorkflowEvent(body);
   if (!v.ok) {
     res.writeHead(422, { 'content-type': 'text/html; charset=utf-8' });
@@ -339,6 +501,17 @@ router.post('/events', async (req, res) => {
       body: renderWorkflowForm({ values: body, errors: v.errors }),
     }));
   }
+
+  if (action !== 'confirm') {
+    // First POST — show preview.
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(layout({
+      title: 'preview — gitdone',
+      body: renderPreview({ validated: v.value, rawBody: body }),
+    }));
+  }
+
+  // Confirmed — actually create.
   const event = await createEvent({
     type: 'event',
     ...v.value,
@@ -352,32 +525,43 @@ router.post('/events', async (req, res) => {
   for (const r of notifyResults) {
     if (!r.ok) process.stderr.write(`notify: failed ${r.to}: ${r.reason || r.code}\n`);
   }
+  const flow = renderFlowProse(event.steps);
   const msg = html`
-    <h1>Event created</h1>
-    <p><strong>${event.title}</strong> — ID: <code>${event.id}</code></p>
-    <p>Min trust: <code>${event.min_trust_level}</code> | ${event.steps.length} step(s)</p>
-    <h2>Participant reply addresses</h2>
-    <p>Each step has a unique reply-to address. Participants reply to these; every reply is DKIM-verified, timestamped, and committed to the event's git repository.</p>
-    <ul>
-      ${event.steps.map((s) => html`
-        <li>
-          <strong>${s.name}</strong> → ${s.participant}<br>
-          reply-to: <code>event+${event.id}-${s.id}@${config.domain}</code>
-          ${s.deadline ? html`<br>deadline: <code>${s.deadline}</code>` : raw('')}
-        </li>
-      `)}
-    </ul>
-    ${emailResult.ok
-      ? html`<p style="background:#efe;padding:0.75rem;border:1px solid #9c9">
-          <strong>Management link sent to ${event.initiator}.</strong>
-          Check your inbox — the link is valid for 30 days and lets you see progress,
-          resend reminders, or close the event early.
-        </p>`
-      : html`<p style="background:#fee;padding:0.75rem;border:1px solid #c99">
-          <strong>Management link could not be emailed</strong> (${emailResult.reason || 'send failed'}).
-          Save this URL: <code>${manageUrl}</code>
-        </p>`}
-    <p><a href="/">home</a></p>
+    <style>${raw(PREVIEW_CSS)}</style>
+    <div class="pv">
+      <h1>Event created</h1>
+      <p class="lede"><strong>${event.title}</strong> — organized by <code>${event.initiator}</code> · ID: <code>${event.id}</code></p>
+
+      <h2>Flow</h2>
+      <p class="flow">${flow}</p>
+
+      <h2>Participant reply addresses</h2>
+      <p style="color:#8b949e;font-size:0.88em;margin:0 0 0.6rem">Each step has a unique reply-to. Replies are DKIM-verified, timestamped, and committed to the event's git repo.</p>
+      <ol class="steps">
+        ${event.steps.map((s, i) => html`
+          <li>
+            <span class="n">${i + 1}</span>
+            <div>
+              <span class="name">${s.name}</span> → <code>${s.participant}</code>
+              <div class="sub">reply-to: <code>event+${event.id}-${s.id}@${config.domain}</code>
+                ${s.deadline ? html` · deadline <code>${s.deadline.slice(0, 10)}</code>` : raw('')}
+              </div>
+            </div>
+          </li>
+        `)}
+      </ol>
+
+      ${emailResult.ok
+        ? html`<div class="mg-flash" style="background:rgba(63,185,80,.08);border:1px solid #3fb950;color:#3fb950;padding:0.6rem 0.85rem;margin-top:1rem;font-size:0.9em">
+            <strong>Management link sent to ${event.initiator}.</strong>
+            Valid 30 days — use it to see progress, resend reminders, or close the event.
+          </div>`
+        : html`<div style="background:rgba(255,176,0,.08);border:1px solid #ffb000;color:#ffb000;padding:0.65rem 0.9rem;margin-top:1rem;font-size:0.9em;line-height:1.5">
+            <strong>Management link could not be emailed</strong> (${emailResult.reason || 'send failed'}).
+            Save this URL: <code style="color:#ffb000;background:#0d1117;word-break:break-all">${manageUrl}</code>
+          </div>`}
+      <p style="margin-top:1.2rem"><a href="/">← home</a> · <a href="/manage">your events</a></p>
+    </div>
   `;
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({ title: 'event created — gitdone', body: msg }));

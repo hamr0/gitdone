@@ -198,6 +198,40 @@ test('validateWorkflowEvent: collects multiple errors', () => {
   assert.ok(r.errors.some((e) => /step is required/.test(e)));
 });
 
+test('validateWorkflowEvent: rejects deadline before dependency deadline', () => {
+  const r = validateWorkflowEvent({
+    title: 'x', initiator: 'a@b.com',
+    step_name: ['draft', 'review'],
+    step_participant: ['a@x.com', 'b@x.com'],
+    step_deadline: ['2026-05-10', '2026-05-01'],
+    step_depends_on: ['', '1'],
+  });
+  assert.equal(r.ok, false);
+  assert.ok(r.errors.some((e) => /step 2 deadline.*before step 1/.test(e)));
+});
+
+test('validateWorkflowEvent: accepts equal deadlines on dep and dependent', () => {
+  const r = validateWorkflowEvent({
+    title: 'x', initiator: 'a@b.com',
+    step_name: ['draft', 'review'],
+    step_participant: ['a@x.com', 'b@x.com'],
+    step_deadline: ['2026-05-10', '2026-05-10'],
+    step_depends_on: ['', '1'],
+  });
+  assert.equal(r.ok, true);
+});
+
+test('validateWorkflowEvent: skips deadline ordering when dependent has no deadline', () => {
+  const r = validateWorkflowEvent({
+    title: 'x', initiator: 'a@b.com',
+    step_name: ['draft', 'review'],
+    step_participant: ['a@x.com', 'b@x.com'],
+    step_deadline: ['2026-05-10', ''],
+    step_depends_on: ['', '1'],
+  });
+  assert.equal(r.ok, true);
+});
+
 test('validateWorkflowEvent: rejects circular dependency', () => {
   // step 1 depends on 2, step 2 depends on 1
   const r = validateWorkflowEvent({

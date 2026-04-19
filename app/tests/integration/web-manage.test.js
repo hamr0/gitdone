@@ -64,6 +64,7 @@ after(async () => {
 });
 
 function post(p, form) {
+  if (p === '/events' && !form._action) form = { ...form, _action: 'confirm' };
   const data = querystring.stringify(form);
   return new Promise((resolve, reject) => {
     const req = http.request({

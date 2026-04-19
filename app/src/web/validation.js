@@ -242,6 +242,25 @@ function validateWorkflowEvent(form) {
     const cycleErr = detectDependencyCycles(steps);
     if (cycleErr) errors.push(cycleErr);
   }
+
+  // Deadline-vs-dependency ordering: if a dependent step has a deadline,
+  // it must be >= every dependency's deadline. Impossible otherwise.
+  if (steps.length && !errors.length) {
+    for (let i = 0; i < steps.length; i++) {
+      const s = steps[i];
+      if (!s.deadline) continue;
+      for (const depIdx of s.depends_on_indices || []) {
+        const dep = steps[depIdx];
+        if (!dep || !dep.deadline) continue;
+        if (new Date(s.deadline).getTime() < new Date(dep.deadline).getTime()) {
+          errors.push(
+            `step ${i + 1} deadline (${s.deadline.slice(0, 10)}) is before step ${depIdx + 1}'s deadline (${dep.deadline.slice(0, 10)}); step ${i + 1} depends on step ${depIdx + 1}`
+          );
+        }
+      }
+    }
+  }
+
   for (const s of steps) delete s.depends_on_indices;
 
   if (errors.length) return { ok: false, errors };

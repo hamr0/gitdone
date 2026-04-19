@@ -39,6 +39,8 @@ after(async () => {
 });
 
 function post(path, form) {
+  // Tests skip the preview step: POST /events always confirms.
+  if (path === '/events' && !form._action) form = { ...form, _action: 'confirm' };
   const data = querystring.stringify(form);
   return new Promise((resolve, reject) => {
     const req = http.request({
