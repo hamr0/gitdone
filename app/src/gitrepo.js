@@ -325,6 +325,63 @@ async function commitReverify(eventId, event, targetSequence, result, receivedAt
   };
 }
 
+// 1.J — write a completion commit when an event crosses its completion
+// threshold (all workflow steps done, declaration signed, or attestation
+// threshold reached). Idempotent via file-exists check: if the completion
+// file already exists in the repo, returns { alreadyWritten: true }.
+//
+// The completion commit is an audit-trail entry — it records WHEN and HOW
+// the event completed, and its own OTS proof timestamps that moment.
+async function commitCompletion(eventId, event, completionCtx) {
+  if (!EVENT_ID_RE.test(eventId)) throw new Error(`invalid eventId: ${eventId}`);
+  const { root } = await initRepoIfNeeded(eventId, event);
+  const rel = path.join('commits', 'completion.json');
+  const abs = path.join(root, rel);
+  if (await readFileSafe(abs)) return { alreadyWritten: true, file: rel };
+
+  const metadata = {
+    schema_version: 1,
+    kind: 'completion',
+    event_id: eventId,
+    event_type: event.type,
+    event_mode: event.mode || null,
+    flow: event.flow || null,
+    completed_at: completionCtx.completedAt,
+    triggering_commit_sequence: completionCtx.triggeringSequence,
+    // Per-mode summary fields — enough to reconstruct the why without
+    // re-scanning commits/. Canonical source is still the per-event JSON.
+    summary: completionCtx.summary || null,
+    ots_proof_file: null,
+  };
+
+  const expectedProofRel = path.join('ots_proofs', 'completion.ots');
+  metadata.ots_proof_file = expectedProofRel;
+  await fs.writeFile(abs, JSON.stringify(metadata, null, 2) + '\n');
+
+  const stampRes = await stampFile(abs);
+  const filesToAdd = [rel];
+  if (stampRes.proof_path) {
+    const targetAbs = path.join(root, expectedProofRel);
+    await fs.rename(stampRes.proof_path, targetAbs);
+    filesToAdd.push(expectedProofRel);
+  } else {
+    metadata.ots_proof_file = null;
+    metadata.ots_archive = { error: stampRes.error || 'ots stamp failed' };
+    await fs.writeFile(abs, JSON.stringify(metadata, null, 2) + '\n');
+  }
+
+  const git = simpleGit(root);
+  await git.add(filesToAdd);
+  const commitRes = await git.commit(`completion: ${eventId} complete`);
+  return {
+    alreadyWritten: false,
+    sha: commitRes.commit || null,
+    file: rel,
+    ots_proof_file: metadata.ots_proof_file,
+    repo_path: root,
+  };
+}
+
 // Public random salt for a new event. 32 bytes of entropy, hex-encoded.
 // Used by buildCommitMetadata to salt sender_hash so the same address
 // hashes differently across events (prevents bulk correlation).
@@ -345,4 +402,5 @@ module.exports = {
   loadCommit,
   nextReverifySequence,
   commitReverify,
+  commitCompletion,
 };

@@ -17,12 +17,14 @@ const { preFilter, extractHeaderBlock } = require('../src/prefilter');
 const { classifyTrust } = require('../src/classifier');
 const { parseEventTag, parseAddress, parseVerifyTag, parseReverifyTag } = require('../src/router');
 const { loadEvent, findStep, senderMatchesStep } = require('../src/event-store');
-const { commitReply } = require('../src/gitrepo');
+const { commitReply, commitCompletion, saltedSenderHash } = require('../src/gitrepo');
 const { fetchDkimKey, pickSignatureToArchive } = require('../src/dkim-archive');
 const { buildVerificationReport, formatVerifyReportBody } = require('../src/verify');
 const { sendmail, buildRawMessage } = require('../src/outbound');
 const { forwardToOwner } = require('../src/forward');
 const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
+const { applyReply, updateEventAtomic } = require('../src/completion');
+const { notifyWorkflowParticipants } = require('../src/notifications');
 const logger = require('../src/logger');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -333,6 +335,79 @@ async function main() {
     }
   }
 
+  // 1.J: run the completion engine. Load the fresh event JSON (reply
+  // logic needs current step statuses + attestation replies[]), apply
+  // the transition, and persist. Completion commit and cascade
+  // notifications fire only on the edge where the event newly completes
+  // or (for sequential workflows) a step transitions so the next one
+  // should be notified.
+  let completion = null;
+  if (gitCommit && !gitCommit.error && event && tag) {
+    try {
+      const commitSummary = {
+        event_id: tag.eventId,
+        step_id: tag.stepId,
+        sequence: gitCommit.sequence,
+        trust_level: trustLevel,
+        participant_match: routing.participant_match,
+        sender_hash: saltedSenderHash(envelope.sender || from.address, event.salt),
+        sender_domain: from.address ? from.address.split('@')[1] : null,
+        received_at: receivedAt,
+      };
+      let applied = null;
+      let didCascade = false;
+      const { event: nextEvent, changed } = await updateEventAtomic(tag.eventId, (current) => {
+        applied = applyReply(current, commitSummary, { now: receivedAt });
+        return applied && applied.applied ? applied.event : null;
+      });
+      completion = {
+        applied: applied ? applied.applied : false,
+        decision: applied ? applied.decision : null,
+        completed_event: Boolean(applied && applied.completedEvent),
+        completed_step: applied && applied.completedStep ? applied.completedStep : null,
+      };
+
+      if (changed && applied.completedEvent) {
+        const summary = nextEvent.type === 'event'
+          ? { steps_completed: nextEvent.steps.length }
+          : nextEvent.mode === 'declaration'
+            ? { signer: nextEvent.signer }
+            : { threshold: nextEvent.threshold, counted: applied.countedReplies, dedup: nextEvent.dedup };
+        try {
+          const cc = await commitCompletion(tag.eventId, nextEvent, {
+            completedAt: receivedAt,
+            triggeringSequence: gitCommit.sequence,
+            summary,
+          });
+          completion.completion_commit = cc;
+        } catch (err) {
+          completion.completion_commit_error = err.message || String(err);
+        }
+      }
+
+      // Cascade: sequential workflow, a step just completed, event not yet
+      // done → notify the newly-first-pending step.
+      if (changed && nextEvent.type === 'event'
+          && (nextEvent.flow || 'sequential') === 'sequential'
+          && !applied.completedEvent
+          && applied.completedStep) {
+        const idx = nextEvent.steps.findIndex((s) => s.status !== 'complete');
+        if (idx >= 0) {
+          const nextStep = nextEvent.steps[idx];
+          const results = await notifyWorkflowParticipants({
+            ...nextEvent,
+            steps: [nextStep],       // notifier iterates; restrict to the one step
+          }).catch((e) => [{ to: nextStep.participant, ok: false, reason: e.message || String(e) }]);
+          completion.cascade = { step_id: nextStep.id, to: nextStep.participant, results };
+          didCascade = true;
+        }
+      }
+      void didCascade;
+    } catch (err) {
+      completion = { error: err.message || String(err) };
+    }
+  }
+
   // 1.G: forward the original email (with attachments) to the event
   // initiator. Best-effort — a forward failure does NOT reject the
   // reply. The commit is authoritative; the forward is convenience.
@@ -372,6 +447,7 @@ async function main() {
     },
     routing,
     git_commit: gitCommit,
+    completion,
     forward,
     from: from.address || null,
     from_domain: from.address ? from.address.split('@')[1] : null,

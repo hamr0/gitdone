@@ -10,12 +10,14 @@ Remaining UI surfaces in Phase 1 and how the Design Lab applies to each.
 - **1.H.3 — Landing + Crypto form** (`/`, `/crypto/new`, `POST /crypto`).
   Live Canvas winner (variant F). Reference: `docs/01-product/design/landing-and-crypto-v1.md`.
 - **1.I — Participant notification emails**. Plain-text, on-create.
+- **1.J — Completion engine**. Pure state transitions + `commitCompletion`
+  audit entry. Handles workflow all-steps, declaration one-shot, and
+  attestation-with-dedup; cascades to the next sequential step.
 
 ## Upcoming (Phase 1)
 
 | Module | Surface | Design Lab? | Notes |
 |---|---|---|---|
-| 1.J | Completion engine | no | Count replies per-mode; emit completion commit; cascade to next step for sequential workflows. |
 | 1.H.2b | Hybrid tree editor | yes — novel | Only the Steps section changes; chrome + sections 1/2 stay. |
 | 1.H.5 | Management dashboard | yes — novel | Read-only view + close action; different shape from forms. |
 | — | Email commands (`stats+`, `remind+`, `close+`) | no | Primary initiator surface per PRD §6.4. |

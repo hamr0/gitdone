@@ -19,6 +19,48 @@ internal refactors and commit-level churn stay in `git log`.
 
 ---
 
+## [Phase 1 — 1.J completion engine] — 2026-04-19
+
+gitdone events now actually *finish*. Until now, a reply would get
+committed to the per-event git repo but the event JSON didn't track
+progress — steps stayed `pending` forever and nothing computed
+"we're done." 1.J closes that gap.
+
+### Added
+- `app/src/completion.js` — pure state machine with per-mode rules
+  (trust gating, participant/signer matching, sequential ordering,
+  attestation dedup unique/latest/accumulating). `applyReply` returns
+  a new event object with transitioned state + a decision record;
+  `updateEventAtomic` persists via temp+rename.
+- `commitCompletion` in `app/src/gitrepo.js` — writes
+  `commits/completion.json` to the per-event repo, OTS-stamps it,
+  and commits. Idempotent: re-runs are no-ops once the file exists.
+- `bin/receive.js` orchestration: after every successful reply commit,
+  run the engine, persist, write a completion commit on the edge to
+  done, and fire a cascade notification to the next sequential step's
+  participant when one completes.
+- 21 unit tests (exhaustive per-mode decision tree, dedup rules) + 6
+  integration tests that drive the real `receive.js` binary with
+  synthetic emails and verify event JSON, repo state, and the
+  cascade notification capture.
+
+### Behavioural notes
+
+- **Trust gate.** Replies below `min_trust_level` still commit (audit
+  trail, §7.4.x), but don't advance the event. Attestation with
+  `allow_anonymous: true` is the one exception — sub-threshold replies
+  count there.
+- **Sequential out-of-order.** A reply to step N when step N-1 is still
+  pending gets committed but does not advance state. The organiser
+  sees it in the repo.
+- **Attestation past completion.** Further replies commit (audit) but
+  the event stays complete; they don't re-fire completion logic.
+- **Declaration from wrong sender.** sender_hash is salted per-event
+  and compared against `hashSender(event.signer, event.salt)`. The
+  format matches `gitrepo.saltedSenderHash` byte-for-byte.
+
+---
+
 ## [Phase 1 — 1.I participant notifications] — 2026-04-19
 
 Creating an event now reaches the people who need to reply. Until now,
