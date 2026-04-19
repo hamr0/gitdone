@@ -90,7 +90,7 @@ test('GET / renders the landing with two CTAs', async () => {
 test('GET /crypto/new renders the crypto form', async () => {
   const r = await get('/crypto/new');
   assert.equal(r.status, 200);
-  assert.match(r.body, /Create Crypto Event/);
+  assert.match(r.body, /Create a signed record/);
   assert.match(r.body, /name="mode"/);
   assert.match(r.body, /name="title"/);
   assert.match(r.body, /name="initiator"/);

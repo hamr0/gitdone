@@ -106,8 +106,10 @@ const LANDING_CSS = `
 .vF .cell:last-child .title .k { background: #0d1117; color: #3fb950; border-color: #0d1117; }
 .vF .cell .arr { float: right; font-size: 1.5rem; font-weight: 400; line-height: 1; color: #3fb950; }
 .vF .cell:last-child .arr { color: #0d1117; }
-.vF .cell .desc { font-size: 0.88em; line-height: 1.5; margin: 0; color: #8b949e; max-width: 34ch; }
-.vF .cell:last-child .desc { color: rgba(13,17,23,.8); }
+.vF .cell .lede { font-size: 1em; line-height: 1.35; margin: 0 0 0.45rem; color: #c9d1d9; font-weight: 500; max-width: 30ch; }
+.vF .cell:last-child .lede { color: #0d1117; }
+.vF .cell .desc { font-size: 0.85em; line-height: 1.5; margin: 0; color: #8b949e; max-width: 34ch; }
+.vF .cell:last-child .desc { color: rgba(13,17,23,.75); }
 .vF .cell code { background: #0d1117; color: #ffb000; padding: 0.05em 0.35em; border-radius: 2px;
                  font-family: inherit; font-size: 0.95em; }
 .vF .cell:last-child code { background: #0d1117; color: #ffb000; }
@@ -135,11 +137,13 @@ router.get('/', async (req, res) => {
         <a href="/events/new" class="cell">
           <p class="num">◢ option 01</p>
           <p class="title"><span class="k">E</span>event<span class="arr">▸</span></p>
-          <p class="desc">A workflow. Ordered, parallel, or a DAG. Each step has a <code>participant</code>, a <code>deadline</code>, and <code>depends_on</code>.</p>
+          <p class="lede">An auditable multi-party workflow.</p>
+          <p class="desc">Ordered, parallel, or a DAG of steps. Each step has a <code>participant</code>, a <code>deadline</code>, and <code>depends_on</code>.</p>
         </a>
         <a href="/crypto/new" class="cell">
           <p class="num">◢ option 02</p>
           <p class="title"><span class="k">C</span>crypto<span class="arr">▸</span></p>
+          <p class="lede">A cryptographically timestamped signature.</p>
           <p class="desc">One <code>declaration</code> (single signer) or an <code>attestation</code> (N distinct signers). DKIM + OTS on every reply.</p>
         </a>
       </div>
@@ -192,10 +196,10 @@ const WORKFLOW_FORM_CSS = `
 `;
 
 const TRUST_LABELS = {
-  verified: 'verified — strict DKIM + DMARC',
-  forwarded: 'forwarded — OK via trusted relay',
-  authorized: 'authorized — SPF-only OK',
-  unverified: 'unverified — accept anything',
+  verified: 'verified — cryptographic proof the sender wrote it (DKIM + DMARC both pass)',
+  forwarded: 'forwarded — OK through trusted mail relays (e.g. Gmail forwarding)',
+  authorized: 'authorized — OK from the sender\u2019s domain mail servers (SPF only)',
+  unverified: 'unverified — accept any reply, no proof required',
 };
 
 function renderWorkflowForm({ values = {}, errors = [] } = {}) {
@@ -254,9 +258,9 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
         </div>
       </div>
 
-      <h2><span class="num">2</span>Trust <span class="hint">minimum authentication to count a reply</span></h2>
+      <h2><span class="num">2</span>Trust <span class="hint">how strict should reply verification be — higher = more proof, fewer accepted replies</span></h2>
       <div class="vf-section">
-        <label style="max-width:360px">
+        <label style="max-width:520px">
           <span>Minimum trust</span>
           <select name="min_trust_level">${trustOpts}</select>
         </label>
@@ -420,10 +424,14 @@ const CRYPTO_FORM_CSS = `
 .cf .head { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 0.6rem; }
 .cf .head h1 { font-size: 1.1rem; font-weight: 600; color: #c9d1d9; margin: 0; letter-spacing: 0.02em; }
 .cf .head .mode-note { font-size: 0.82em; color: #8b949e; }
-.cf .mode-row { display: flex; gap: 0.8rem; align-items: center; padding: 0.55rem 0.8rem; background: #161b22; border: 1px solid #30363d; margin-bottom: 0.9rem; font-size: 0.9em; }
-.cf .mode-row label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; margin: 0; color: #c9d1d9; }
-.cf .mode-row label input { accent-color: #3fb950; width: auto; }
-.cf .mode-row .hint { color: #8b949e; margin-left: auto; font-size: 0.9em; }
+.cf .mode-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; padding: 0.7rem; background: #161b22; border: 1px solid #30363d; margin-bottom: 0.9rem; font-size: 0.9em; }
+.cf .mode-row label { display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; margin: 0; padding: 0.5rem 0.7rem; border: 1px solid transparent; color: #c9d1d9; transition: border-color 0.12s, background 0.12s; }
+.cf .mode-row label:hover { background: #0d1117; }
+.cf .mode-row label:has(input:checked) { border-color: #3fb950; background: #0d1117; }
+.cf .mode-row label input { accent-color: #3fb950; width: auto; margin-top: 0.15em; }
+.cf .mode-row label strong { color: #c9d1d9; font-weight: 600; }
+.cf .mode-row label small { color: #8b949e; font-size: 0.85em; }
+.cf .checkbox small { font-size: 0.85em; }
 .cf .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem 0.8rem; }
 .cf .grid label { display: block; margin: 0; font-size: 0.9em; color: #c9d1d9; }
 .cf .grid label > span { display: block; font-size: 0.72em; color: #8b949e; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.2rem; }
@@ -464,23 +472,21 @@ function renderCryptoForm({ values = {}, errors = [] } = {}) {
     ? 'declaration · one signer replies, one permanent record'
     : 'attestation · anyone you share the reply address with can sign';
   return html`
-    <h1 style="margin:1rem 0 0.5rem">Create Crypto Event</h1>
-    <p style="margin:0 0 1rem"><a href="/">← back</a></p>
+    <h1 style="margin:1rem 0 0.35rem">Create a signed record</h1>
+    <p style="margin:0 0 1rem;color:#8b949e;font-size:0.9em">A cryptographically timestamped signature — sign something yourself, or gather signatures from a group. <a href="/">← back</a></p>
     ${errBlock}
     <style>${raw(CRYPTO_FORM_CSS)}</style>
     <form class="cf" method="POST" action="/crypto" data-variant-root="F">
       <div class="head">
-        <h1>New crypto event</h1>
+        <h1>Mode</h1>
         <span class="mode-note">${noteText}</span>
       </div>
 
       <div class="mode-row" role="radiogroup" aria-label="Crypto event mode">
-        <strong>Mode:</strong>
-        <label><input type="radio" name="mode" value="declaration" ${mode === 'declaration' ? raw('checked') : ''}> declaration</label>
-        <label><input type="radio" name="mode" value="attestation" ${mode === 'attestation' ? raw('checked') : ''}> attestation</label>
-        <span class="hint">${mode === 'declaration'
-          ? 'one signer · one permanent record'
-          : 'N distinct signers reach a threshold'}</span>
+        <label><input type="radio" name="mode" value="declaration" ${mode === 'declaration' ? raw('checked') : ''}>
+          <span><strong>declaration</strong><br><small>one signer, one record</small></span></label>
+        <label><input type="radio" name="mode" value="attestation" ${mode === 'attestation' ? raw('checked') : ''}>
+          <span><strong>attestation</strong><br><small>gather signatures from a group</small></span></label>
       </div>
 
       <div class="grid">
@@ -509,7 +515,7 @@ function renderCryptoForm({ values = {}, errors = [] } = {}) {
 
         <label class="checkbox ${attDim}">
           <input type="checkbox" name="allow_anonymous" value="on" ${allowAnon ? raw('checked') : ''}>
-          Allow anonymous replies
+          <span>Allow anonymous replies<br><small style="color:#6e7681">count replies from anyone, not just pre-specified signers</small></span>
         </label>
       </div>
 
@@ -517,6 +523,35 @@ function renderCryptoForm({ values = {}, errors = [] } = {}) {
         <button type="submit" class="submit">Create →</button>
       </div>
     </form>
+    <script>${raw(`
+      (function(){
+        var form = document.querySelector('form.cf');
+        if (!form) return;
+        var signerLabel = form.querySelector('input[name="signer"]').closest('label');
+        var threshLabel = form.querySelector('input[name="threshold"]').closest('label');
+        var dedupLabel  = form.querySelector('select[name="dedup"]').closest('label');
+        var anonLabel   = form.querySelector('input[name="allow_anonymous"]').closest('label');
+        var note = document.querySelector('.cf .head .mode-note');
+        var hint = document.querySelector('.cf .mode-row .hint');
+        function setMode(m){
+          var isDec = m === 'declaration';
+          signerLabel.classList.toggle('dim', !isDec);
+          [threshLabel, dedupLabel, anonLabel].forEach(function(el){
+            el.classList.toggle('dim', isDec);
+            el.classList.toggle('att', isDec);
+          });
+          if (note) note.textContent = isDec
+            ? 'declaration · one signer replies, one permanent record'
+            : 'attestation · anyone you share the reply address with can sign';
+          if (hint) hint.textContent = isDec
+            ? 'one signer · one permanent record'
+            : 'N distinct signers reach a threshold';
+        }
+        form.addEventListener('change', function(e){
+          if (e.target && e.target.name === 'mode') setMode(e.target.value);
+        });
+      })();
+    `)}</script>
   `;
 }
 
