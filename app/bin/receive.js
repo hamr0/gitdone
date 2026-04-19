@@ -15,7 +15,7 @@ const config = require('../src/config');
 const { parseEnvelope } = require('../src/envelope');
 const { preFilter, extractHeaderBlock } = require('../src/prefilter');
 const { classifyTrust } = require('../src/classifier');
-const { parseEventTag, parseAddress, parseVerifyTag, parseReverifyTag } = require('../src/router');
+const { parseEventTag, parseAddress, parseVerifyTag, parseReverifyTag, parseInitiatorCommand } = require('../src/router');
 const { loadEvent, findStep, senderMatchesStep } = require('../src/event-store');
 const { commitReply, commitCompletion, saltedSenderHash } = require('../src/gitrepo');
 const { fetchDkimKey, pickSignatureToArchive } = require('../src/dkim-archive');
@@ -25,6 +25,7 @@ const { forwardToOwner } = require('../src/forward');
 const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
 const { applyReply, updateEventAtomic } = require('../src/completion');
 const { notifyWorkflowParticipants } = require('../src/notifications');
+const { authenticateInitiatorCommand, statsBody, executeRemind, executeClose } = require('../src/email-commands');
 const logger = require('../src/logger');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -227,6 +228,84 @@ async function main() {
         reason: sendResult.reason || null,
       });
     }
+    return;
+  }
+
+  // §6.4 initiator email commands — stats+{id}@, remind+{id}@, close+{id}@.
+  // Short-circuits before the reply-commit path; no git commit is written
+  // (except close+, which writes a completion commit).
+  const cmdTag = parseInitiatorCommand(envelope.recipient);
+  if (cmdTag && !filter.rejected) {
+    const cmdEvent = await loadEvent(cmdTag.eventId).catch(() => null);
+    const receivedAtCmd = new Date().toISOString();
+    // Classify trust here because we need it for auth.
+    const trustCmd = classifyTrust(auth);
+    const auth1 = authenticateInitiatorCommand(cmdEvent, {
+      sender: envelope.sender || (from.address || null),
+      trustLevel: trustCmd,
+    });
+    let replyBody;
+    let cmdOutcome = { command: cmdTag.command, event_id: cmdTag.eventId, authenticated: auth1.ok };
+    if (!auth1.ok) {
+      replyBody = `Command rejected: ${auth1.reason}.\nOnly the event initiator can issue ${cmdTag.command}+ commands.`;
+      cmdOutcome.reason = auth1.reason;
+    } else if (cmdTag.command === 'stats') {
+      replyBody = statsBody(cmdEvent);
+    } else if (cmdTag.command === 'remind') {
+      const r = await executeRemind(cmdEvent);
+      replyBody = r.body;
+      cmdOutcome.sent_to = r.sentTo.map((x) => ({ to: x.to, ok: x.ok }));
+    } else if (cmdTag.command === 'close') {
+      const r = executeClose(cmdEvent, { receivedAt: receivedAtCmd });
+      replyBody = r.body;
+      cmdOutcome.already_complete = r.wasAlreadyComplete;
+      if (!r.wasAlreadyComplete) {
+        // Persist new event + write completion commit.
+        try {
+          await updateEventAtomic(cmdTag.eventId, () => r.newEvent);
+          const cc = await commitCompletion(cmdTag.eventId, r.newEvent, {
+            completedAt: receivedAtCmd,
+            triggeringSequence: null,
+            summary: { closed_by: 'initiator', reason: 'close-command' },
+          });
+          cmdOutcome.completion_commit = cc;
+        } catch (err) {
+          cmdOutcome.close_error = err.message || String(err);
+        }
+      }
+    }
+
+    // Reply to the initiator.
+    const to = envelope.sender || from.address || null;
+    if (to) {
+      const fromAddr = `${cmdTag.command}+${cmdTag.eventId}@${config.domain}`;
+      const rawMessage = buildRawMessage({
+        from: `gitdone <${fromAddr}>`,
+        to,
+        subject: `[GitDone] ${cmdTag.command} · ${cmdTag.eventId}`,
+        inReplyTo: parsed.messageId || null,
+        references: parsed.messageId || null,
+        body: replyBody,
+        domain: config.domain,
+      });
+      const sendRes = await sendmail({ from: fromAddr, rawMessage, to: [to] });
+      cmdOutcome.reply = { to, ok: sendRes.ok, reason: sendRes.reason || null, code: sendRes.code || null };
+    }
+
+    logger.emit({
+      kind: 'initiator_command',
+      accepted: true,
+      received_at: receivedAtCmd,
+      envelope: {
+        client_ip: envelope.clientIp,
+        client_helo: envelope.clientHelo,
+        sender: envelope.sender,
+        recipient: envelope.recipient,
+      },
+      from: from.address || null,
+      trust_level: trustCmd,
+      command: cmdOutcome,
+    });
     return;
   }
 

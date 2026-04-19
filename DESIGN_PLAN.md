@@ -13,6 +13,8 @@ Remaining UI surfaces in Phase 1 and how the Design Lab applies to each.
 - **1.J — Completion engine**. Pure state transitions + `commitCompletion`
   audit entry. Handles workflow all-steps, declaration one-shot, and
   attestation-with-dedup; cascades to the next sequential step.
+- **§6.4 initiator email commands** — `stats+{id}@`, `remind+{id}@`,
+  `close+{id}@`. DKIM-authenticated via initiator match.
 
 ## Upcoming (Phase 1)
 
@@ -20,7 +22,6 @@ Remaining UI surfaces in Phase 1 and how the Design Lab applies to each.
 |---|---|---|---|
 | 1.H.2b | Hybrid tree editor | yes — novel | Only the Steps section changes; chrome + sections 1/2 stay. |
 | 1.H.5 | Management dashboard | yes — novel | Read-only view + close action; different shape from forms. |
-| — | Email commands (`stats+`, `remind+`, `close+`) | no | Primary initiator surface per PRD §6.4. |
 
 ## How to apply
 

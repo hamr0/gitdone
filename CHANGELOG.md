@@ -19,6 +19,42 @@ internal refactors and commit-level churn stay in `git log`.
 
 ---
 
+## [Phase 1 — §6.4 initiator email commands] — 2026-04-19
+
+The initiator's primary day-to-day surface, per PRD §6.4, is email —
+not a web dashboard. Three commands ship today:
+
+- **`stats+{id}@`** — reply with a plain-text progress report
+  (workflow: step checklist; crypto: threshold / replies received).
+- **`remind+{id}@`** — resend invitations to pending participants.
+  Sequential workflow reminds step 1; non-sequential reminds every
+  pending step; declaration reminds the signer; attestation is a no-op
+  (no participant list).
+- **`close+{id}@`** — mark the event complete immediately. Writes a
+  `commits/completion.json` with `closed_by: initiator`, OTS-stamps it,
+  and git-commits.
+
+### Auth
+
+All three require the incoming message to meet `event.min_trust_level`
+**and** have envelope sender (or From, if envelope absent) matching
+`event.initiator` (case-insensitive). Unauthenticated senders get a
+plain-text rejection reply explaining why; no state changes, no reminders
+sent.
+
+### Added
+- `app/src/email-commands.js` — pure composers for the three commands +
+  auth check.
+- `parseInitiatorCommand` in `app/src/router.js`.
+- Short-circuit handler in `bin/receive.js` after the reverify+ block:
+  runs classifyTrust, authenticates, executes, replies via the existing
+  sendmail(1) path. Every outcome logged as `kind: "initiator_command"`.
+- 14 new tests — 10 unit on the composers + auth, 4 integration driving
+  real receive.js (authenticated stats, unauthenticated rejection,
+  remind cascade, close→completion commit).
+
+---
+
 ## [Phase 1 — 1.J completion engine] — 2026-04-19
 
 gitdone events now actually *finish*. Until now, a reply would get

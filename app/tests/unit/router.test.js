@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { parseAddress, parseEventTag, parseReverifyTag } = require('../../src/router');
+const { parseAddress, parseEventTag, parseReverifyTag, parseInitiatorCommand } = require('../../src/router');
 
 test('parseAddress: standard event+tag form', () => {
   assert.deepEqual(parseAddress('event+abc123-step1@git-done.com'), {
@@ -118,4 +118,25 @@ test('parseReverifyTag: accepts last-dash split (eventId can have preceding char
 
 test('parseReverifyTag: rejects dashes in eventId', () => {
   assert.equal(parseReverifyTag('reverify+abc-def-5@git-done.com'), null);
+});
+
+// §6.4 initiator commands
+
+test('parseInitiatorCommand: stats / remind / close on an alphanumeric id', () => {
+  assert.deepEqual(parseInitiatorCommand('stats+abc123@git-done.com'),  { command: 'stats',  eventId: 'abc123' });
+  assert.deepEqual(parseInitiatorCommand('remind+abc123@git-done.com'), { command: 'remind', eventId: 'abc123' });
+  assert.deepEqual(parseInitiatorCommand('close+abc123@git-done.com'),  { command: 'close',  eventId: 'abc123' });
+});
+
+test('parseInitiatorCommand: non-command kinds return null', () => {
+  assert.equal(parseInitiatorCommand('event+abc-step@git-done.com'), null);
+  assert.equal(parseInitiatorCommand('verify+abc@git-done.com'), null);
+  assert.equal(parseInitiatorCommand('reverify+abc-3@git-done.com'), null);
+  assert.equal(parseInitiatorCommand('unknown+abc@git-done.com'), null);
+});
+
+test('parseInitiatorCommand: rejects non-alphanumeric event ids', () => {
+  assert.equal(parseInitiatorCommand('stats+abc-def@git-done.com'), null);
+  assert.equal(parseInitiatorCommand('close+..@git-done.com'), null);
+  assert.equal(parseInitiatorCommand('remind+@git-done.com'), null);
 });

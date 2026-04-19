@@ -112,9 +112,9 @@ cat some.eml | node bin/receive.js
 | `event+{id}@` | crypto reply (declaration or attestation) | DKIM + signer / anyone |
 | `verify+{id}@` | public verification report | none (public) |
 | `reverify+{id}-{N}@` | contested-commit upgrade | cryptographic |
-| `stats+{id}@` | initiator: current progress | *(planned)* |
-| `remind+{id}@` | initiator: resend reminders | *(planned)* |
-| `close+{id}@` | initiator: close early | *(planned)* |
+| `stats+{id}@` | initiator: current progress | DKIM + sender == initiator |
+| `remind+{id}@` | initiator: resend reminders | DKIM + sender == initiator |
+| `close+{id}@` | initiator: close early | DKIM + sender == initiator |
 
 ## Verification
 
