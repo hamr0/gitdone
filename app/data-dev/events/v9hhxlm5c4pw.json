@@ -1,0 +1,14 @@
+{
+  "id": "v9hhxlm5c4pw",
+  "created_at": "2026-04-19T19:53:54.339Z",
+  "salt": "ec1dc8f9dcf7e76ff0ecc87c812447cb59a94b0555e3aebf05d49af770518a1c",
+  "type": "crypto",
+  "mode": "attestation",
+  "title": "you know me",
+  "initiator": "avoidaccess@msn.com",
+  "min_trust_level": "verified",
+  "threshold": 10,
+  "dedup": "unique",
+  "allow_anonymous": true,
+  "replies": []
+}

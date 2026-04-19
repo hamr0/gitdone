@@ -120,6 +120,11 @@ const LANDING_CSS = `
 .vF .foot a:hover { color: #ffb000; }
 .vF .foot code { background: #161b22; color: #3fb950; padding: 0.08em 0.4em; border-radius: 2px;
                  font-size: 0.94em; }
+.vF .manage-strip { padding: 0.75rem 1.4rem; border-bottom: 1px solid #30363d;
+                    font-size: 0.85em; color: #8b949e; display: flex; justify-content: space-between;
+                    align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.vF .manage-strip a { color: #58a6ff; }
+.vF .manage-strip a:hover { color: #ffb000; }
 @media (max-width: 640px) { .vF .grid { grid-template-columns: 1fr; }
   .vF .cell { border-right: 0; border-bottom: 1px solid #30363d; }
   .vF .cell:last-child { border-bottom: 0; } }
@@ -132,6 +137,10 @@ router.get('/', async (req, res) => {
         <p class="kicker">email-native <span class="dot">●</span> git-proved <span class="dot">●</span> offline-verifiable</p>
         <h1>git<span class="slash">/</span>done<span class="cursor"></span></h1>
         <p class="tag">Multi-party actions coordinated by email. Every reply <em>DKIM-verified</em>, <em>OpenTimestamped</em>, and committed to a per-event git repository.</p>
+      </div>
+      <div class="manage-strip">
+        <span>Already have events? <a href="/manage">Manage your events &amp; crypto ▸</a></span>
+        <span>Sign-in by email · no password</span>
       </div>
       <div class="grid">
         <a href="/events/new" class="cell">
@@ -711,6 +720,229 @@ router.get('/events/:id', async (req, res, params) => {
       <p><a href="/">home</a></p>
     `,
   }));
+});
+
+// ---- Magic-link session flow ------------------------------------------
+// GET  /manage                     → if cookie valid: list of your events,
+//                                    else: email form
+// POST /manage                     → mint 15-min token, email magic link
+// GET  /manage/session/:token      → consume token, set 30-day cookie,
+//                                    redirect to /manage
+// POST /manage/logout              → clear cookie, redirect to /
+
+const session = require('../src/magic-session');
+
+function currentSessionEmail(req) {
+  const cookie = session.parseCookie(req.headers.cookie, session.COOKIE_NAME);
+  return session.verifySessionCookie(cookie);
+}
+
+const MANAGE_HUB_CSS = `
+.mh { margin: 1rem 0 1.5rem; }
+.mh h1 { font-size: 1.6rem; margin: 0 0 0.25rem; letter-spacing: -0.02em; }
+.mh .lede { color: #8b949e; margin: 0 0 1.4rem; font-size: 0.95em; }
+.mh form { display: flex; gap: 0.6rem; max-width: 420px; margin: 0 0 1rem; align-items: stretch; }
+.mh form input[type=email] { flex: 1; padding: 0.55rem 0.7rem; }
+.mh form button { padding: 0.55rem 1.2rem; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+.mh .hint { font-size: 0.82em; color: #6e7681; margin-top: -0.3rem; }
+.mh .list { border: 1px solid #30363d; margin: 0.8rem 0 1rem; }
+.mh .list .row { display: grid; grid-template-columns: auto 1fr auto; gap: 0.9rem; padding: 0.8rem 1rem;
+                 border-bottom: 1px solid #21262d; align-items: center; }
+.mh .list .row:last-child { border-bottom: 0; }
+.mh .list .row .meta { min-width: 0; }
+.mh .list .row .title { color: #c9d1d9; font-weight: 600; font-size: 1em; margin: 0 0 0.2rem;
+                        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mh .list .row .sub { color: #8b949e; font-size: 0.82em; }
+.mh .list .row .sub code { background: #161b22; }
+.mh .list .row .kind { font-size: 0.7em; letter-spacing: 0.14em; text-transform: uppercase;
+                       color: #8b949e; border: 1px solid #30363d; padding: 0.2em 0.55em; }
+.mh .list .row .kind.event { color: #58a6ff; border-color: #58a6ff; }
+.mh .list .row .kind.crypto { color: #ffb000; border-color: #ffb000; }
+.mh .list .row a.open { font-weight: 600; color: #3fb950; text-decoration: none; letter-spacing: 0.04em;
+                        text-transform: uppercase; font-size: 0.85em; }
+.mh .list .row a.open:hover { color: #ffb000; }
+.mh .empty { color: #8b949e; padding: 1.2rem; border: 1px dashed #30363d; text-align: center; }
+.mh .logout { margin-top: 1rem; font-size: 0.85em; }
+.mh .logout form { display: inline; }
+.mh .logout button { background: none; border: 0; padding: 0; color: #8b949e; font-size: inherit;
+                     text-decoration: underline; cursor: pointer; letter-spacing: 0; text-transform: none; font-weight: 400; }
+.mh .logout button:hover { color: #ffb000; background: none; }
+.mh .flash { background: rgba(63,185,80,.08); border: 1px solid #3fb950; color: #3fb950;
+             padding: 0.55rem 0.85rem; margin: 0 0 1rem; font-size: 0.9em; }
+.mh .devlink { background: rgba(255,176,0,.08); border: 1px solid #ffb000; color: #ffb000;
+               padding: 0.55rem 0.85rem; margin: 0 0 1rem; font-size: 0.85em; word-break: break-all; }
+.mh .devlink code { background: #0d1117; color: #ffb000; }
+`;
+
+async function renderSessionHub({ email, devLink, flash }) {
+  const events = await session.findEventsByInitiator(email);
+  const rows = events.length === 0
+    ? html`<div class="empty">No events yet. <a href="/events/new">Create one</a>.</div>`
+    : html`<div class="list">
+        ${events.map((ev) => {
+          const kind = ev.type === 'crypto' ? 'crypto' : 'event';
+          const sub = ev.type === 'crypto'
+            ? html`<span>mode <code>${ev.mode || '—'}</code> · created ${(ev.created_at || '').slice(0, 10)}</span>`
+            : html`<span>${(ev.steps || []).length} step(s) · created ${(ev.created_at || '').slice(0, 10)}</span>`;
+          const manageHref = ev.management_token
+            ? `/manage/${ev.management_token}`
+            : `/manage/event/${ev.id}`;
+          return html`
+            <div class="row">
+              <span class="kind ${kind}">${kind}</span>
+              <div class="meta">
+                <p class="title">${ev.title || ev.id}</p>
+                <p class="sub">${sub}</p>
+              </div>
+              <a class="open" href="${manageHref}">open ▸</a>
+            </div>
+          `;
+        })}
+      </div>`;
+  return html`
+    <style>${raw(MANAGE_HUB_CSS)}</style>
+    <div class="mh">
+      <h1>Your events</h1>
+      <p class="lede">Signed in as <code>${email}</code>.</p>
+      ${flash ? html`<div class="flash">${flash}</div>` : raw('')}
+      ${devLink ? html`<div class="devlink"><strong>DEV:</strong> magic link (sendmail unavailable): <code>${devLink}</code></div>` : raw('')}
+      ${rows}
+      <p class="logout">
+        <form method="POST" action="/manage/logout"><button type="submit">sign out</button></form>
+      </p>
+    </div>
+  `;
+}
+
+function renderSignInForm({ flash, devLink, email }) {
+  return html`
+    <style>${raw(MANAGE_HUB_CSS)}</style>
+    <div class="mh">
+      <h1>Open your events</h1>
+      <p class="lede">Enter the email you used to create events. We'll send a one-time link (valid 15 minutes). You'll stay signed in for 30 days.</p>
+      ${flash ? html`<div class="flash">${flash}</div>` : raw('')}
+      ${devLink ? html`<div class="devlink"><strong>DEV:</strong> sendmail unavailable — magic link: <code>${devLink}</code></div>` : raw('')}
+      <form method="POST" action="/manage">
+        <input type="email" name="email" placeholder="you@example.com" required autofocus value="${email || ''}">
+        <button type="submit">send link</button>
+      </form>
+      <p class="hint">No password needed. No account to create. The link opens a dashboard listing every event and crypto record you've initiated.</p>
+    </div>
+  `;
+}
+
+router.get('/manage', async (req, res) => {
+  const email = currentSessionEmail(req);
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+  if (email) {
+    res.end(layout({
+      title: 'your events — gitdone',
+      body: await renderSessionHub({ email }),
+    }));
+  } else {
+    res.end(layout({
+      title: 'sign in — gitdone',
+      body: renderSignInForm({}),
+    }));
+  }
+});
+
+router.post('/manage', async (req, res) => {
+  let fields = {};
+  try { fields = await parseBody(req); } catch {}
+  const email = String(fields.email || '').trim().toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(layout({
+      title: 'sign in — gitdone',
+      body: renderSignInForm({ flash: 'Please enter a valid email address.', email: fields.email }),
+    }));
+  }
+  // Always respond the same regardless of whether the email has events
+  // (no "does X exist?" oracle). Mint the token only if we would actually
+  // email it; if sendmail fails, surface the link in dev mode.
+  const rec = await session.createMagicLink(email);
+  const link = `${publicBaseUrl()}/manage/session/${rec.token}`;
+  const body = `A one-time link to open your gitdone dashboard:
+
+    ${link}
+
+Valid for 15 minutes. Opens once.
+
+If you didn't request this, ignore this email.
+
+--
+gitdone`;
+  const rawMessage = buildRawMessage({
+    from: `gitdone <noreply@${config.domain}>`,
+    to: email,
+    subject: 'Your gitdone sign-in link',
+    body,
+    domain: config.domain,
+    autoSubmitted: 'auto-generated',
+  });
+  const result = await sendmail({ from: `noreply@${config.domain}`, rawMessage });
+  let devLink = null;
+  if (!result.ok) {
+    process.stderr.write(`manage/signin: sendmail failed for ${email}: ${result.reason || result.stderr || '?'}\n  link: ${link}\n`);
+    if (IS_DEV) devLink = link;
+  }
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+  res.end(layout({
+    title: 'check your inbox — gitdone',
+    body: html`
+      <style>${raw(MANAGE_HUB_CSS)}</style>
+      <div class="mh">
+        <h1>Check your inbox</h1>
+        <p class="lede">If <code>${email}</code> has any events on gitdone, we just emailed a one-time sign-in link. It's valid for 15 minutes.</p>
+        ${devLink ? html`<div class="devlink"><strong>DEV:</strong> sendmail unavailable — magic link: <code>${devLink}</code></div>` : raw('')}
+        <p><a href="/manage">← back</a></p>
+      </div>
+    `,
+  }));
+});
+
+router.get('/manage/session/:token', async (req, res, params) => {
+  const email = await session.consumeMagicLink(params.token);
+  if (!email) {
+    res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(layout({
+      title: 'link expired — gitdone',
+      body: html`
+        <style>${raw(MANAGE_HUB_CSS)}</style>
+        <div class="mh">
+          <h1>Link expired or already used</h1>
+          <p class="lede">Sign-in links are one-time and expire after 15 minutes.</p>
+          <p><a href="/manage">Get a new link</a> · <a href="/">home</a></p>
+        </div>
+      `,
+    }));
+  }
+  res.writeHead(303, { location: '/manage', 'set-cookie': session.buildSetCookie(email) });
+  res.end();
+});
+
+router.post('/manage/logout', async (req, res) => {
+  res.writeHead(303, { location: '/', 'set-cookie': session.buildClearCookie() });
+  res.end();
+});
+
+// Session-authed jump to a specific event's management dashboard. Used by
+// the hub's per-event "open" link — finds the event's per-event token and
+// redirects to the canonical /manage/:token URL.
+router.get('/manage/event/:id', async (req, res, params) => {
+  const email = currentSessionEmail(req);
+  if (!email) { res.writeHead(303, { location: '/manage' }); return res.end(); }
+  const { loadEvent } = require('../src/event-store');
+  const ev = await loadEvent(params.id);
+  if (!ev) { res.writeHead(404); return res.end('event not found'); }
+  if (String(ev.initiator || '').toLowerCase() !== email) {
+    res.writeHead(403); return res.end('forbidden');
+  }
+  const token = await session.findTokenByEventId(params.id);
+  if (!token) { res.writeHead(404); return res.end('management token for this event has expired; re-create is not supported yet'); }
+  res.writeHead(303, { location: `/manage/${token}` });
+  res.end();
 });
 
 // 1.H.4 — management link landing. Validates the token and shows a minimal
