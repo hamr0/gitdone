@@ -19,6 +19,39 @@ internal refactors and commit-level churn stay in `git log`.
 
 ---
 
+## [Phase 1 — 1.H.5 management dashboard] — 2026-04-19
+
+Replaces the `GET /manage/:token` stub from 1.H.4 with the real
+dashboard: progress view + two action buttons. Functionally a visual
+mirror of the §6.4 email commands (email is still the primary
+initiator UX per PRD §6.4; this is the fallback).
+
+### Added
+- Workflow dashboard: compact step table with #, step name,
+  participant, depends_on list, per-step status (complete / pending /
+  waiting-on-deps).
+- Crypto dashboards: declaration shows signer + reply address +
+  signed/awaiting; attestation shows threshold, dedup rule, anonymous
+  policy, current reply count.
+- "Send reminders" button → `POST /manage/:token/remind` calls
+  `executeRemind` and 303-redirects back with `?reminded=1` flash.
+- "Close event" button → `POST /manage/:token/close` with an
+  in-browser confirm, calls `executeClose` + `commitCompletion`,
+  writes `commits/completion.json` to the per-event repo, 303-
+  redirects back with `?closed=1`. Buttons disable once complete.
+- Email-fallback footer listing the `stats+/remind+/close+`
+  addresses.
+- 2 new integration tests (workflow dashboard render + step-table
+  shape; full close-via-dashboard flow).
+
+### PRD note
+Added §9.1.1 documenting the dev/prod split on a single VPS:
+`staging.git-done.com` gets its own systemd unit, data dir,
+Postfix transport, and nginx server block. Local laptop `--dev`
+stays for UI work.
+
+---
+
 ## [Phase 1 — 1.H.2b dependency graph] — 2026-04-19
 
 Collapses the three workflow "flow" modes (sequential, non-sequential,

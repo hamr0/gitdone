@@ -150,7 +150,7 @@ test('GET /manage/:token renders a valid management page', async () => {
   const view = await get(`/manage/${token}`);
   assert.equal(view.status, 200);
   assert.match(view.body, /Link check/);
-  assert.match(view.body, /Management link valid/);
+  assert.match(view.body, /Signed in as/);
   assert.match(view.body, /owner@example\.com/);
 });
 
@@ -161,4 +161,70 @@ test('GET /manage/:token returns 404 for unknown / malformed token', async () =>
 
   const malformed = await get('/manage/not-a-token');
   assert.equal(malformed.status, 404);
+});
+
+// 1.H.5 — management dashboard
+
+test('GET /manage/:token shows the step table for a workflow event', async () => {
+  const r = await post('/events', {
+    title: 'Dashboard check', initiator: 'owner2@example.com',
+    step_name: ['legal', 'design'],
+    step_participant: ['l@x.com', 'd@x.com'],
+    step_deadline: ['', ''],
+    step_depends_on: ['', '1'],
+  });
+  assert.equal(r.status, 200);
+  const tokensDir = path.join(tmp, 'magic_tokens');
+  const tokens = await fsp.readdir(tokensDir);
+  let tok = null;
+  for (const f of tokens) {
+    const rec = JSON.parse(await fsp.readFile(path.join(tokensDir, f), 'utf8'));
+    if (rec.initiator === 'owner2@example.com') { tok = rec.token; break; }
+  }
+  const view = await get(`/manage/${tok}`);
+  assert.equal(view.status, 200);
+  assert.match(view.body, /Dashboard check/);
+  assert.match(view.body, /Send reminders/);
+  assert.match(view.body, /Close event/);
+  assert.match(view.body, /<table class="mg-steps">/);
+  // both steps rendered; step 2 shows "after 1" and is marked waiting
+  assert.match(view.body, /after legal/);
+  assert.match(view.body, /⏸ waiting|⏸ waiting/);
+});
+
+test('POST /manage/:token/close flips state and redirects with flash', async () => {
+  const r = await post('/events', {
+    title: 'close via dash', initiator: 'closer@example.com',
+    step_name: 'a', step_participant: 'a@x.com',
+  });
+  assert.equal(r.status, 200);
+  const tokensDir = path.join(tmp, 'magic_tokens');
+  const tokens = await fsp.readdir(tokensDir);
+  let tok = null, evId = null;
+  for (const f of tokens) {
+    const rec = JSON.parse(await fsp.readFile(path.join(tokensDir, f), 'utf8'));
+    if (rec.initiator === 'closer@example.com') { tok = rec.token; evId = rec.event_id; break; }
+  }
+  // Trigger close via the form
+  const closeRes = await new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1', port, path: `/manage/${tok}/close`,
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', 'content-length': '0' },
+    }, (res) => { resolve({ status: res.statusCode, location: res.headers.location }); });
+    req.on('error', reject);
+    req.end();
+  });
+  assert.equal(closeRes.status, 303);
+  assert.match(closeRes.location, /\/manage\/[a-f0-9]{32}\?closed=1$/);
+
+  // Event marked complete
+  const ev = JSON.parse(await fsp.readFile(path.join(tmp, 'events', `${evId}.json`), 'utf8'));
+  assert.equal(ev.completion.status, 'complete');
+  assert.equal(ev.completion.closed_by, 'initiator');
+
+  // Follow-up GET shows the flash + disabled buttons
+  const after = await get(`/manage/${tok}?closed=1`);
+  assert.match(after.body, /Event closed\./);
+  assert.match(after.body, /class="mg-pill complete"/);
 });

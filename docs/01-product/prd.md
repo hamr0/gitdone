@@ -693,8 +693,29 @@ Each `commit-NNN.json`:
 - **VPS:** NerdWallet (user's existing)
 - **OS:** Fedora Linux (user's standard)
 - **Domain:** fresh, MX records pointing to VPS
-- **Deployment:** PM2 + Nginx + TLS (matches current gitdone deployment)
+- **Deployment:** systemd services + Nginx + TLS (no PM2 — the Phase 1 stack is vanilla `node:http`, not Express; one long-lived `gitdone-web.service` plus Postfix pipe transport per-message).
 - **Storage budget:** minimal (no attachment storage; JSON + DKIM keys + OTS proofs are all small)
+
+### 9.1.1 Dev + prod on the same VPS
+
+Production runs on `git-done.com`. For integration testing (anything
+that needs inbound email — the receive pipeline, completion cascades,
+initiator email commands) we run a **staging environment on the same
+VPS under `staging.git-done.com`**:
+
+- Separate systemd unit (`gitdone-web-staging.service`) on a second
+  local port.
+- Separate data dir (`/var/lib/gitdone-staging/` vs `/var/lib/gitdone/`)
+  — zero production risk from staging writes.
+- Separate Postfix transport routing `event+*@staging.git-done.com` →
+  `receive.js` with `GITDONE_DATA_DIR` overridden.
+- Nginx server block for `staging.git-done.com` → staging port.
+- Same DKIM selector works for both since the signing key is domain-
+  scoped; only the subdomain changes on outbound.
+
+Local laptop `--dev` mode (HUD + live-reload + `./data-dev/`) is for
+UI work and anything that doesn't need inbound mail. Full-pipeline
+testing happens on staging, not the laptop.
 
 ### 9.2 Setup steps (infrastructure)
 

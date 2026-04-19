@@ -17,12 +17,12 @@ Remaining UI surfaces in Phase 1 and how the Design Lab applies to each.
   `close+{id}@`. DKIM-authenticated via initiator match.
 - **1.H.2b — Dependency graph** — collapsed flow modes into a
   `depends_on` column on the step table. No flow dropdown.
+- **1.H.5 — Management dashboard** — step table with live status,
+  Send reminders / Close event buttons. Email-command parity.
 
 ## Upcoming (Phase 1)
 
-| Module | Surface | Design Lab? | Notes |
-|---|---|---|---|
-| 1.H.5 | Management dashboard | yes — novel | Read-only view + close action; different shape from forms. Email commands already cover the functional need. |
+*(all Phase 1 modules complete)*
 
 ## How to apply
 

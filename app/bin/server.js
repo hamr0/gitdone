@@ -648,24 +648,164 @@ router.get('/manage/:token', async (req, res, params) => {
         <p><a href="/">home</a></p>`,
     }));
   }
+  const flash = (req.url.includes('?reminded=1'))
+    ? 'Reminders sent.'
+    : (req.url.includes('?closed=1'))
+      ? 'Event closed.'
+      : null;
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
     title: `manage — ${event.title}`,
-    body: html`
-      <h1>${event.title}</h1>
-      <p>Management link valid. Signed in as <code>${rec.initiator}</code>.</p>
-      <p>Event ID: <code>${event.id}</code>${event.steps ? html` · ${String(event.steps.length)} step(s)` : html` · ${event.mode || 'crypto'}`}</p>
-      <p style="background:#ffc;padding:0.75rem;border:1px solid #cc9">
-        Full dashboard (progress, reminders, close) lands in 1.H.5.
-        For now: day-to-day commands happen by email —
-        <code>stats+${event.id}@${config.domain}</code>,
-        <code>remind+${event.id}@${config.domain}</code>,
-        <code>close+${event.id}@${config.domain}</code>.
-      </p>
-      <p><a href="/events/${event.id}">read-only view</a> · <a href="/">home</a></p>
-    `,
+    body: renderManagementDashboard({ token: params.token, rec, event, flash }),
   }));
 });
+
+router.post('/manage/:token/remind', async (req, res, params) => {
+  const rec = await loadToken(params.token);
+  if (!rec) { res.writeHead(404); return res.end('link invalid'); }
+  const { loadEvent } = require('../src/event-store');
+  const { executeRemind } = require('../src/email-commands');
+  const event = await loadEvent(rec.event_id);
+  if (!event) { res.writeHead(404); return res.end('event missing'); }
+  await executeRemind(event);
+  res.writeHead(303, { location: `/manage/${params.token}?reminded=1` });
+  res.end();
+});
+
+router.post('/manage/:token/close', async (req, res, params) => {
+  const rec = await loadToken(params.token);
+  if (!rec) { res.writeHead(404); return res.end('link invalid'); }
+  const { loadEvent } = require('../src/event-store');
+  const { executeClose } = require('../src/email-commands');
+  const { updateEventAtomic } = require('../src/completion');
+  const { commitCompletion } = require('../src/gitrepo');
+  const event = await loadEvent(rec.event_id);
+  if (!event) { res.writeHead(404); return res.end('event missing'); }
+  const r = executeClose(event, { receivedAt: new Date().toISOString() });
+  if (!r.wasAlreadyComplete) {
+    await updateEventAtomic(rec.event_id, () => r.newEvent);
+    await commitCompletion(rec.event_id, r.newEvent, {
+      completedAt: r.newEvent.completion.completed_at,
+      triggeringSequence: null,
+      summary: { closed_by: 'initiator', reason: 'dashboard-close' },
+    });
+  }
+  res.writeHead(303, { location: `/manage/${params.token}?closed=1` });
+  res.end();
+});
+
+const MANAGE_CSS = `
+.mg-meta { color:#666; font-size:0.88em; margin:0 0 0.4rem; }
+.mg-meta code { background:#f3f3f3; padding:0.05em 0.3em; border-radius:2px; }
+.mg-flash { background:#efe; border:1px solid #9c9; padding:0.5rem 0.75rem; border-radius:4px; margin:0 0 1rem; font-size:0.9em; }
+.mg-section { padding-left:1.55rem; border-left:2px solid #eef; margin:0.3rem 0 1rem; padding-bottom:0.4rem; }
+.mg-section h2 { font-size:0.82em; text-transform:uppercase; letter-spacing:0.06em; color:#555; margin:0.75rem 0 0.35rem; font-weight:600; }
+.mg-steps { width:100%; border-collapse:collapse; font-size:0.92em; }
+.mg-steps th { text-align:left; font-weight:500; color:#666; padding:0.25rem 0.4rem; border-bottom:1px solid #ddd; font-size:0.72em; text-transform:uppercase; letter-spacing:0.04em; }
+.mg-steps td { padding:0.3rem 0.4rem; border-bottom:1px solid #f2f2f5; }
+.mg-steps .status-complete { color:#0a0; }
+.mg-steps .status-pending { color:#999; }
+.mg-steps .status-blocked { color:#b60; }
+.mg-pill { display:inline-block; padding:0.1em 0.5em; border-radius:3px; font-size:0.75em; font-weight:500; text-transform:uppercase; letter-spacing:0.04em; }
+.mg-pill.open { background:#eaf4ff; color:#0645ad; }
+.mg-pill.complete { background:#e7f7ea; color:#0a0; }
+.mg-actions { display:flex; gap:0.6rem; margin:1rem 0; }
+.mg-actions button { padding:0.5rem 1.15rem; border-radius:4px; cursor:pointer; font:inherit; font-size:0.9em; font-weight:500; }
+.mg-remind { background:#fff; color:#0645ad; border:1px solid #0645ad; }
+.mg-remind:hover { background:#f4f7fc; }
+.mg-close { background:#fff; color:#a33; border:1px solid #c99; }
+.mg-close:hover { background:#fdf4f4; }
+.mg-actions button:disabled { opacity:0.5; cursor:not-allowed; }
+.mg-email-cmds { font-size:0.85em; color:#666; background:#fafbfd; border:1px solid #e3e6ee; border-radius:4px; padding:0.6rem 0.85rem; margin-top:1rem; }
+.mg-email-cmds code { background:#fff; border:1px solid #e3e6ee; padding:0.05em 0.3em; border-radius:2px; }
+`;
+
+function renderManagementDashboard({ token, rec, event, flash }) {
+  const complete = event.completion && event.completion.status === 'complete';
+  const pill = complete
+    ? html`<span class="mg-pill complete">complete</span>`
+    : html`<span class="mg-pill open">open</span>`;
+  let bodyMiddle;
+  if (event.type === 'event') {
+    const rows = (event.steps || []).map((s, i) => {
+      const blocked = s.status !== 'complete' && (s.depends_on || []).some((dep) => {
+        const d = (event.steps || []).find((x) => x.id === dep);
+        return !d || d.status !== 'complete';
+      });
+      const statusCls = s.status === 'complete' ? 'status-complete' : (blocked ? 'status-blocked' : 'status-pending');
+      const statusLabel = s.status === 'complete' ? '✓ complete' : (blocked ? '⏸ waiting' : '○ pending');
+      return html`
+        <tr>
+          <td>${String(i + 1)}</td>
+          <td><strong>${s.name}</strong></td>
+          <td>${s.participant}</td>
+          <td>${(s.depends_on || []).length ? html`after ${s.depends_on.join(', ')}` : raw('—')}</td>
+          <td class="${statusCls}">${statusLabel}</td>
+        </tr>
+      `;
+    });
+    bodyMiddle = html`
+      <h2><span class="num">1</span> Steps <span class="hint" style="font-weight:400;color:#888;font-size:0.88em;text-transform:none;letter-spacing:0;margin-left:0.3rem">${String((event.steps || []).length)} total</span></h2>
+      <div class="mg-section">
+        <table class="mg-steps">
+          <thead>
+            <tr>
+              <th>#</th><th>Step</th><th>Participant</th><th>Depends on</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  } else if (event.mode === 'declaration') {
+    bodyMiddle = html`
+      <h2><span class="num">1</span> Declaration</h2>
+      <div class="mg-section">
+        <p class="mg-meta">Signer: <code>${event.signer}</code></p>
+        <p class="mg-meta">Reply address: <code>event+${event.id}@${config.domain}</code></p>
+        <p class="mg-meta">Status: ${complete ? html`signed on <code>${event.completion.completed_at}</code>` : html`awaiting signature`}</p>
+      </div>
+    `;
+  } else {
+    const counted = (event.replies || []).length;
+    bodyMiddle = html`
+      <h2><span class="num">1</span> Attestation</h2>
+      <div class="mg-section">
+        <p class="mg-meta">Reply address: <code>event+${event.id}@${config.domain}</code></p>
+        <p class="mg-meta">Threshold: <strong>${String(event.threshold)}</strong> · Dedup: <code>${event.dedup}</code> · Anonymous: ${event.allow_anonymous ? 'allowed' : 'not allowed'}</p>
+        <p class="mg-meta">Replies received: <strong>${String(counted)}</strong>${complete ? html` · completed <code>${event.completion.completed_at}</code>` : raw('')}</p>
+      </div>
+    `;
+  }
+
+  return html`
+    <style>${raw(MANAGE_CSS)}</style>
+    <h1 style="margin-bottom:0.25rem">${event.title}</h1>
+    <p class="mg-meta">Signed in as <code>${rec.initiator}</code> · Event <code>${event.id}</code> · ${pill}</p>
+    ${flash ? html`<div class="mg-flash">${flash}</div>` : raw('')}
+
+    ${bodyMiddle}
+
+    <div class="mg-actions">
+      <form method="POST" action="/manage/${token}/remind" style="margin:0">
+        <button type="submit" class="mg-remind" ${complete ? raw('disabled') : ''}>Send reminders</button>
+      </form>
+      <form method="POST" action="/manage/${token}/close" style="margin:0"
+            onsubmit="return confirm('Close this event now? This writes a completion commit and cannot be undone.');">
+        <button type="submit" class="mg-close" ${complete ? raw('disabled') : ''}>Close event</button>
+      </form>
+    </div>
+
+    <div class="mg-email-cmds">
+      Prefer email? From <code>${rec.initiator}</code> reply to:
+      <code>stats+${event.id}@${config.domain}</code> ·
+      <code>remind+${event.id}@${config.domain}</code> ·
+      <code>close+${event.id}@${config.domain}</code>.
+    </div>
+
+    <p style="margin-top:1.5rem"><a href="/events/${event.id}">read-only view</a> · <a href="/">home</a></p>
+  `;
+}
 
 router.get('/health', async (req, res) => {
   res.writeHead(200, { 'content-type': 'application/json' });
