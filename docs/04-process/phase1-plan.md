@@ -77,13 +77,14 @@ Modules are ordered so each is independently completable and verifiable.
 | **1.G** ✅ | Attachment forwarding to event owner | 1.C, 1.F | Owner inbox gets original email (byte-preserving); SHA-256 in git matches forwarded copy; X-GitDone-* tracking headers prepended — **done 2026-04-18**, validated end-to-end: Gmail → event+demo123-step1@ → MSN inbox of initiator, both test forwards delivered, attachment (PDF) intact |
 | **1.H.1** ✅ | Archive v1 + Express-less HTTP skeleton on VPS | independent | v1 deleted (2235 files incl. node_modules); vanilla Node http server with router/templates/body-parse; landing page + /health; systemd unit; 34 tests — **done 2026-04-18** |
 | **1.H.2** ✅ | Workflow event creation (sequential + non-sequential + deadlines per step) | 1.H.1 ✅ | Plain-HTML form + server-side validation + schema write with event.salt (1.C+), atomic persistence, debug read-only view — **done 2026-04-18**, 34 new tests (validation + create + integration) |
-| **1.H.2b** | Hybrid tree editor | 1.H.2 | Tree UI where sequential sub-chains branch |
-| **1.H.3** | Crypto: declaration + attestation with min-trust + threshold N | 1.H.1 ✅ | Form + schema write |
-| **1.H.4** | Magic-link email on create + JWT mint | 1.H.2, 1.H.3 | Initiator gets management link |
-| **1.H.5** | Management dashboard (read-only + close event) | 1.H.4 | Progress view + close action |
-| **1.I** | Participant notification emails | 1.F, 1.H | Participant receives DKIM-signed prompt with reply-to event tag |
-| **1.J** | Completion logic (workflow / declaration / attestation) | 1.C, 1.H | Final reply triggers `event.close` + initiator notification |
-| **1.K** | Delete v1 participant routes + React UI | 1.H, 1.I | Only initiator-facing pages remain; no participant-token code |
+| **1.H.2.1** ✅ | Event form redesign — Design Lab synthesis winner F2 | 1.H.2 ✅ | Numbered sections, What+Who/How/Steps, compact datetime-local step table, explained dropdowns — **done 2026-04-18**, frozen at `docs/01-product/design/event-form-v1.md` |
+| **1.H.2b** | Hybrid tree editor | 1.H.2 ✅ | Tree UI where sequential sub-chains branch |
+| **1.H.3** ✅ | Landing + Crypto form (declaration + attestation) | 1.H.1 ✅ | F-variant dense grid, mode-segmented control, `validateCryptoEvent`, `POST /crypto`, per-mode management email — **done 2026-04-19**, Live Canvas winner; frozen at `docs/01-product/design/landing-and-crypto-v1.md` |
+| **1.H.4** ✅ | Magic-link management URL + email | 1.H.2 ✅ | Opaque 32-hex token, 30-day TTL, one-file-per-token store, `/manage/{token}` stub — **done 2026-04-19**, chose opaque over JWT (single-host, revocation by file delete) |
+| **1.H.5** | Management dashboard (read-only + close event) | 1.H.4 ✅ | Progress view + close action |
+| **1.I** ✅ | Participant notification emails | 1.F ✅, 1.H.2 ✅, 1.H.3 ✅ | Workflow sequential: step 1 only. Non-sequential / hybrid: every step. Declaration: signer. Attestation: skip (shareable address) — **done 2026-04-19**, 3 unit + 4 integration tests |
+| **1.J** ✅ | Completion engine (workflow / declaration / attestation) | 1.C ✅, 1.H ✅, 1.I ✅ | Pure state machine + `commitCompletion` audit entry + sequential cascade. Trust-gated, dedup-aware (unique / latest / accumulating) — **done 2026-04-19**, 21 unit + 6 integration tests |
+| **1.K** ✅ | Delete v1 participant routes + React UI | 1.H ✅, 1.I ✅ | All v1 code removed in 1.H.1 (2235 files); no participant-token paths remain — **done 2026-04-18** |
 
 **First slice = 1.A + 1.B + 1.C** — minimum vertical that proves end-to-end "reply lands as git commit." Estimated 3–5 hours.
 

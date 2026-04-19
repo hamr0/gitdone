@@ -151,10 +151,10 @@ v2 is a structural rebuild of the participant flow and a generalization of the e
 
 | Component | v1 | v2 |
 |---|---|---|
-| Initiator UI | Next.js web app | **Simplified** — plain HTML forms, minimal JS |
+| Initiator UI | Next.js web app | **Simplified** — vanilla `node:http` + tagged template literals, no client JS |
 | Participant UI | Next.js magic link form | **Removed** — email reply IS the interface |
-| Magic link tokens | Everyone, JWT 30-day | **Initiator only** for management |
-| SMTP send | Nodemailer | Same |
+| Magic link tokens | Everyone, JWT 30-day | **Initiator only**, opaque 32-hex (30-day), `data/magic_tokens/{token}.json` (revocation by file delete; no statelessness needed on single host) |
+| SMTP send | Nodemailer | **Replaced** — `sendmail(1)` via Postfix pipe; opendkim milter signs at the MTA |
 | SMTP receive | None | **New** — Postfix on VPS → pipe to Node |
 | DKIM verification | None | **New** — `mailauth` library |
 | OpenTimestamps | None | **New** — anchor every commit to Bitcoin |
