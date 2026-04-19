@@ -1,0 +1,12 @@
+[Unit]
+Description=GitDone health check (disk, API, units, queue, OTS, certs)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=gitdone
+Group=gitdone
+ExecStart=/opt/gitdone/ops/health-check.sh
+# Read /etc/default/gitdone-health for overrides (ALERT_TO, thresholds, etc.)
+EnvironmentFile=-/etc/default/gitdone-health
+Nice=10

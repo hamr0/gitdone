@@ -1,446 +1,314 @@
-# 🚀 GitDone VPS Deployment Guide
+# GitDone — Deployment Guide
 
-**Simple, fast, and reliable deployment for production VPS**
+**Stack:** Fedora Linux, Node.js ≥18 (vanilla `node:http`), Postfix, opendkim,
+nginx, systemd. No PM2, no bundler, no frontend framework.
 
-## 📋 Prerequisites
+**Topology:** one VPS, one environment (`git-done.com`). Local laptop
+`--dev` mode (`./data-dev/`, HUD, SSE live-reload) is the test environment
+for UI and business logic; prod is the only environment that runs the
+inbound-email pipeline. Staging on a subdomain is documented in the
+Appendix — add it when you have real users.
 
-- **VPS**: Ubuntu 20.04+ (2GB RAM minimum, 4GB recommended)
-- **Domain**: Pointed to your VPS IP
-- **SSL Certificate**: Let's Encrypt (free)
-
-## 🔧 VPS Setup
-
-### 1. **Initial Server Setup**
-
-```bash
-# Update system
-sudo apt update && sudo apt upgrade -y
-
-# Install Node.js 18+
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# Install PM2 globally
-sudo npm install -g pm2
-
-# Install Nginx
-sudo apt install nginx -y
-
-# Install Git
-sudo apt install git -y
-
-# Install FFmpeg (for video processing)
-sudo apt install ffmpeg -y
-
-# Install Sharp dependencies
-sudo apt install build-essential libvips-dev -y
-```
-
-### 2. **Create Application User**
-
-```bash
-# Create gitdone user
-sudo adduser gitdone
-sudo usermod -aG sudo gitdone
-
-# Switch to gitdone user
-su - gitdone
-```
-
-### 3. **Deploy Application**
-
-```bash
-# Clone repository
-git clone <your-repo-url> /home/gitdone/gitdone
-cd /home/gitdone/gitdone
-
-# Install dependencies
-cd backend && npm install --production
-cd ../frontend && npm install --production
-
-# Build frontend
-npm run build
-
-# Create data directories
-mkdir -p data/events data/uploads data/git_repos
-```
-
-### 4. **Environment Configuration**
-
-```bash
-# Create production environment file
-cat > .env << EOF
-# Server Configuration
-NODE_ENV=production
-PORT=3001
-BASE_URL=https://yourdomain.com
-
-# Email Configuration (Gmail SMTP)
-SMTP_USER=your-email@gmail.com
-SMTP_PASS=your-app-password
-
-# Security
-JWT_SECRET=your-super-secret-jwt-key-here
-ENCRYPTION_KEY=your-encryption-key-here
-
-# File Limits
-MAX_FILE_SIZE=26214400
-MAX_FILES_PER_REQUEST=10
-
-# Backend URL for frontend
-BACKEND_URL=http://localhost:3001
-EOF
-```
-
-### 5. **PM2 Configuration**
-
-```bash
-# Create PM2 ecosystem file
-cat > ecosystem.config.js << EOF
-module.exports = {
-  apps: [
-    {
-      name: 'gitdone-backend',
-      script: './backend/server.js',
-      cwd: '/home/gitdone/gitdone',
-      instances: 1,
-      exec_mode: 'fork',
-      env: {
-        NODE_ENV: 'production',
-        PORT: 3001
-      },
-      error_file: '/home/gitdone/logs/backend-error.log',
-      out_file: '/home/gitdone/logs/backend-out.log',
-      log_file: '/home/gitdone/logs/backend-combined.log',
-      time: true,
-      max_memory_restart: '1G',
-      restart_delay: 4000,
-      max_restarts: 10,
-      min_uptime: '10s'
-    },
-    {
-      name: 'gitdone-frontend',
-      script: 'npm',
-      args: 'start',
-      cwd: '/home/gitdone/gitdone/frontend',
-      instances: 1,
-      exec_mode: 'fork',
-      env: {
-        NODE_ENV: 'production',
-        PORT: 3000
-      },
-      error_file: '/home/gitdone/logs/frontend-error.log',
-      out_file: '/home/gitdone/logs/frontend-out.log',
-      log_file: '/home/gitdone/logs/frontend-combined.log',
-      time: true,
-      max_memory_restart: '1G',
-      restart_delay: 4000,
-      max_restarts: 10,
-      min_uptime: '10s'
-    }
-  ]
-};
-EOF
-
-# Create logs directory
-mkdir -p /home/gitdone/logs
-
-# Start applications
-pm2 start ecosystem.config.js
-
-# Save PM2 configuration
-pm2 save
-
-# Setup PM2 startup
-pm2 startup
-# Follow the instructions shown by PM2
-```
-
-### 6. **Nginx Configuration**
-
-```bash
-# Create Nginx configuration
-sudo tee /etc/nginx/sites-available/gitdone << EOF
-server {
-    listen 80;
-    server_name yourdomain.com www.yourdomain.com;
-
-    # Frontend
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # Backend API
-    location /api/ {
-        proxy_pass http://localhost:3001;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        
-        # Increase timeout for file uploads
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
-    }
-
-    # File uploads
-    location /uploads/ {
-        proxy_pass http://localhost:3001;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-
-    # Security headers
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy "no-referrer-when-downgrade" always;
-    add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
-
-    # Gzip compression
-    gzip on;
-    gzip_vary on;
-    gzip_min_length 1024;
-    gzip_proxied expired no-cache no-store private must-revalidate auth;
-    gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss application/javascript;
-}
-EOF
-
-# Enable site
-sudo ln -s /etc/nginx/sites-available/gitdone /etc/nginx/sites-enabled/
-
-# Remove default site
-sudo rm /etc/nginx/sites-enabled/default
-
-# Test configuration
-sudo nginx -t
-
-# Restart Nginx
-sudo systemctl restart nginx
-sudo systemctl enable nginx
-```
-
-### 7. **SSL Certificate (Let's Encrypt)**
-
-```bash
-# Install Certbot
-sudo apt install certbot python3-certbot-nginx -y
-
-# Get SSL certificate
-sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
-
-# Test auto-renewal
-sudo certbot renew --dry-run
-```
-
-### 8. **Firewall Configuration**
-
-```bash
-# Configure UFW
-sudo ufw allow OpenSSH
-sudo ufw allow 'Nginx Full'
-sudo ufw enable
-```
-
-## 🔄 **Deployment Process**
-
-### **Initial Deployment**
-```bash
-# 1. Clone and setup (one-time)
-git clone <your-repo> /home/gitdone/gitdone
-cd /home/gitdone/gitdone
-./deploy.sh
-```
-
-### **Updates**
-```bash
-# 2. Update application
-cd /home/gitdone/gitdone
-git pull origin main
-pm2 restart all
-```
-
-## 📊 **Monitoring & Maintenance**
-
-### **PM2 Commands**
-```bash
-# Check status
-pm2 status
-
-# View logs
-pm2 logs gitdone-backend
-pm2 logs gitdone-frontend
-
-# Restart services
-pm2 restart all
-
-# Monitor resources
-pm2 monit
-```
-
-### **Nginx Commands**
-```bash
-# Check status
-sudo systemctl status nginx
-
-# View logs
-sudo tail -f /var/log/nginx/access.log
-sudo tail -f /var/log/nginx/error.log
-
-# Test configuration
-sudo nginx -t
-
-# Reload configuration
-sudo systemctl reload nginx
-```
-
-### **System Monitoring**
-```bash
-# Check disk space
-df -h
-
-# Check memory usage
-free -h
-
-# Check running processes
-htop
-
-# Check system logs
-sudo journalctl -f
-```
-
-## 🛠️ **Backup Strategy**
-
-### **Data Backup**
-```bash
-# Create backup script
-cat > /home/gitdone/backup.sh << EOF
-#!/bin/bash
-DATE=\$(date +%Y%m%d_%H%M%S)
-BACKUP_DIR="/home/gitdone/backups"
-mkdir -p \$BACKUP_DIR
-
-# Backup data directory
-tar -czf \$BACKUP_DIR/gitdone_data_\$DATE.tar.gz data/
-
-# Keep only last 7 days of backups
-find \$BACKUP_DIR -name "gitdone_data_*.tar.gz" -mtime +7 -delete
-
-echo "Backup completed: \$BACKUP_DIR/gitdone_data_\$DATE.tar.gz"
-EOF
-
-chmod +x /home/gitdone/backup.sh
-
-# Add to crontab (daily at 2 AM)
-(crontab -l 2>/dev/null; echo "0 2 * * * /home/gitdone/backup.sh") | crontab -
-```
-
-## 🚨 **Troubleshooting**
-
-### **Common Issues**
-
-**Backend won't start:**
-```bash
-# Check logs
-pm2 logs gitdone-backend
-
-# Check port availability
-sudo netstat -tlnp | grep :3001
-
-# Check environment variables
-cat .env
-```
-
-**Frontend build fails:**
-```bash
-# Clear Next.js cache
-cd frontend
-rm -rf .next
-npm run build
-```
-
-**Nginx 502 errors:**
-```bash
-# Check if backend is running
-pm2 status
-
-# Check backend logs
-pm2 logs gitdone-backend
-
-# Restart backend
-pm2 restart gitdone-backend
-```
-
-**SSL certificate issues:**
-```bash
-# Check certificate status
-sudo certbot certificates
-
-# Renew certificate
-sudo certbot renew
-```
-
-## 📈 **Performance Optimization**
-
-### **Nginx Optimization**
-```bash
-# Add to /etc/nginx/nginx.conf
-worker_processes auto;
-worker_connections 1024;
-
-# Enable caching
-location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
-    expires 1y;
-    add_header Cache-Control "public, immutable";
-}
-```
-
-### **PM2 Optimization**
-```bash
-# Monitor memory usage
-pm2 monit
-
-# Set memory limits
-pm2 restart all --max-memory-restart 1G
-```
-
-## 🔒 **Security Checklist**
-
-- [ ] ✅ Firewall configured (UFW)
-- [ ] ✅ SSL certificate installed
-- [ ] ✅ Strong JWT secret set
-- [ ] ✅ App-specific email password
-- [ ] ✅ Regular security updates
-- [ ] ✅ Backup strategy in place
-- [ ] ✅ Log monitoring setup
-
-## 📞 **Support**
-
-**Quick Commands:**
-```bash
-# Check everything is running
-pm2 status && sudo systemctl status nginx
-
-# View all logs
-pm2 logs --lines 50
-
-# Restart everything
-pm2 restart all && sudo systemctl restart nginx
-```
+Runbook at the bottom.
 
 ---
 
-**🎉 Your GitDone is now production-ready!**
+## 1. Prerequisites
 
-**Access your application at:** `https://yourdomain.com`
+- VPS: Fedora 40+, 2 GB RAM, 20 GB disk. Current VPS IP: `104.129.2.254`.
+- DNS (Route 53, hosted zone `git-done.com`):
+  - `A   git-done.com              → 104.129.2.254`
+  - `MX  git-done.com              10 mail.git-done.com.`
+  - `A   mail.git-done.com         → 104.129.2.254` *(already set)*
+  - `TXT git-done.com              "v=spf1 mx -all"` *(already set)*
+  - `TXT gd202604._domainkey.git-done.com  "v=DKIM1; k=rsa; p=..."` *(already set)*
+  - `TXT _dmarc.git-done.com       "v=DMARC1; p=none; rua=mailto:postmaster@git-done.com; aspf=s; adkim=s"` *(already set)*
+
+## 2. System packages
+
+```bash
+sudo dnf install -y \
+  nodejs git \
+  postfix opendkim opendkim-tools \
+  nginx certbot python3-certbot-nginx \
+  opentimestamps-client
+```
+
+## 3. User + directories
+
+```bash
+sudo useradd --system --home-dir /var/lib/gitdone --shell /sbin/nologin gitdone
+sudo install -d -o gitdone -g gitdone /var/lib/gitdone /var/log/gitdone
+sudo install -d -o root   -g root    /opt/gitdone
+```
+
+## 4. Deploy code
+
+```bash
+sudo git clone https://github.com/<you>/gitdone /opt/gitdone
+cd /opt/gitdone/app && sudo npm ci --omit=dev
+sudo chown -R root:root /opt/gitdone
+sudo chmod +x /opt/gitdone/app/bin/receive.sh /opt/gitdone/ops/health-check.sh
+```
+
+Production code is read-only to `gitdone`; data/logs are writable.
+
+## 5. Outbound DKIM (opendkim)
+
+Selector `gd202604` already live. For reference:
+
+```
+# /etc/opendkim.conf
+Domain       git-done.com
+Selector     gd202604
+KeyFile      /etc/opendkim/keys/git-done.com/gd202604.private
+Socket       inet:8891@localhost
+Mode         sv
+SubDomains   yes
+```
+
+## 6. Postfix
+
+`/etc/postfix/master.cf` — pipe transport:
+
+```
+gitdone unix - n n - - pipe
+  flags=DRhu user=gitdone argv=/opt/gitdone/app/bin/receive.sh ${sender} ${recipient}
+```
+
+`/etc/postfix/main.cf`:
+
+```
+mydestination = localhost
+virtual_alias_domains =
+virtual_transport = gitdone
+smtpd_milters = inet:localhost:8891
+non_smtpd_milters = inet:localhost:8891
+milter_default_action = accept
+```
+
+```bash
+sudo systemctl enable --now opendkim postfix
+```
+
+## 7. systemd unit — web
+
+`/etc/systemd/system/gitdone-web.service`:
+
+```ini
+[Unit]
+Description=GitDone web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gitdone
+Group=gitdone
+WorkingDirectory=/opt/gitdone/app
+Environment=NODE_ENV=production
+Environment=GITDONE_DATA_DIR=/var/lib/gitdone
+Environment=GITDONE_HTTP_PORT=3001
+Environment=GITDONE_PUBLIC_BASE_URL=https://git-done.com
+ExecStart=/usr/bin/node /opt/gitdone/app/bin/server.js
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+# hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/gitdone /var/log/gitdone
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now gitdone-web.service
+```
+
+## 8. systemd — OTS upgrade timer (6h)
+
+Already live on the VPS. Ship files at `ops/systemd/gitdone-ots-upgrade.{service,timer}`:
+
+```ini
+# service
+[Service]
+Type=oneshot
+User=gitdone
+Environment=GITDONE_DATA_DIR=/var/lib/gitdone
+ExecStart=/usr/bin/node /opt/gitdone/app/bin/ots-upgrade.js
+```
+
+```ini
+# timer
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=6h
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
+
+## 9. nginx + TLS
+
+`/etc/nginx/conf.d/gitdone.conf`:
+
+```nginx
+server {
+  listen 80;
+  server_name git-done.com;
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen 443 ssl http2;
+  server_name git-done.com;
+  ssl_certificate     /etc/letsencrypt/live/git-done.com/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/git-done.com/privkey.pem;
+  client_max_body_size 25m;
+
+  location / {
+    proxy_pass http://127.0.0.1:3001;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+  }
+}
+```
+
+```bash
+sudo certbot --nginx -d git-done.com
+sudo systemctl enable --now nginx
+```
+
+## 10. Monitoring & alerts
+
+Local checks run every 15 min from a systemd timer; VPS-down detection
+comes from an external pinger (can't self-detect).
+
+### 10.1 Local health check
+
+```bash
+sudo install -m 0644 /opt/gitdone/ops/systemd/gitdone-health.service /etc/systemd/system/
+sudo install -m 0644 /opt/gitdone/ops/systemd/gitdone-health.timer   /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now gitdone-health.timer
+```
+
+Covers (all configurable via `/etc/default/gitdone-health`):
+
+| Check | Default threshold | Override var |
+|---|---|---|
+| systemd `is-failed` on web + ots timer | any failed | `GITDONE_UNITS` |
+| Local API `GET /health` | non-200 / >5s | `GITDONE_HEALTH_URL` |
+| Disk usage on `/` + data dir | ≥80% | `GITDONE_DISK_THRESHOLD` |
+| Postfix deferred queue size | ≥50 | `GITDONE_MAILQ_THRESHOLD` |
+| Journal errors (≥err) last 1h | any | — |
+| Stale OTS stamps (>48h, not upgraded) | any | `GITDONE_OTS_STALE_HOURS` |
+| TLS cert expiry | <14 days | `GITDONE_CERT_WARN_DAYS`, `GITDONE_CERT_DOMAINS` |
+
+Silent when green. One consolidated email to `GITDONE_ALERT_TO` (default
+`avoidaccess@gmail.com`) on any failing check, via local `sendmail`
+(opendkim signs it, so the alert itself is DMARC-clean).
+
+Example `/etc/default/gitdone-health`:
+
+```
+GITDONE_ALERT_TO=avoidaccess@gmail.com
+GITDONE_ALERT_FROM=alerts@git-done.com
+```
+
+### 10.2 External liveness (VPS down)
+
+Self-monitoring can't detect the box being off. Use UptimeRobot free tier
+(50 monitors, 5-min cadence) — HTTPS monitor on
+`https://git-done.com/health` → email `avoidaccess@gmail.com` on down.
+
+### 10.3 Manual inspection
+
+```bash
+systemctl list-timers 'gitdone-*'
+journalctl -u gitdone-web.service -f
+journalctl -u gitdone-health.service --since today
+sudo -u gitdone /opt/gitdone/ops/health-check.sh    # force a run
+```
+
+## 11. Runbook — deploy
+
+Local testing first, then push-and-restart on the VPS.
+
+```bash
+# --- local ---
+cd app && npm test                              # expect 309/309
+node bin/server.js --dev                        # manual smoke via http://localhost:3001
+git push origin main
+
+# --- vps ---
+ssh vps
+cd /opt/gitdone
+sudo git fetch --tags
+sudo git checkout <sha-or-tag>
+sudo -u root bash -c 'cd app && npm ci --omit=dev'
+sudo systemctl restart gitdone-web.service
+curl -fsS https://git-done.com/health
+journalctl -u gitdone-web.service -n 50 --no-pager
+
+# --- rollback ---
+sudo git checkout <previous-sha>
+sudo systemctl restart gitdone-web.service
+```
+
+Restart is sub-second because there's no build step. Data lives outside
+`/opt/gitdone/`, so rollback is always safe.
+
+## 12. Backup
+
+- `/var/lib/gitdone/` — restic/borg to off-VPS storage, daily.
+- `/etc/opendkim/keys/` — store offline; losing this breaks outbound
+  signing irrecoverably.
+- Event repos are git history — a single `tar` of
+  `/var/lib/gitdone/repos/` is a complete proof archive.
+
+---
+
+## Appendix A — Adding staging later
+
+Skip until real users exist. When you do:
+
+1. DNS: add `A staging.git-done.com → 104.129.2.254` and
+   `MX staging.git-done.com → 10 mail.git-done.com.`
+2. `sudo certbot --nginx -d staging.git-done.com`
+3. Second systemd unit `gitdone-web-staging.service` — clone
+   `gitdone-web.service` with:
+   - `Environment=GITDONE_DATA_DIR=/var/lib/gitdone-staging`
+   - `Environment=GITDONE_HTTP_PORT=3002`
+   - `Environment=GITDONE_PUBLIC_BASE_URL=https://staging.git-done.com`
+   - `ReadWritePaths=/var/lib/gitdone-staging /var/log/gitdone`
+4. `install -d -o gitdone -g gitdone /var/lib/gitdone-staging`
+5. nginx: add a second server block for `staging.git-done.com` → `:3002`.
+6. Postfix transport map (`/etc/postfix/transport`):
+   `staging.git-done.com  gitdone-staging:`
+   + a second master.cf entry exporting `GITDONE_DATA_DIR=/var/lib/gitdone-staging`
+   via the pipe transport env, or have `receive.sh` branch on recipient domain.
+7. Duplicate `gitdone-ots-upgrade.service` for staging data dir.
+8. Extend `GITDONE_UNITS`, `GITDONE_CERT_DOMAINS`, and add a second
+   `HEALTH_URL` check in `ops/health-check.sh`.
+
+Runbook becomes: push → restart staging → bake → restart prod.
+
+## Appendix B — Known constraints
+
+- opendkim signs any mail from the VPS; if a future staging needs a
+  distinct DKIM identity, add a second selector.
+- `/health` must stay a zero-auth, zero-dependency endpoint — both
+  UptimeRobot and the local health check rely on it being cheap.
+- The apex `A git-done.com` record was missing as of 2026-04-19; add it
+  before pointing users at `https://git-done.com/`.
