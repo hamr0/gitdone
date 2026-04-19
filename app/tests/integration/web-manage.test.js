@@ -16,17 +16,27 @@ const querystring = require('node:querystring');
 let tmp;
 let server;
 let port;
-let stdinFile;
-let argsFile;
 
 before(async () => {
   tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'gitdone-web-manage-'));
-  stdinFile = path.join(tmp, 'sendmail.stdin');
-  argsFile = path.join(tmp, 'sendmail.args');
+  const captureDir = path.join(tmp, 'captures');
+  fs.mkdirSync(captureDir);
   const fake = path.join(tmp, 'fake-sendmail.sh');
+  // Capture each invocation to a per-recipient file (By To: header).
+  // Tests read the specific recipient's .eml rather than a single
+  // shared file that gets overwritten.
   fs.writeFileSync(fake,
-    `#!/bin/sh\necho "$@" > "${argsFile}"\ncat > "${stdinFile}"\nexit 0\n`,
-    { mode: 0o755 });
+    `#!/bin/sh
+body=$(mktemp "${captureDir}/body.XXXXXX")
+args=$(mktemp "${captureDir}/args.XXXXXX")
+echo "$@" > "$args"
+cat > "$body"
+to=$(grep -m1 -i '^To:' "$body" | sed 's/^[Tt]o:[[:space:]]*//' | tr -d '\\r')
+safe=$(printf '%s' "$to" | sed 's/@/_at_/g' | tr -c 'a-zA-Z0-9._-' '_')
+mv "$body" "${captureDir}/$safe.eml"
+mv "$args" "${captureDir}/$safe.args"
+exit 0
+`, { mode: 0o755 });
   process.env.GITDONE_DATA_DIR = tmp;
   process.env.GITDONE_SENDMAIL_BIN = fake;
   process.env.GITDONE_PUBLIC_URL = 'http://localhost:3001';
@@ -107,13 +117,18 @@ test('POST /events mints a magic token and sends management email', async () => 
   const rec = JSON.parse(await fsp.readFile(path.join(tokensDir, tokenFile), 'utf8'));
   assert.equal(rec.initiator, 'boss@example.com');
 
-  // The fake sendmail should have received a plausible email
-  const submitted = fs.readFileSync(stdinFile, 'utf8');
+  // The fake sendmail should have received the management email for the
+  // initiator specifically. A step-1 notification also fires in parallel
+  // to one@example.com; that's the 1.I participant email.
+  const captureDir = path.join(tmp, 'captures');
+  const bossCapture = path.join(captureDir, 'boss_at_example.com.eml');
+  const bossArgs = path.join(captureDir, 'boss_at_example.com.args');
+  const submitted = fs.readFileSync(bossCapture, 'utf8');
   assert.match(submitted, /^From: gitdone@/m);
   assert.match(submitted, /^To: boss@example\.com/m);
   assert.match(submitted, /^Subject: \[gitdone\] "Manage me"/m);
   assert.match(submitted, /http:\/\/localhost:3001\/manage\/[a-f0-9]{32}/);
-  const argv = fs.readFileSync(argsFile, 'utf8').trim().split(/\s+/);
+  const argv = fs.readFileSync(bossArgs, 'utf8').trim().split(/\s+/);
   assert.ok(argv.includes('boss@example.com'), 'envelope RCPT is the initiator');
 });
 

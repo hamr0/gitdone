@@ -19,6 +19,39 @@ internal refactors and commit-level churn stay in `git log`.
 
 ---
 
+## [Phase 1 — 1.I participant notifications] — 2026-04-19
+
+Creating an event now reaches the people who need to reply. Until now,
+`POST /events` and `POST /crypto` only emailed the initiator with a
+management link; participants were never told anything. 1.I closes that
+gap.
+
+### Added
+- `app/src/notifications.js` composes per-participant plain-text email
+  bodies and calls `sendmail(1)` via the existing outbound path. Two
+  exports: `notifyWorkflowParticipants(event)` and
+  `notifyDeclarationSigner(event)`.
+- `POST /events` and `POST /crypto` now fire notifications in parallel
+  with the management email. Per-recipient send failures are logged to
+  stderr; the create flow still completes successfully.
+- 3 unit tests on the body composers, 4 integration tests covering the
+  per-flow/per-mode behaviour via a capturing fake sendmail.
+
+### Flow & mode rules
+
+| Event | Who gets notified on creation |
+|---|---|
+| workflow, sequential | step 1 participant only |
+| workflow, non-sequential | every step's participant |
+| workflow, hybrid | every step's participant (interim — real tree-aware notification lands with 1.H.2b) |
+| crypto, declaration | the named signer |
+| crypto, attestation | nobody — initiator shares the reply address manually per PRD §6.1 |
+
+Cascading notifications (step 2 fires after step 1 completes, etc.)
+are part of the completion engine (1.J), not 1.I.
+
+---
+
 ## [Phase 1 — 1.H.3 landing + crypto events] — 2026-04-19
 
 Landing page now uses a compact two-CTA block (Create Event / Create

@@ -43,6 +43,7 @@ const { validateWorkflowEvent, validateCryptoEvent, VALID_FLOWS, VALID_TRUST_LEV
 const { createEvent } = require('../src/event-store');
 const { createToken, loadToken } = require('../src/magic-token');
 const { sendmail, buildRawMessage } = require('../src/outbound');
+const { notifyWorkflowParticipants, notifyDeclarationSigner } = require('../src/notifications');
 const devChannel = IS_DEV ? require('../src/web/dev-channel') : null;
 
 // Scheme/host used to build management URLs in outbound emails. Overrideable
@@ -286,7 +287,13 @@ router.post('/events', async (req, res) => {
   });
   const token = await createToken({ eventId: event.id, initiator: event.initiator });
   const manageUrl = `${publicBaseUrl()}/manage/${token.token}`;
-  const emailResult = await sendManagementEmail({ event, manageUrl });
+  const [emailResult, notifyResults] = await Promise.all([
+    sendManagementEmail({ event, manageUrl }),
+    notifyWorkflowParticipants(event),
+  ]);
+  for (const r of notifyResults) {
+    if (!r.ok) process.stderr.write(`notify: failed ${r.to}: ${r.reason || r.code}\n`);
+  }
   const msg = html`
     <h1>Event created</h1>
     <p><strong>${event.title}</strong> — ID: <code>${event.id}</code></p>
@@ -502,7 +509,13 @@ router.post('/crypto', async (req, res) => {
   const event = await createEvent(v.value);
   const token = await createToken({ eventId: event.id, initiator: event.initiator });
   const manageUrl = `${publicBaseUrl()}/manage/${token.token}`;
-  const emailResult = await sendCryptoManagementEmail({ event, manageUrl });
+  const [emailResult, notifyResults] = await Promise.all([
+    sendCryptoManagementEmail({ event, manageUrl }),
+    notifyDeclarationSigner(event),
+  ]);
+  for (const r of notifyResults) {
+    if (!r.ok) process.stderr.write(`notify: failed ${r.to}: ${r.reason || r.code}\n`);
+  }
   const replyAddr = event.mode === 'declaration'
     ? `event+${event.id}@${config.domain}`
     : `event+${event.id}@${config.domain}`;
