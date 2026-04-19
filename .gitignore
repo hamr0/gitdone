@@ -60,4 +60,6 @@ Thumbs.db
 
 # Dev mode artifacts (not shipped)
 /data-dev/
+app/data-dev/
 /dev-feedback.log
+app/dev-feedback.log
