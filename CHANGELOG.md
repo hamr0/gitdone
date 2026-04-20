@@ -19,6 +19,108 @@ internal refactors and commit-level churn stay in `git log`.
 
 ---
 
+## [Phase 1 — activation gate + completion loop] — 2026-04-20 (late evening)
+
+End-to-end flows are now closed: (a) event creation can no longer spam
+strangers — the organiser must prove email ownership before any
+invitation goes out; (b) every reply produces a signal back, whether
+accepted or rejected; (c) events tell everyone who participated when
+they complete.
+
+### Shipped — security / spam
+
+- **Activation gate.** Creating an event (workflow or crypto) persists
+  it in `pending_activation` state with `activated_at: null`. No
+  participant notifications fire and no replies count until the
+  initiator clicks a 72-hour **single-use** activation magic link
+  sent to their own inbox. Closes the impersonation/spam vector
+  where anyone could type a victim's email as initiator and
+  immediately blast notifications to named participants.
+  - New token type: `activation_tokens/` (32-hex, 72h TTL, deleted
+    on consume). Carries the 30-day management token so one click
+    both activates and redirects into the management dashboard.
+  - New route: `GET /activate/:token`. Single-use — clicking twice
+    returns a clean 404.
+  - Activation email unifies the two outbound-at-create messages
+    into one: the activation URL (72h) AND the management URL (30d).
+  - If the email send fails, the activation URL surfaces on the
+    confirmation page so the organiser can still kick it off.
+  - Receive path: replies to a pending-activation event still commit
+    for the audit trail but don't count. Participant gets a
+    DKIM-signed auto-reply explaining the event isn't live yet.
+  - Dashboard visible state: amber "pending activation" pill, inline
+    banner explaining what to do, `Send reminders` and `Close event`
+    buttons disabled until the event is activated.
+
+### Shipped — silence-is-a-bug symmetry
+
+- **Participant success ack.** Every accepted step reply now gets a
+  threaded DKIM-signed auto-reply: *"Your reply for 'X' on event 'Y'
+  was accepted. The step is marked complete."* If the reply
+  completed the whole event, the body changes to *"All steps are
+  now complete; the event is closed."* Closes the "did my reply
+  work?" anxiety loop. Threaded via In-Reply-To so it lands under
+  the existing conversation rather than starting a new one.
+- **Event completion notification.** On every transition to complete
+  (all steps done, declaration signed, or organiser close via
+  email-command OR dashboard), a plain-text DKIM-signed summary
+  goes out to the organiser AND every distinct participant. Subject:
+  `[gitdone] "<title>" — complete`. Body names the reason, lists the
+  steps with statuses, and reminds readers that the repo outlives
+  the service and verifies offline with `gitdone-verify`.
+
+### Shipped — UI polish
+
+- **Soft-deadline wording.** Participant invite emails now spell out
+  *"(soft — replies after this date are still counted, but the
+  organiser will be notified if your step is overdue.)"* Form hint
+  and column tooltip match. No behaviour change — just closes the
+  anxiety gap around whether a missed deadline invalidates a late
+  reply. PRD §6.1 grew a matching "Deadline semantics (soft)"
+  subsection.
+- **Management dashboard header cleanup.** The stray `<span class=
+  "num">1</span>` prefix on the single section heading was reading
+  as "1 Steps 2 of 2 complete" — confusing when there's only one
+  numbered section. Dropped on all three variants (Steps,
+  Declaration, Attestation).
+
+### PRD
+
+- §5.2 explicitly documents Reply-To as the authoritative routing
+  header on participant invites. The previous wording described it
+  in the sample template; now it's a stated invariant the outbound
+  code must preserve.
+- §6.1 gains a **Deadline semantics (soft)** sub-section making the
+  aspirational-vs-enforcement distinction explicit.
+- (Still TODO for a later commit: §6.1 / §5 should also document
+  the activation gate as a first-class creation step, and the
+  completion notification as part of §8.)
+
+### Tests
+
+- 340/340 passing (up from 335). New `tests/unit/activation-token.test.js`
+  covers create/peek/consume/single-use/expiry. Existing integration
+  tests updated to simulate the click-to-activate step via a new
+  `activateAll()` helper that reads the tokens dir and GETs every
+  pending `/activate/:token` — matches the real UX. Fixture
+  objects gained `activated_at: '2026-01-01T00:00:00Z'` so the
+  `shouldCount*` gate doesn't reject them.
+
+### Principles reinforced
+
+- **Silence is a bug.** Every reply produces a signal back to its
+  sender; every transition that affects more than one person is
+  announced to all of them. No hidden state, no "you'll never know
+  what happened" outcomes.
+- **Capability URLs are equivalent to the email that carries them.**
+  The activation URL is as powerful as the account-control email
+  it arrived in — which means we DON'T flash it on the browser
+  confirmation page on success (would bypass email ownership
+  proof), but we DO surface it when the send fails (the user who
+  just typed their email at the form is the one who needs it).
+
+---
+
 ## [Phase 1 — post-deploy UX tightening] — 2026-04-20 (evening)
 
 Six same-day follow-ups to the morning launch, driven by the first real

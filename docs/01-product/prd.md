@@ -349,9 +349,21 @@ No clicks on magic links. No web forms. No accounts. No app installs.
    e. Commits metadata JSON to the event's git repo
    f. Archives the DKIM public key alongside the commit
    g. Submits commit hash to OpenTimestamps
-   h. Replies to participant with commit hash and OTS proof reference
-   i. Checks if event is complete; if yes, notifies initiator
+   h. Sends the participant a threaded auto-reply — **always**:
+      - Accepted → "Your reply for '<step>' was accepted; step complete"
+      - Missing attachment → resend with file
+      - Event already complete / closed → your reply is on the audit trail
+      - Event not activated → organiser hasn't confirmed yet; wait for invite
+   i. Checks if event is complete; if yes, emails every distinct
+      contributor + the organiser a "[gitdone] '<title>' — complete"
+      summary with steps and reason
 4. Git repo now has a cryptographically verifiable record
+
+**Silence is a bug.** Every reply produces exactly one signal back
+to its sender, threaded under the same conversation via In-Reply-To
+so the inbox doesn't get cluttered. Every transition that affects
+multiple people (cascade to next step, event completion) is
+announced to everyone it affects.
 
 ### 5.4 What they DO NOT see
 
@@ -443,9 +455,42 @@ sides.
 
 **On confirm, the initiator receives:**
 - Event ID
-- Management magic link (emailed — opaque 32-hex token, 30-day TTL)
+- A single activation email containing both the 72-hour activation
+  link AND the 30-day management link.
+- Nothing else: participants are NOT notified at this point.
+
+**Activation (email-ownership proof).** Events are created in a
+`pending_activation` state (`event.activated_at === null`). Until the
+initiator clicks their activation link, no participant invitations go
+out, and replies to any step's reply-to address commit for the audit
+trail but do not count toward completion. This closes the
+impersonation vector where anyone could type a victim's address as
+initiator and immediately blast real notifications to real
+participants.
+
+- **Token shape:** 32-hex, 72-hour TTL, single-use (deleted on
+  consume). Stored under `{dataDir}/activation_tokens/{token}.json`;
+  carries the 30-day management token so one click both activates
+  and redirects the organiser into their dashboard.
+- **Route:** `GET /activate/:token` consumes, flips
+  `event.activated_at`, fires the deferred `notifyWorkflowParticipants`
+  / `notifyDeclarationSigner`, then 303-redirects to
+  `/manage/<mgmt_token>?activated=1`.
+- **Completion engine gate:** `shouldCountWorkflow /
+  Declaration / Attestation` short-circuit with
+  `reason: 'event not activated'` when `activated_at` is null.
+  Receive.js sends the replier a threaded "event isn't live yet"
+  auto-reply on that path.
+- **Fail-open for the organiser.** If the activation email fails
+  to send, the activation URL is rendered on the browser
+  confirmation page. The user who just filled the form is the only
+  one who should see it.
+
+**On activation, the deferred outbound fan-out fires:**
 - For workflow events: one notification email per eligible root step
-- For crypto events: reply-to address + a shareable `mailto:` link
+- For crypto events: declaration mode emails the signer; attestation
+  mode has no auto-invite (organiser shares the reply address
+  themselves).
 
 ### 6.2 Management
 
