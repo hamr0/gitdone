@@ -1,0 +1,14 @@
+[Unit]
+Description=gitdone VPS → home server backup (data + keys + letsencrypt)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Run as the user whose ~/.ssh/gitdone_vps key was authorized on the VPS.
+# Replace %i with that username before enabling.
+User=%i
+EnvironmentFile=-/etc/default/gitdone-backup
+ExecStart=/usr/local/bin/gitdone-backup.sh
+Nice=19
+IOSchedulingClass=idle

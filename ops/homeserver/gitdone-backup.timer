@@ -1,0 +1,13 @@
+[Unit]
+Description=Run gitdone backup daily
+
+[Timer]
+# 04:15 local daily. Offset from addypin (03:15) to avoid VPS thundering.
+# Randomized ±10 min.
+OnCalendar=*-*-* 04:15:00
+RandomizedDelaySec=10m
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
