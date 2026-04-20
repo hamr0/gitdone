@@ -1098,21 +1098,96 @@ const MANAGE_HUB_CSS = `
 .mh .devlink { background: rgba(255,176,0,.08); border: 1px solid #ffb000; color: #ffb000;
                padding: 0.55rem 0.85rem; margin: 0 0 1rem; font-size: 0.85em; word-break: break-all; }
 .mh .devlink code { background: #0d1117; color: #ffb000; }
+.mh-counts { color: #8b949e; font-size: 0.85em; margin: 0 0 0.8rem; display: flex; flex-wrap: wrap; gap: 0.9rem; }
+.mh-counts span { white-space: nowrap; }
+.mh-counts strong { color: #c9d1d9; font-weight: 600; margin-right: 0.25rem; }
+.mh-pill { display:inline-block; padding:0.1em 0.45em; border-radius:0; font-size:0.65em; font-weight:600;
+           text-transform:uppercase; letter-spacing:0.1em; border:1px solid; vertical-align:0.15em; margin-left:0.3em; }
+.mh-pill.open { background:#0d1117; color:#58a6ff; border-color:#58a6ff; }
+.mh-pill.complete { background:#0d1117; color:#3fb950; border-color:#3fb950; }
+.mh-pill.pending-activation { background:#0d1117; color:#ffb000; border-color:#ffb000; }
+.mh-pill.archived { background:#0d1117; color:#6e7681; border-color:#6e7681; }
+.mh .list .row .sub .muted { color: #6e7681; }
 `;
+
+// Derive a single display status for the /manage hub rows so the
+// dashboard mirrors the per-event page. Priority mirrors
+// renderManagementDashboard: complete > archived > pending_activation
+// > open. The returned `pillClass` is the same CSS class used in
+// renderManagementDashboard so styling stays consistent.
+function summariseEvent(ev) {
+  const complete = ev.completion && ev.completion.status === 'complete';
+  const archived = !complete && !!ev.archived_at;
+  const pending = !complete && !archived && !ev.activated_at;
+  let status, pillClass;
+  if (complete) { status = 'complete'; pillClass = 'complete'; }
+  else if (archived) { status = 'archived'; pillClass = 'archived'; }
+  else if (pending) { status = 'pending activation'; pillClass = 'pending-activation'; }
+  else { status = 'open'; pillClass = 'open'; }
+  let progress = null;
+  if (ev.type === 'event' && Array.isArray(ev.steps) && ev.steps.length) {
+    const done = ev.steps.filter((s) => s.status === 'complete').length;
+    progress = `${done} of ${ev.steps.length} complete`;
+  } else if (ev.type === 'crypto' && ev.mode === 'declaration') {
+    progress = complete ? 'signed' : 'awaiting signature';
+  } else if (ev.type === 'crypto' && ev.mode === 'attestation') {
+    const got = (ev.replies || []).length;
+    progress = `${got} of ${ev.threshold || '?'} signers`;
+  }
+  return { status, pillClass, progress, complete, archived, pending };
+}
 
 async function renderSessionHub({ email, devLink, flash, showArchived = false }) {
   const all = await session.findEventsByInitiator(email);
-  const active = all.filter((ev) => !ev.archived_at);
-  const archived = all.filter((ev) => !!ev.archived_at);
+  // Summarise once so both the top strip and row rendering see the
+  // same derived status. Stash it on the event for simplicity.
+  for (const ev of all) ev._summary = summariseEvent(ev);
+  const counts = { active: 0, complete: 0, archived: 0, pending: 0 };
+  for (const ev of all) {
+    const s = ev._summary;
+    if (s.complete) counts.complete++;
+    else if (s.archived) counts.archived++;
+    else if (s.pending) counts.pending++;
+    else counts.active++;
+  }
+  const active = all.filter((ev) => !ev._summary.archived);
+  const archived = all.filter((ev) => ev._summary.archived);
   const events = showArchived ? all : active;
   const renderRow = (ev) => {
     const kind = ev.type === 'crypto' ? 'crypto' : 'event';
-    const status = ev.archived_at
-      ? html` · <span style="color:#6e7681">archived ${String(ev.archived_at).slice(0, 10)}</span>`
-      : raw('');
-    const sub = ev.type === 'crypto'
-      ? html`<span>mode <code>${ev.mode || '—'}</code> · created ${(ev.created_at || '').slice(0, 10)}${status}</span>`
-      : html`<span>${(ev.steps || []).length} step(s) · created ${(ev.created_at || '').slice(0, 10)}${status}</span>`;
+    const s = ev._summary;
+    const pill = html`<span class="mh-pill ${s.pillClass}">${s.status}</span>`;
+    const created = (ev.created_at || '').slice(0, 10);
+    // Status-specific one-liner: show the organiser what matters for
+    // THIS event right now, not a fixed field grid.
+    //   pending_activation → "waiting on your confirmation email"
+    //   open (workflow)    → "2 of 3 · next: video (alice@…)"
+    //   open (declaration) → "awaiting signature from alice@…"
+    //   open (attestation) → "3 of 10 signers"
+    //   complete           → "2 of 2 · completed 2026-04-20"
+    //   archived           → "2 of 3 · archived 2026-04-20"
+    let line;
+    if (s.pending) {
+      line = 'check your inbox — click the activation link to send invites';
+    } else if (s.complete) {
+      const when = ev.completion && ev.completion.completed_at
+        ? ` · completed ${String(ev.completion.completed_at).slice(0, 10)}` : '';
+      line = `${s.progress || 'done'}${when}`;
+    } else if (s.archived) {
+      line = `${s.progress || ''} · archived ${String(ev.archived_at).slice(0, 10)}`;
+    } else {
+      // open
+      if (ev.type === 'event' && Array.isArray(ev.steps)) {
+        const next = ev.steps.find((st) => st.status !== 'complete');
+        const nextLabel = next
+          ? ` · next: ${next.name}${next.participant ? ` (${next.participant})` : ''}`
+          : '';
+        line = `${s.progress || ''}${nextLabel}`;
+      } else {
+        line = s.progress || 'open';
+      }
+    }
+    const sub = html`<span>${line}</span><span class="muted"> · created ${created}</span>`;
     const manageHref = ev.management_token
       ? `/manage/${ev.management_token}`
       : `/manage/event/${ev.id}`;
@@ -1120,13 +1195,20 @@ async function renderSessionHub({ email, devLink, flash, showArchived = false })
       <div class="row">
         <span class="kind ${kind}">${kind}</span>
         <div class="meta">
-          <p class="title">${ev.title || ev.id}</p>
+          <p class="title">${ev.title || ev.id} ${pill}</p>
           <p class="sub">${sub}</p>
         </div>
         <a class="open" href="${manageHref}">open ▸</a>
       </div>
     `;
   };
+  const countsStrip = all.length === 0 ? raw('') : html`
+    <p class="mh-counts">
+      ${counts.active ? html`<span><strong>${String(counts.active)}</strong> active</span>` : raw('')}
+      ${counts.complete ? html`<span><strong>${String(counts.complete)}</strong> complete</span>` : raw('')}
+      ${counts.archived ? html`<span><strong>${String(counts.archived)}</strong> archived</span>` : raw('')}
+      ${counts.pending ? html`<span><strong>${String(counts.pending)}</strong> pending activation</span>` : raw('')}
+    </p>`;
   const rows = events.length === 0
     ? (showArchived
         ? html`<div class="empty">No events (including archived). <a href="/events/new">Create one</a>.</div>`
@@ -1144,6 +1226,7 @@ async function renderSessionHub({ email, devLink, flash, showArchived = false })
       <p class="lede">Signed in as <code>${email}</code>.</p>
       ${flash ? html`<div class="flash">${flash}</div>` : raw('')}
       ${devLink ? html`<div class="devlink"><strong>DEV:</strong> magic link (sendmail unavailable): <code>${devLink}</code></div>` : raw('')}
+      ${countsStrip}
       ${rows}
       ${toggle}
       <p class="logout">
