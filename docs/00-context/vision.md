@@ -1,67 +1,54 @@
-# Vision & Product Purpose
+# Vision
 
-## What Is GitDone?
+## What GitDone is
 
-GitDone is a multi-vendor workflow coordination platform with cryptographic proof of work sequence. It enables event planners to coordinate vendors through magic link authentication with Git-backed audit trails.
+A free tool for running multi-party workflows and gathering signatures
+entirely over email. Every reply is cryptographically verified, stamped
+against Bitcoin via OpenTimestamps, and committed to a per-event git
+repository. That repository is the final artifact: anyone who has it
+(the organizer, a participant, an auditor) can verify every signature
+offline, forever, with no gitdone server involved.
 
-**Tagline**: "Git-like sequence proof for physical world workflows"
+## Core bet
 
-## Core Value Proposition
+> Coordination tools lose their records when the company dies.
+> gitdone produces cryptographically-verifiable git repos as a *side
+> effect* of coordination. If the service dies, the records still work.
 
-Event workflows are tracked using Git commits as immutable proof of completion. Each vendor step creates a commit with uploaded files, creating a verifiable timeline of work completion.
+## Who it's for
 
-## Target Users
+- Organizers who need several people to say "yes" in order — contract
+  approvals, vendor sign-offs, release gates, campaign launches.
+- Legal / compliance / audit-adjacent work where the evidence has to
+  survive the tool that collected it.
+- Petitions and attestations — gathering N real people's names with
+  cryptographic proof they're real.
 
-- **Event Planners**: Create events, assign vendor steps, track progress
-- **Vendors**: Receive magic links, upload proof of work, mark steps complete
-- **Clients/Stakeholders**: View read-only progress via public links
+## Who it isn't for
 
-## Core User Stories
+- Structured data collection — gitdone asks for short replies, not forms.
+- Chat.
+- Audiences that can't receive DKIM-signed email.
 
-**As an Event Planner:**
-- I can create an event with steps
-- I can invite vendors via email
-- I can see real-time progress
+## Design stance (full list: PRD §0.1)
 
-**As a Vendor:**
-- I receive a magic link via email
-- I can upload photos/docs
-- I can mark my step complete
+1. **No accounts, ever.** Participants reply to emails. No sign-up, no
+   passwords, no app.
+2. **Proofs verify without gitdone being alive.** The `gitdone-verify`
+   tool is MIT-licensed and takes a cloned repo. That's all.
+3. **No public API in Phase 1.** The git repo IS the API. Integrators
+   clone and parse.
+4. **Invisible beats correct.** If a feature makes a participant think,
+   reject it.
+5. **No analytics.** No cross-event aggregation. No "my gitdone." The
+   business model is that there isn't one.
+6. **Name the trust deposits.** We don't pretend trust is eliminated;
+   we pin it to four visible places: mail providers (DKIM), Bitcoin
+   miners (OTS anchor), git collision resistance, and the verifier
+   tool maintainers.
 
-**As a Client:**
-- I can view progress via read-only link
+## Status
 
-## Workflow Types
-
-- **Sequential** (A -> B -> C): Steps must complete in order
-- **Non-Sequential** (A, B, C): Steps can complete in any order
-- **Hybrid**: Custom sequence levels (1, 1, 2, 2, 3)
-
-## Product Boundaries
-
-### In Scope (MVP)
-- Event creation with sequential/non-sequential/hybrid flows
-- Magic link authentication (JWT, 30-day expiry)
-- File upload with image compression (Sharp) and video processing (ffmpeg)
-- Git-backed audit trail per event
-- SMTP email notifications
-- Platform statistics dashboard
-
-### Deferred
-- Payment integration
-- GDPR compliance tooling
-- Mobile app (React Native)
-- Real-time notifications (WebSockets)
-- Multi-language support
-- Team collaboration features
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Next.js 15, TypeScript, Tailwind CSS |
-| Backend | Node.js, Express |
-| Storage | JSON files, Git repositories |
-| Email | SMTP via Nodemailer |
-| Auth | JWT magic links |
-| File Processing | Sharp (images), fluent-ffmpeg (videos) |
+Phase 1 shipped to production (https://git-done.com) on 2026-04-20.
+See `CHANGELOG.md` for what landed; see `docs/01-product/prd.md` for
+the authoritative specification.

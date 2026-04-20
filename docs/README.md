@@ -1,47 +1,54 @@
-# GitDone Documentation
+# Documentation
 
-## Structure
+Structured per the 5-tier model. Everything here is about GitDone
+*as a product*; code-level docs live in `app/src/` alongside the
+code.
 
 ```
 docs/
-├── 00-context/          # WHY and WHAT EXISTS
-├── 01-product/          # WHAT the product must do
-├── 02-features/         # HOW features are designed & built
-├── 03-logs/             # MEMORY (what changed over time)
-├── 04-process/          # HOW to work with this system
-└── archive/             # Old/completed docs preserved
+├── 00-context/      WHY and WHAT EXISTS NOW
+│   ├── vision.md            product purpose + what it isn't
+│   ├── system-state.md      current architecture snapshot
+│   └── assumptions.md       constraints, risks, deferred items
+├── 01-product/      WHAT the product must do
+│   ├── prd.md               authoritative spec
+│   └── design/              frozen UI references
+│       ├── terminal-theme-v1.md
+│       ├── event-form-v1.md
+│       └── landing-and-crypto-v1.md
+├── 02-features/     HOW specific features are built
+│   └── README.md            (empty until Phase 2 features land)
+├── 03-logs/         MEMORY
+│   ├── decisions-log.md     architectural decisions + rationale
+│   ├── implementation-log.md milestones
+│   ├── bug-log.md
+│   ├── validation-log.md
+│   └── insights.md          lessons learned
+├── 04-process/      HOW to work with the system
+│   ├── phase1-plan.md       Phase 1 execution plan
+│   ├── deployment.md        VPS deploy runbook
+│   ├── dev-workflow.md
+│   ├── definition-of-done.md
+│   └── llm-prompts.md       guidelines for AI agents
+└── archive/         v1-era docs preserved for reference
+    └── v1-*.md              (pre-rewrite product shape)
 ```
 
-## Quick Links
+## Quick links
 
-### 00-context/ — Project Context
-- [vision.md](00-context/vision.md) — Product purpose, target users, tech stack
-- [assumptions.md](00-context/assumptions.md) — Constraints, risks, scaling path
-- [system-state.md](00-context/system-state.md) — Architecture, data flows, design patterns
+- Want to **understand the product**: `00-context/vision.md` →
+  `00-context/system-state.md` → `01-product/prd.md`.
+- Want to **deploy or operate it**: `04-process/deployment.md` +
+  `../ops/homeserver/README.md`.
+- Want to **contribute**: `../CLAUDE.md` (agent rules) +
+  `04-process/definition-of-done.md`.
+- Want to **see what shipped**: `../CHANGELOG.md`.
 
-### 01-product/ — Product Requirements
-- [prd.md](01-product/prd.md) — Event Aggregation Dashboard PRD
+## About the archive
 
-### 02-features/ — Feature Documentation
-- [api-reference.md](02-features/api-reference.md) — Complete REST API documentation
-- [email-setup.md](02-features/email-setup.md) — SMTP configuration guide
-- [environment.md](02-features/environment.md) — Environment variable management
-- [test-plan.md](02-features/test-plan.md) — Playwright E2E test plan
-
-### 03-logs/ — Project History
-- [implementation-log.md](03-logs/implementation-log.md) — Feature milestones
-- [decisions-log.md](03-logs/decisions-log.md) — Architectural decisions with rationale
-- [bug-log.md](03-logs/bug-log.md) — Bugs found and resolutions
-- [validation-log.md](03-logs/validation-log.md) — Test runs and QA results
-- [insights.md](03-logs/insights.md) — Lessons learned
-
-### 04-process/ — Development Process
-- [dev-workflow.md](04-process/dev-workflow.md) — Development workflow, testing strategy, principles
-- [deployment.md](04-process/deployment.md) — VPS deployment guide (PM2, Nginx, SSL)
-- [development.md](04-process/development.md) — Local development setup and scripts
-- [testing-quickstart.md](04-process/testing-quickstart.md) — Get Playwright tests running in 5 minutes
-- [definition-of-done.md](04-process/definition-of-done.md) — Completion criteria checklist
-- [llm-prompts.md](04-process/llm-prompts.md) — AI agent guidelines for this project
-
-### archive/ — Historical Documents
-Contains completed task summaries, one-time fix logs, deployment announcements, and other temporal documents preserved for reference.
+Files under `archive/v1-*` describe GitDone *before* the Phase 1
+rewrite (magic-link-per-participant auth, Postgres, SMTP client,
+Playwright, React/Vite frontend). None of that is in the current
+product — the rewrite replaced it with email-native + DKIM + git +
+OTS. Archived rather than deleted so the history is recoverable if
+we ever re-explore one of those directions.
