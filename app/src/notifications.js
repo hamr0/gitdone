@@ -41,7 +41,13 @@ function workflowStepBody({ event, step, stepIndex, totalSteps }) {
     `Your step: ${step.name} (step ${stepIndex + 1} of ${totalSteps})`,
     `Organiser: ${event.initiator}`,
   ];
-  if (step.deadline) lines.push(`Deadline: ${step.deadline}`);
+  if (step.deadline) {
+    lines.push(
+      `Deadline: ${step.deadline}`,
+      `  (soft — replies after this date are still counted, but the organiser`,
+      `  will be notified if your step is overdue.)`,
+    );
+  }
   if (step.requires_attachment) lines.push(`Required: include an attachment with your reply.`);
   if (step.details) {
     lines.push(

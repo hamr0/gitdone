@@ -327,7 +327,7 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
         </label>
       </div>
 
-      <h2><span class="num">3</span>Steps <span class="hint">${String(stepRows)} · each gets a unique reply-to · <em>Depends on</em>: step numbers, comma-separated; empty = runs immediately</span></h2>
+      <h2><span class="num">3</span>Steps <span class="hint">${String(stepRows)} · each gets a unique reply-to · <em>Depends on</em>: step numbers, comma-separated; empty = runs immediately · <em>Deadline</em>: soft — later replies still count, you're notified if overdue</span></h2>
       <div class="vf-section">
         <table class="vf-steps-table">
           <thead>
@@ -335,7 +335,7 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
               <th class="col-num">#</th>
               <th class="col-name">Step</th>
               <th class="col-email">Participant</th>
-              <th class="col-dl">Deadline</th>
+              <th class="col-dl" title="Soft deadline — later replies still count, but you'll be notified if a step is overdue">Deadline</th>
               <th class="col-deps" title="step numbers this step waits for">Depends on</th>
               <th class="col-att" title="requires attachment">att</th>
               <th class="col-remove"></th>
