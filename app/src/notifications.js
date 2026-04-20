@@ -135,6 +135,70 @@ async function notifyWorkflowParticipants(event, { stepsOverride } = {}) {
   return Promise.all(jobs);
 }
 
+// Email everyone who contributed to an event + the initiator when the
+// event transitions to complete (all steps done, or organiser close,
+// or declaration signed). One email per distinct address. Plain text,
+// DKIM-signed via the MTA milter. Best-effort — failures don't block
+// the completion commit itself.
+async function notifyEventCompletion(event, { reason = 'all_steps_done', publicBaseUrl } = {}) {
+  if (!event) return [];
+  const completedAt = (event.completion && event.completion.completed_at) || new Date().toISOString();
+  const recipients = new Set();
+  if (event.initiator) recipients.add(event.initiator.toLowerCase());
+  if (event.type === 'event' && Array.isArray(event.steps)) {
+    for (const s of event.steps) {
+      if (s && s.participant) recipients.add(s.participant.toLowerCase());
+    }
+  } else if (event.type === 'crypto' && event.mode === 'declaration' && event.signer) {
+    recipients.add(event.signer.toLowerCase());
+  }
+  // Attestation: participants may be anonymous crowd; only notify initiator.
+
+  const reasonLabel = reason === 'closed_by_initiator'
+    ? 'closed early by the organiser'
+    : reason === 'declaration_signed'
+      ? 'the signer replied'
+      : 'all steps completed';
+  const repoHint = event.id ? `  Event repo: git-done.com/events/${event.id} (auth required)` : '';
+  const steps = (event.steps || []).map((s, i) => {
+    const status = s.status === 'complete' ? 'DONE' : (s.status || 'pending').toUpperCase();
+    return `  ${i + 1}. ${s.name} — ${status}`;
+  }).join('\n');
+
+  const jobs = [...recipients].map((to) => {
+    const isOrganiser = event.initiator && to === event.initiator.toLowerCase();
+    const greeting = isOrganiser
+      ? `The event you organized has completed.`
+      : `An event you contributed to has completed.`;
+    const body = [
+      greeting,
+      ``,
+      `Event: ${event.title}`,
+      `Event ID: ${event.id}`,
+      `Completed: ${completedAt}`,
+      `Reason: ${reasonLabel}`,
+      ``,
+      steps ? `Steps:` : '',
+      steps,
+      steps ? `` : '',
+      `The full audit trail is stored as a git repository with one commit per`,
+      `reply, DKIM keys archived, and OpenTimestamps proofs attached. Anyone`,
+      `can verify it offline with the gitdone-verify CLI, even if gitdone itself`,
+      `goes away — the proofs outlive the service.`,
+      ``,
+      repoHint,
+      isOrganiser ? `  Organiser: ${event.initiator}` : `  Organised by ${event.initiator}`,
+    ].filter((l) => l !== '').join('\n');
+    return sendOne({
+      to,
+      subject: `[gitdone] "${event.title}" — complete`,
+      body,
+      event,
+    });
+  });
+  return Promise.all(jobs);
+}
+
 async function notifyDeclarationSigner(event) {
   if (!event || event.type !== 'crypto' || event.mode !== 'declaration' || !event.signer) {
     return [];
@@ -152,6 +216,7 @@ async function notifyDeclarationSigner(event) {
 module.exports = {
   notifyWorkflowParticipants,
   notifyDeclarationSigner,
+  notifyEventCompletion,
   workflowStepBody,
   declarationSignerBody,
 };

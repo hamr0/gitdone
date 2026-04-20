@@ -24,7 +24,7 @@ const { sendmail, buildRawMessage } = require('../src/outbound');
 const { forwardToOwner } = require('../src/forward');
 const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
 const { applyReply, updateEventAtomic } = require('../src/completion');
-const { notifyWorkflowParticipants } = require('../src/notifications');
+const { notifyWorkflowParticipants, notifyEventCompletion } = require('../src/notifications');
 const { authenticateInitiatorCommand, statsBody, executeRemind, executeClose } = require('../src/email-commands');
 const logger = require('../src/logger');
 const fs = require('node:fs/promises');
@@ -269,6 +269,13 @@ async function main() {
             summary: { closed_by: 'initiator', reason: 'close-command' },
           });
           cmdOutcome.completion_commit = cc;
+          // Notify everyone that the event was closed.
+          try {
+            const results = await notifyEventCompletion(r.newEvent, { reason: 'closed_by_initiator' });
+            cmdOutcome.completion_notified = results.map((x) => ({ to: x.to, ok: x.ok }));
+          } catch (err) {
+            cmdOutcome.completion_notify_error = err.message || String(err);
+          }
         } catch (err) {
           cmdOutcome.close_error = err.message || String(err);
         }
@@ -462,6 +469,18 @@ async function main() {
           completion.completion_commit = cc;
         } catch (err) {
           completion.completion_commit_error = err.message || String(err);
+        }
+        // Notify the organiser + every contributing participant that
+        // the event has completed. Best-effort; a send failure here
+        // doesn't undo the completion commit that was just written.
+        try {
+          const reason = nextEvent.type === 'crypto' && nextEvent.mode === 'declaration'
+            ? 'declaration_signed'
+            : 'all_steps_done';
+          const results = await notifyEventCompletion(nextEvent, { reason });
+          completion.completion_notified = results.map((r) => ({ to: r.to, ok: r.ok }));
+        } catch (err) {
+          completion.completion_notify_error = err.message || String(err);
         }
       }
 

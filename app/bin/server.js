@@ -1408,6 +1408,12 @@ router.post('/manage/:token/close', async (req, res, params) => {
       triggeringSequence: null,
       summary: { closed_by: 'initiator', reason: 'dashboard-close' },
     });
+    try {
+      const { notifyEventCompletion } = require('../src/notifications');
+      await notifyEventCompletion(r.newEvent, { reason: 'closed_by_initiator' });
+    } catch (err) {
+      process.stderr.write(`dashboard-close notify: ${err.message || err}\n`);
+    }
   }
   res.writeHead(303, { location: `/manage/${params.token}?closed=1` });
   res.end();
