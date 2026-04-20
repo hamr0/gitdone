@@ -167,28 +167,44 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
 
   const jobs = [...recipients].map((to) => {
     const isOrganiser = event.initiator && to === event.initiator.toLowerCase();
-    const greeting = isOrganiser
-      ? `The event you organized has completed.`
-      : `An event you contributed to has completed.`;
-    const body = [
-      greeting,
-      ``,
-      `Event: ${event.title}`,
-      `Event ID: ${event.id}`,
-      `Completed: ${completedAt}`,
-      `Reason: ${reasonLabel}`,
-      ``,
-      steps ? `Steps:` : '',
-      steps,
-      steps ? `` : '',
-      `The full audit trail is stored as a git repository with one commit per`,
-      `reply, DKIM keys archived, and OpenTimestamps proofs attached. Anyone`,
-      `can verify it offline with the gitdone-verify CLI, even if gitdone itself`,
-      `goes away — the proofs outlive the service.`,
-      ``,
-      repoHint,
-      isOrganiser ? `  Organiser: ${event.initiator}` : `  Organised by ${event.initiator}`,
-    ].filter((l) => l !== '').join('\n');
+    let body;
+    if (isOrganiser) {
+      body = [
+        `The event you organized has completed.`,
+        ``,
+        `Event: ${event.title}`,
+        `Event ID: ${event.id}`,
+        `Completed: ${completedAt}`,
+        `Reason: ${reasonLabel}`,
+        ``,
+        steps ? `Steps:` : '',
+        steps,
+        steps ? `` : '',
+        `The full audit trail is stored as a git repository with one commit per`,
+        `reply, DKIM keys archived, and OpenTimestamps proofs attached. Anyone`,
+        `can verify it offline with the gitdone-verify CLI, even if gitdone itself`,
+        `goes away — the proofs outlive the service.`,
+        ``,
+        repoHint,
+        `  Organiser: ${event.initiator}`,
+      ].filter((l) => l !== '').join('\n');
+    } else {
+      // Slim participant version. Do NOT leak the step table — that's
+      // private to the organiser. Participants see only what they need:
+      // the event closed, reason, and how to verify their own record.
+      body = [
+        `An event you contributed to has completed.`,
+        ``,
+        `Event: ${event.title}`,
+        `Reason: ${reasonLabel}`,
+        ``,
+        `Your reply is recorded in the event's git audit trail (DKIM-verified,`,
+        `OpenTimestamped) and will stay verifiable offline even if gitdone`,
+        `itself goes away.`,
+        ``,
+        `  Organised by ${event.initiator}`,
+      ].join('\n');
+    }
     return sendOne({
       to,
       subject: `[gitdone] "${event.title}" — complete`,
