@@ -114,11 +114,15 @@ everything in this entry is observable in a browser today.
   (Microsoft SNDS, Google Postmaster Tools) whose verification mail
   lands on these addresses. Config persisted at `ops/postfix/virtual`
   with installation steps in `docs/04-process/deployment.md` §6.1.
-- **Signed up for Microsoft SNDS** — verification on
-  `abuse@git-done.com`. Gives per-day feedback on the VPS IP's
-  reputation with Outlook/MSN/Hotmail recipients (complaint rate,
-  spam-trap hits, throttling signals). Passive operator tool; no code
-  change.
+- **Microsoft SNDS active** — verified via `abuse@git-done.com`.
+  Daily feedback on the VPS IP's reputation with Outlook/MSN/Hotmail
+  recipients (complaint rate, spam-trap hits, throttling signals).
+- **Google Postmaster Tools active** — monitors reputation with
+  Gmail (spam rate, feedback loop, DKIM/SPF/DMARC pass rate, IP and
+  domain reputation). Between the two services, deliverability to
+  the major consumer inboxes is passively tracked.
+- Both services are operator-side; no code change and no user-visible
+  behaviour.
 
 ### PRD
 
