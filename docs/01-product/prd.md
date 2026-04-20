@@ -563,6 +563,61 @@ Per the moat (§0.1.4 — "invisible beats correct"), the initiator's day-to-day
 
 Attachment verification is strictly stronger than body verification, because attachments are bit-preserved across forward paths while email bodies are not. In practice this matches reality: legal docs, evidence, signatures are the things people need to prove later; body text is conversation.
 
+### 6.5 Event lifecycle
+
+Events move through a small, explicit state machine. Nothing
+auto-completes — completion writes a permanent commit we can't undo,
+so the system nudges and archives instead, leaving the decision to
+the organiser.
+
+| State              | Dashboard visibility           | Replies count? | Transition in                     | Transition out                            |
+|--------------------|--------------------------------|----------------|-----------------------------------|-------------------------------------------|
+| `pending_activation` | amber pill, always visible    | no             | `POST /events` or `/crypto`       | click `/activate/:token` → `open`, OR 72h GC → deleted |
+| `open`             | default visible (blue pill)    | yes            | `/activate/:token` clicked        | all steps complete → `complete`; organiser close → `complete`; 45d idle → `archived` |
+| `complete`         | default visible (green pill)   | no             | all steps done / close command    | terminal — `completion.completed_at` is a git commit, not reversible |
+| `archived`         | **hidden by default**; `?show=archived` toggle (grey pill) | no (still commit for audit trail) | 45d past reference clock, or future manual archive | `POST /manage/:token/unarchive` → `open` |
+
+**Reference clock.** The "how stale is this event?" measure is
+`max(deadline across pending steps)` when any pending step has a
+deadline set, else `event.activated_at`. That way deadline-less
+events still age — counted from when they went live, not from when
+the form was filled.
+
+**Hourly sweep.** `app/bin/sweep.js` runs hourly via
+`gitdone-sweep.timer` and executes three passes in order:
+
+1. **Pending-activation GC.** Delete events where
+   `activated_at === null` and `age > GITDONE_ACTIVATION_TTL_HOURS`
+   (default 72). Orphaned activation tokens are swept in the same
+   pass. This removes impersonation-attempt residue — events created
+   with someone else's email that were never confirmed.
+2. **Overdue nudge.** For every active event with
+   `(now − referenceClock) > GITDONE_OVERDUE_NUDGE_DAYS` (default 14)
+   and no `nudged_overdue_at`, email the organiser once (*"N days
+   past deadline, still waiting on X / Y — remind, close, or
+   ignore"*) and persist `nudged_overdue_at`. The write happens
+   BEFORE the send so a crash-mid-send prefers *one email not sent*
+   over *N emails sent*.
+3. **Auto-archive.** For every active event with
+   `(now − referenceClock) > GITDONE_ARCHIVE_DAYS` (default 45),
+   set `archived_at` and `archive_reason: 'auto_stale'`, email the
+   organiser with a reversal pointer. Reversible from the
+   dashboard via `POST /manage/:token/unarchive`.
+
+**Archive semantics.** An archived event is **not** complete — it's
+reversibly off-stage. Replies to its reply addresses still commit to
+the git repo (audit trail always wins), but they do not count toward
+completion and the sender gets a threaded auto-reply saying so.
+`event.json` + tokens are the only state sweep touches; git repos
+and OTS proofs are never altered or deleted, consistent with
+§0.1 "proofs outlive the service."
+
+**Session `/manage` hub filtering.** The signed-in dashboard lists
+only active events by default. A `?show=archived` toggle surfaces
+archived records (they still verify and are still accessible via
+their per-event management link); the toggle is visible only when
+the signed-in email actually has archived events.
+
 ---
 
 ## 7. The Cryptographic Proof — What It Actually Guarantees

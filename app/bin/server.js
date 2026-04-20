@@ -1100,31 +1100,43 @@ const MANAGE_HUB_CSS = `
 .mh .devlink code { background: #0d1117; color: #ffb000; }
 `;
 
-async function renderSessionHub({ email, devLink, flash }) {
-  const events = await session.findEventsByInitiator(email);
+async function renderSessionHub({ email, devLink, flash, showArchived = false }) {
+  const all = await session.findEventsByInitiator(email);
+  const active = all.filter((ev) => !ev.archived_at);
+  const archived = all.filter((ev) => !!ev.archived_at);
+  const events = showArchived ? all : active;
+  const renderRow = (ev) => {
+    const kind = ev.type === 'crypto' ? 'crypto' : 'event';
+    const status = ev.archived_at
+      ? html` · <span style="color:#6e7681">archived ${String(ev.archived_at).slice(0, 10)}</span>`
+      : raw('');
+    const sub = ev.type === 'crypto'
+      ? html`<span>mode <code>${ev.mode || '—'}</code> · created ${(ev.created_at || '').slice(0, 10)}${status}</span>`
+      : html`<span>${(ev.steps || []).length} step(s) · created ${(ev.created_at || '').slice(0, 10)}${status}</span>`;
+    const manageHref = ev.management_token
+      ? `/manage/${ev.management_token}`
+      : `/manage/event/${ev.id}`;
+    return html`
+      <div class="row">
+        <span class="kind ${kind}">${kind}</span>
+        <div class="meta">
+          <p class="title">${ev.title || ev.id}</p>
+          <p class="sub">${sub}</p>
+        </div>
+        <a class="open" href="${manageHref}">open ▸</a>
+      </div>
+    `;
+  };
   const rows = events.length === 0
-    ? html`<div class="empty">No events yet. <a href="/events/new">Create one</a>.</div>`
-    : html`<div class="list">
-        ${events.map((ev) => {
-          const kind = ev.type === 'crypto' ? 'crypto' : 'event';
-          const sub = ev.type === 'crypto'
-            ? html`<span>mode <code>${ev.mode || '—'}</code> · created ${(ev.created_at || '').slice(0, 10)}</span>`
-            : html`<span>${(ev.steps || []).length} step(s) · created ${(ev.created_at || '').slice(0, 10)}</span>`;
-          const manageHref = ev.management_token
-            ? `/manage/${ev.management_token}`
-            : `/manage/event/${ev.id}`;
-          return html`
-            <div class="row">
-              <span class="kind ${kind}">${kind}</span>
-              <div class="meta">
-                <p class="title">${ev.title || ev.id}</p>
-                <p class="sub">${sub}</p>
-              </div>
-              <a class="open" href="${manageHref}">open ▸</a>
-            </div>
-          `;
-        })}
-      </div>`;
+    ? (showArchived
+        ? html`<div class="empty">No events (including archived). <a href="/events/new">Create one</a>.</div>`
+        : html`<div class="empty">No active events. <a href="/events/new">Create one</a>${archived.length ? html` or <a href="/manage?show=archived">view ${String(archived.length)} archived</a>` : raw('')}.</div>`)
+    : html`<div class="list">${events.map(renderRow)}</div>`;
+  const toggle = archived.length === 0
+    ? raw('')
+    : (showArchived
+        ? html`<p class="hint" style="margin:0.4rem 0 1rem"><a href="/manage" style="color:#8b949e">← hide archived</a></p>`
+        : html`<p class="hint" style="margin:0.4rem 0 1rem"><a href="/manage?show=archived" style="color:#8b949e">show ${String(archived.length)} archived</a></p>`);
   return html`
     <style>${raw(MANAGE_HUB_CSS)}</style>
     <div class="mh">
@@ -1133,6 +1145,7 @@ async function renderSessionHub({ email, devLink, flash }) {
       ${flash ? html`<div class="flash">${flash}</div>` : raw('')}
       ${devLink ? html`<div class="devlink"><strong>DEV:</strong> magic link (sendmail unavailable): <code>${devLink}</code></div>` : raw('')}
       ${rows}
+      ${toggle}
       <p class="logout">
         <form method="POST" action="/manage/logout"><button type="submit">sign out</button></form>
       </p>
@@ -1221,7 +1234,7 @@ router.get('/manage', async (req, res) => {
   if (email) {
     res.end(layout({
       title: 'your events — gitdone',
-      body: await renderSessionHub({ email }),
+      body: await renderSessionHub({ email, showArchived: /[?&]show=archived\b/.test(req.url || '') }),
     }));
   } else {
     res.end(layout({

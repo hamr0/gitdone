@@ -108,6 +108,27 @@ with the open-source `gitdone-verify` tool. No network calls, no
 gitdone service, no trust in us. Works from a USB stick on an
 airgapped laptop ten years from now.
 
+## Event lifecycle
+
+Events have an explicit and reversible lifecycle — the system prompts,
+the organizer decides. Nothing auto-completes.
+
+- **Creation → pending activation.** Participants are not notified
+  until you click the activation link we email to you (valid 72
+  hours). If you never click, the event quietly disappears — no
+  stranger you claimed to be hears from us.
+- **Active.** Steps complete as replies come in. If a deadline passes
+  with work still pending, you get a single nudge email at day 14
+  past the deadline (*"remind, close, or ignore"*). Late replies
+  still count — deadlines are aspirational, not gates.
+- **Auto-archive at day 45.** Idle events get archived — hidden
+  from your default dashboard, replies stop counting, a heads-up
+  email goes out with a one-click un-archive link. Nothing is
+  deleted; the git repo + proofs stay intact.
+- **Completion is only ever explicit.** Either all steps finish, or
+  you close the event. That writes a permanent commit. Everything
+  else is reversible.
+
 ## The fine print
 
 - gitdone never stores attachments — they're forwarded to the

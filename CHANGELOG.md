@@ -19,6 +19,88 @@ internal refactors and commit-level churn stay in `git log`.
 
 ---
 
+## [Phase 1 — lifecycle sweep: GC, nudge, auto-archive] — 2026-04-20 (night)
+
+Events have a real lifecycle now. Before this, abandoned events sat on
+disk forever and organisers had no feedback when a workflow went idle.
+An hourly systemd-driven sweep runs three passes; all thresholds
+env-tuneable.
+
+### Shipped
+
+- **72-hour pending-activation GC.** Events created but never activated
+  are deleted after `GITDONE_ACTIVATION_TTL_HOURS` (default 72). Stale
+  activation tokens are orphan-swept in the same pass. Keeps the
+  impersonation-attempt surface from piling up as zombie records.
+- **Day-14 overdue nudge.** Active events past their **reference clock**
+  by `GITDONE_OVERDUE_NUDGE_DAYS` (default 14) get ONE email to the
+  organiser — *"N days past deadline, still waiting on: X, Y; options
+  are remind / close / ignore."* Idempotent via a new
+  `event.nudged_overdue_at` field; we persist the flag **before** the
+  send so a crash-mid-send doesn't cause a repeat nudge next tick.
+- **Day-45 auto-archive.** Same cohort gets archived at
+  `GITDONE_ARCHIVE_DAYS` (default 45). Archive is reversible:
+  `event.archived_at` is set, repo + proofs untouched, replies still
+  commit for the audit trail but stop counting. Organiser gets a
+  heads-up email with a pointer to un-archive. Never auto-complete —
+  completion writes a permanent commit we can't undo.
+- **Reference clock.** The "how stale is this event?" measure is
+  `max(deadline over pending steps)` when any step has a deadline,
+  else `event.activated_at`. So deadline-less events still age out —
+  counted from when they actually went live, not from when the form
+  was filled.
+
+### Dashboard
+
+- Grey **"archived"** pill (distinct from amber "pending activation"
+  and blue "open" and green "complete").
+- Inline banner explaining the archive reason + date with an inline
+  **Un-archive** button that `POST`s `/manage/:token/unarchive`.
+- Send-reminders + Close-event disabled while archived.
+- Completion takes priority over archive in the pill: closing an
+  archived event cleanly shows "complete."
+- **Session `/manage` hub hides archived by default.** The signed-in
+  event list now shows only active events; archived ones are hidden
+  behind a "show N archived" toggle (`?show=archived`). The empty
+  state gets a direct link to the archived list when it exists. Each
+  archived row shows its archive date inline.
+
+### Completion engine + receive.js
+
+- `shouldCountWorkflow / Declaration / Attestation` all gate on
+  `!event.archived_at` with `reason: 'event archived'`.
+- receive.js auto-reply grew a fifth branch: *"This event has been
+  archived… Your reply is recorded in the audit trail but not counted.
+  If this is unexpected, reach out to the organiser — they can
+  un-archive from their dashboard."*
+
+### Ops
+
+- **New systemd units:** `ops/systemd/gitdone-sweep.{service,timer}`
+  — hourly, `OnBootSec=10min`, `Nice=10`. Installed into
+  `/etc/systemd/system/` on the VPS. Log line per tick goes to the
+  journal alongside the rest of gitdone.
+- **Dry-run support:** `node app/bin/sweep.js --dry-run` prints what
+  would happen without persisting or sending.
+
+### Principles
+
+- **Never auto-complete.** Archive, not close. Completion is a commit
+  we can't take back; archive is a toggle. Matches the soft-deadline
+  stance (human deadlines are aspirational; enforcement stays manual).
+- **Proofs outlive the dashboard record.** Sweep only touches
+  `event.json` + bookkeeping tokens. Git repos and OTS proofs are
+  never altered or deleted — a sweep-archived event still verifies
+  offline exactly like an active one.
+
+### Tests
+
+- 348/348 passing (up from 340). New `tests/unit/sweep.test.js`
+  covers all three passes plus the archive gate in the completion
+  engine.
+
+---
+
 ## [Phase 1 — activation gate + completion loop] — 2026-04-20 (late evening)
 
 End-to-end flows are now closed: (a) event creation can no longer spam
