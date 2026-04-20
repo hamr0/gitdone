@@ -42,25 +42,29 @@ function joinList(items) {
   return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
 }
 
-function groupLabel(indices) {
-  // indices are 0-based; output is 1-based
-  const labels = indices.map((i) => `Step ${i + 1}`);
-  if (indices.length === 1) return labels[0];
-  // "Steps 1, 2, and 3" — plural
-  const nums = indices.map((i) => String(i + 1));
-  return `Steps ${joinList(nums)}`;
+// Format a single step as "#N name". Falls back to "#N" when name missing.
+function stepLabel(step, index) {
+  const n = `#${index + 1}`;
+  const name = (step && step.name || '').trim();
+  return name ? `${n} ${name}` : n;
+}
+
+function groupLabel(indices, steps) {
+  const labels = indices.map((i) => stepLabel(steps[i], i));
+  return joinList(labels);
 }
 
 function renderFlowProse(steps) {
   if (!Array.isArray(steps) || steps.length === 0) return '';
-  if (steps.length === 1) return 'Step 1 runs alone.';
+  if (steps.length === 1) return `${stepLabel(steps[0], 0)} runs alone.`;
 
   const level = levelsByStep(steps);
   const maxLevel = Math.max(...level);
 
   // All at level 0 → fully parallel
   if (maxLevel === 0) {
-    return `All ${steps.length} steps run in parallel (any order).`;
+    const allLabels = steps.map((s, i) => stepLabel(s, i));
+    return `${joinList(allLabels)} run in parallel (any order).`;
   }
 
   // Group indices by level
@@ -71,7 +75,7 @@ function renderFlowProse(steps) {
     if (idxs.length) groups.push({ level: l, indices: idxs });
   }
 
-  const phrases = groups.map((g) => groupLabel(g.indices));
+  const phrases = groups.map((g) => groupLabel(g.indices, steps));
   return phrases.join(', then ') + '.';
 }
 
