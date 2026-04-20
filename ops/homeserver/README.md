@@ -126,15 +126,63 @@ Kuma alerts you.
 
 1. Kuma → Add New Monitor → **Push**
 2. Name: `gitdone-backup`
-3. Heartbeat: `86400s` (24h), Grace: `3600s` (1h)
-4. Kuma prints a push URL — paste it into the env file:
+3. **Heartbeat Interval: `86400` (seconds)**, **Heartbeat Retries: `0`**,
+   **Grace Period: `3600`**. Kuma defaults the interval to `60` — leaving
+   that default means Kuma marks the monitor "down" between pings every
+   minute, which is wrong for a daily cron. Override before saving.
+4. Kuma prints a push URL — paste it into the env file. **Do not wrap
+   it in angle brackets.** Use this heredoc to avoid sed-escaping the
+   `&` characters:
 
 ```bash
-sudo sed -i "s|^KUMA_PUSH_URL=.*|KUMA_PUSH_URL=<the-url>|" /etc/default/gitdone-backup
+# Rewrite the line cleanly. Single-quoted heredoc = no shell
+# substitution, so &msg= and &ping= survive verbatim.
+sudo tee /etc/default/gitdone-backup >/dev/null <<'EOF'
+VPS_HOST=104.129.2.254
+VPS_USER=root
+SSH_KEY=/home/ahassan/.ssh/gitdone_vps
+BACKUP_ROOT=/mnt/data/data/gitdone-backups
+KEEP_DAYS=30
+KUMA_PUSH_URL=http://federver:3001/api/push/XYZ?status=up&msg=OK&ping=
+EOF
+sudo chmod 640 /etc/default/gitdone-backup
 ```
+
+Replace the `KUMA_PUSH_URL=` line's URL with the exact string Kuma
+shows — no surrounding `<` `>`, no extra quotes.
 
 5. Save. Next successful backup flips Kuma green with
    `msg=backup_<date>_<size>`.
 
 If a backup fails or the home server is off for >25h, Kuma sends
 the same notification as an HTTP down event.
+
+## 4. Back up the SSH key + session secret to `pass`
+
+Runs on your **laptop** (the password store host), not on federver:
+
+```bash
+# A. Pull the VPS SSH key from federver into pass
+scp ahassan@federver:~/.ssh/gitdone_vps /tmp/.gvps.tmp
+pass insert -m gitdone/vps/ssh_key_federver < /tmp/.gvps.tmp
+shred -u /tmp/.gvps.tmp
+
+# B. Pull the production session secret from the VPS into pass
+ssh gitdone-vps 'grep ^GITDONE_SESSION_SECRET /etc/default/gitdone-web' \
+  | cut -d= -f2 \
+  | pass insert -e gitdone/vps/session_secret
+
+# C. VPS root password (if you have it)
+pass insert gitdone/vps/root_password    # prompts
+
+# Verify
+pass ls gitdone
+```
+
+Restore path if federver ever dies:
+
+```bash
+mkdir -p ~/.ssh
+pass show gitdone/vps/ssh_key_federver > ~/.ssh/gitdone_vps
+chmod 600 ~/.ssh/gitdone_vps
+```
