@@ -537,7 +537,7 @@ async function main() {
       if (accepted) {
         subject = `[gitdone] Accepted — ${event.title} — ${stepName}`;
         const tail = completion.completed_event
-          ? `All steps are now complete; the event is closed. Thank you.`
+          ? `All steps are now complete; the event is marked completed. Thank you.`
           : `Thank you — nothing else is needed from you on this step.`;
         body = [
           `Your reply for "${stepName}" on event "${event.title}" was accepted.`,

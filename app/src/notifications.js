@@ -154,11 +154,17 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
   }
   // Attestation: participants may be anonymous crowd; only notify initiator.
 
-  const reasonLabel = reason === 'closed_by_initiator'
+  // Keep vocabulary in sync with the /manage hub pills: "completed"
+  // means every step ran its full course; "closed early" means the
+  // organiser ended it with work still pending. Declaration is its
+  // own natural completion.
+  const isClosedEarly = reason === 'closed_by_initiator';
+  const isDeclaration = reason === 'declaration_signed';
+  const reasonLabel = isClosedEarly
     ? 'closed early by the organiser'
-    : reason === 'declaration_signed'
-      ? 'the signer replied'
-      : 'all steps completed';
+    : (isDeclaration ? 'the signer replied' : 'all steps completed');
+  const subjectVerb = isClosedEarly ? 'closed early' : 'completed';
+  const greetingParticiple = isClosedEarly ? 'been closed' : 'completed';
   const repoHint = event.id ? `  Event repo: git-done.com/events/${event.id} (auth required)` : '';
   const steps = (event.steps || []).map((s, i) => {
     const status = s.status === 'complete' ? 'DONE' : (s.status || 'pending').toUpperCase();
@@ -170,11 +176,11 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
     let body;
     if (isOrganiser) {
       body = [
-        `The event you organized has completed.`,
+        `The event you organized has ${greetingParticiple}.`,
         ``,
         `Event: ${event.title}`,
         `Event ID: ${event.id}`,
-        `Completed: ${completedAt}`,
+        `${isClosedEarly ? 'Closed' : 'Completed'}: ${completedAt}`,
         `Reason: ${reasonLabel}`,
         ``,
         steps ? `Steps:` : '',
@@ -193,7 +199,7 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
       // private to the organiser. Participants see only what they need:
       // the event closed, reason, and how to verify their own record.
       body = [
-        `An event you contributed to has completed.`,
+        `An event you contributed to has ${greetingParticiple}.`,
         ``,
         `Event: ${event.title}`,
         `Reason: ${reasonLabel}`,
@@ -207,7 +213,7 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
     }
     return sendOne({
       to,
-      subject: `[gitdone] "${event.title}" — complete`,
+      subject: `[gitdone] "${event.title}" — ${subjectVerb}`,
       body,
       event,
     });

@@ -15,7 +15,34 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
-*(no changes pending)*
+### Status taxonomy: split "complete" into `completed` vs `closed early`
+
+Terminal state was previously a single bucket labelled "complete",
+which hid a real distinction: events that ran their full course
+(every step replied) vs. events the organiser cut short with work
+still pending. Now:
+
+| State               | Meaning                                              |
+|---------------------|------------------------------------------------------|
+| `completed`         | Every step ran its full course. Natural finish.      |
+| `closed early`      | Organiser ended it (close-command or dashboard) with steps still pending. |
+| `archived`          | Auto-archived after 45d idle. Reversible.            |
+| `pending activation`| Never activated by the organiser.                    |
+| `open`              | In flight.                                            |
+
+Updated everywhere a status surfaced:
+
+- **Session /manage hub:** pill + row-summary split (row reads
+  "1 of 2 complete · closed early 2026-04-20" instead of the
+  misleading "completed" label). Top counts strip grew a
+  "N closed early" chip that only appears when there are any.
+- **Completion notification email:** subject is
+  `[gitdone] "<title>" — closed early` vs `… — completed`. Body
+  greeting matches ("has been closed" vs "has completed"). Reason
+  line kept readable ("closed early by the organiser").
+- **Participant success ack:** the final-reply case now says
+  *"the event is marked completed"* instead of *"the event is
+  closed"* (which overloaded the new "closed early" meaning).
 
 ---
 

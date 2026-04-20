@@ -574,7 +574,8 @@ the organiser.
 |--------------------|--------------------------------|----------------|-----------------------------------|-------------------------------------------|
 | `pending_activation` | amber pill, always visible    | no             | `POST /events` or `/crypto`       | click `/activate/:token` → `open`, OR 72h GC → deleted |
 | `open`             | default visible (blue pill)    | yes            | `/activate/:token` clicked        | all steps complete → `complete`; organiser close → `complete`; 45d idle → `archived` |
-| `complete`         | default visible (green pill)   | no             | all steps done / close command    | terminal — `completion.completed_at` is a git commit, not reversible |
+| `completed`        | default visible (green pill)   | no             | every step's `status === 'complete'` | terminal — `completion.completed_at` is a git commit, not reversible |
+| `closed early`     | default visible (amber pill)   | no             | `close+` email / dashboard Close with steps still pending | terminal — also written as `completion.completed_at`; distinguished from `completed` by whether all steps were done at close time |
 | `archived`         | **hidden by default**; `?show=archived` toggle (grey pill) | no (still commit for audit trail) | 45d past reference clock, or future manual archive | `POST /manage/:token/unarchive` → `open` |
 
 **Reference clock.** The "how stale is this event?" measure is

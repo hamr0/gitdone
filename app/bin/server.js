@@ -1105,6 +1105,7 @@ const MANAGE_HUB_CSS = `
            text-transform:uppercase; letter-spacing:0.1em; border:1px solid; vertical-align:0.15em; margin-left:0.3em; }
 .mh-pill.open { background:#0d1117; color:#58a6ff; border-color:#58a6ff; }
 .mh-pill.complete { background:#0d1117; color:#3fb950; border-color:#3fb950; }
+.mh-pill.closed { background:#0d1117; color:#d29922; border-color:#d29922; }
 .mh-pill.pending-activation { background:#0d1117; color:#ffb000; border-color:#ffb000; }
 .mh-pill.archived { background:#0d1117; color:#6e7681; border-color:#6e7681; }
 .mh .list .row .sub .muted { color: #6e7681; }
@@ -1115,12 +1116,22 @@ const MANAGE_HUB_CSS = `
 // renderManagementDashboard: complete > archived > pending_activation
 // > open. The returned `pillClass` is the same CSS class used in
 // renderManagementDashboard so styling stays consistent.
+// Split the terminal "complete" bucket into two. A workflow that ran
+// its full course (every step.status === 'complete') is "completed";
+// one that was ended early via close-command/dashboard while steps
+// were still pending is "closed". Both are terminal; naming them
+// differently matches how organisers actually think about outcomes.
 function summariseEvent(ev) {
-  const complete = ev.completion && ev.completion.status === 'complete';
-  const archived = !complete && !!ev.archived_at;
-  const pending = !complete && !archived && !ev.activated_at;
+  const terminal = ev.completion && ev.completion.status === 'complete';
+  const allStepsDone = ev.type === 'event' && Array.isArray(ev.steps) && ev.steps.length > 0
+    && ev.steps.every((s) => s.status === 'complete');
+  const completed = terminal && (ev.type !== 'event' || allStepsDone);
+  const closed = terminal && ev.type === 'event' && !allStepsDone;
+  const archived = !terminal && !!ev.archived_at;
+  const pending = !terminal && !archived && !ev.activated_at;
   let status, pillClass;
-  if (complete) { status = 'complete'; pillClass = 'complete'; }
+  if (completed) { status = 'completed'; pillClass = 'complete'; }
+  else if (closed) { status = 'closed early'; pillClass = 'closed'; }
   else if (archived) { status = 'archived'; pillClass = 'archived'; }
   else if (pending) { status = 'pending activation'; pillClass = 'pending-activation'; }
   else { status = 'open'; pillClass = 'open'; }
@@ -1129,12 +1140,12 @@ function summariseEvent(ev) {
     const done = ev.steps.filter((s) => s.status === 'complete').length;
     progress = `${done} of ${ev.steps.length} complete`;
   } else if (ev.type === 'crypto' && ev.mode === 'declaration') {
-    progress = complete ? 'signed' : 'awaiting signature';
+    progress = terminal ? 'signed' : 'awaiting signature';
   } else if (ev.type === 'crypto' && ev.mode === 'attestation') {
     const got = (ev.replies || []).length;
     progress = `${got} of ${ev.threshold || '?'} signers`;
   }
-  return { status, pillClass, progress, complete, archived, pending };
+  return { status, pillClass, progress, terminal, completed, closed, archived, pending };
 }
 
 async function renderSessionHub({ email, devLink, flash, showArchived = false }) {
@@ -1142,10 +1153,11 @@ async function renderSessionHub({ email, devLink, flash, showArchived = false })
   // Summarise once so both the top strip and row rendering see the
   // same derived status. Stash it on the event for simplicity.
   for (const ev of all) ev._summary = summariseEvent(ev);
-  const counts = { active: 0, complete: 0, archived: 0, pending: 0 };
+  const counts = { active: 0, completed: 0, closed: 0, archived: 0, pending: 0 };
   for (const ev of all) {
     const s = ev._summary;
-    if (s.complete) counts.complete++;
+    if (s.completed) counts.completed++;
+    else if (s.closed) counts.closed++;
     else if (s.archived) counts.archived++;
     else if (s.pending) counts.pending++;
     else counts.active++;
@@ -1169,9 +1181,11 @@ async function renderSessionHub({ email, devLink, flash, showArchived = false })
     let line;
     if (s.pending) {
       line = 'check your inbox — click the activation link to send invites';
-    } else if (s.complete) {
-      const when = ev.completion && ev.completion.completed_at
-        ? ` · completed ${String(ev.completion.completed_at).slice(0, 10)}` : '';
+    } else if (s.completed || s.closed) {
+      const date = ev.completion && ev.completion.completed_at
+        ? String(ev.completion.completed_at).slice(0, 10) : '';
+      const label = s.closed ? 'closed early' : 'completed';
+      const when = date ? ` · ${label} ${date}` : '';
       line = `${s.progress || 'done'}${when}`;
     } else if (s.archived) {
       line = `${s.progress || ''} · archived ${String(ev.archived_at).slice(0, 10)}`;
@@ -1205,7 +1219,8 @@ async function renderSessionHub({ email, devLink, flash, showArchived = false })
   const countsStrip = all.length === 0 ? raw('') : html`
     <p class="mh-counts">
       ${counts.active ? html`<span><strong>${String(counts.active)}</strong> active</span>` : raw('')}
-      ${counts.complete ? html`<span><strong>${String(counts.complete)}</strong> complete</span>` : raw('')}
+      ${counts.completed ? html`<span><strong>${String(counts.completed)}</strong> completed</span>` : raw('')}
+      ${counts.closed ? html`<span><strong>${String(counts.closed)}</strong> closed early</span>` : raw('')}
       ${counts.archived ? html`<span><strong>${String(counts.archived)}</strong> archived</span>` : raw('')}
       ${counts.pending ? html`<span><strong>${String(counts.pending)}</strong> pending activation</span>` : raw('')}
     </p>`;
