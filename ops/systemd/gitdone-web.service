@@ -1,0 +1,35 @@
+[Unit]
+Description=GitDone web (initiator UI)
+Documentation=https://github.com/hamr0/gitdone
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gitdone
+Group=gitdone
+# postdrop group: lets Node call sendmail(1) without relying on postdrop's
+# setgid bit — required when we also want NoNewPrivileges-style hardening.
+SupplementaryGroups=postdrop
+WorkingDirectory=/opt/gitdone/app
+EnvironmentFile=/etc/default/gitdone-web
+ExecStart=/usr/bin/node /opt/gitdone/app/bin/server.js
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+# Hardening. Deliberately NOT setting NoNewPrivileges=true: Postfix's
+# postdrop binary is setgid and we route around that via SupplementaryGroups,
+# but other setuid tools (e.g. ots) may still need privilege elevation in
+# future. /var/spool/postfix/maildrop must be writable so sendmail(1)
+# can enqueue mail under ProtectSystem=strict.
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/gitdone /var/log/gitdone /var/spool/postfix/maildrop
+PrivateTmp=true
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=multi-user.target
