@@ -213,6 +213,10 @@ const WORKFLOW_FORM_CSS = `
 .vf-steps-table .col-dl { width: 24%; }
 .vf-steps-table .col-deps { width: 12%; }
 .vf-steps-table .col-att { width: 40px; text-align: center; }
+.vf-steps-table .col-remove { width: 28px; text-align: center; padding: 0; }
+.vf-remove-step { background: transparent; border: 0; color: #6e7681; font-size: 1.2em; line-height: 1; padding: 0.15rem 0.45rem; cursor: pointer; font-family: inherit; }
+.vf-remove-step:hover { color: #f85149; }
+.vf-remove-step:focus { outline: 1px solid #f85149; color: #f85149; }
 .vf-details-toggle { background: none; border: 0; color: #58a6ff; cursor: pointer; font: inherit; font-size: 0.8em; padding: 0.1em 0.3em; letter-spacing: 0.02em; }
 .vf-details-toggle:hover { color: #ffb000; }
 .vf-details-toggle::before { content: "+ details"; }
@@ -271,9 +275,10 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
         <td class="col-dl"><input type="date" name="step_deadline" value="${d ? d.slice(0, 10) : ''}"></td>
         <td class="col-deps"><input type="text" name="step_depends_on" value="${dep}" placeholder="e.g. 1" title="step numbers this step waits for, comma-separated"></td>
         <td class="col-att"><input type="checkbox" name="step_requires_attachment" value="on" ${a ? raw('checked') : ''} title="requires attachment"></td>
+        <td class="col-remove">${stepRows > 1 ? html`<button type="submit" class="vf-remove-step" formaction="/events/new" formmethod="GET" name="_remove_step" value="${String(i)}" title="remove this step" aria-label="remove step ${String(i + 1)}">×</button>` : raw('')}</td>
       </tr>
       <tr class="vf-details-row ${detOpen ? raw('has-content open') : ''}">
-        <td colspan="6">
+        <td colspan="7">
           <button type="button" class="vf-details-toggle" data-toggle-details title="long-form instructions for the participant (optional, up to 4096 chars)"></button>
           <div class="vf-details-wrap">
             <textarea name="step_details" maxlength="4096" placeholder="Optional plain-text details for the participant. Example: 'Please review section 3.2 of the contract, focus on indemnification language. Reply with signed PDF or inline notes.' Shown in the invite email.">${det}</textarea>
@@ -329,6 +334,7 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
               <th class="col-dl">Deadline</th>
               <th class="col-deps" title="step numbers this step waits for">Depends on</th>
               <th class="col-att" title="requires attachment">att</th>
+              <th class="col-remove"></th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -412,6 +418,17 @@ router.get('/events/new', async (req, res) => {
     values.step_deadline.push('');
     values.step_depends_on.push('');
     values.step_details.push('');
+  }
+  // If _remove_step=<index> is set, splice that row from every parallel
+  // array. Never remove the last remaining step — validation requires ≥1.
+  const removeIdx = parseInt(sp.get('_remove_step') || '', 10);
+  if (Number.isInteger(removeIdx) && removeIdx >= 0
+      && removeIdx < values.step_name.length && values.step_name.length > 1) {
+    values.step_name.splice(removeIdx, 1);
+    values.step_participant.splice(removeIdx, 1);
+    values.step_deadline.splice(removeIdx, 1);
+    values.step_depends_on.splice(removeIdx, 1);
+    values.step_details.splice(removeIdx, 1);
   }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({ title: 'create event — gitdone', body: renderWorkflowForm({ values }) }));
