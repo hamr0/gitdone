@@ -525,7 +525,8 @@ async function main() {
     const handled = accepted
       || reason === 'missing_attachment'
       || reason === 'event already complete'
-      || reason === 'event not activated';
+      || reason === 'event not activated'
+      || reason === 'event archived';
     const to = handled ? (envelope.sender || from.address || null) : null;
     if (to) {
       const fromAddr = `event+${tag.eventId}-${tag.stepId}@${config.domain}`;
@@ -560,6 +561,20 @@ async function main() {
           `  ${fromAddr}`,
           ``,
           `If you believe this is a mistake, reach out to ${event.initiator}.`,
+        ].join('\n');
+      } else if (reason === 'event archived') {
+        subject = `[gitdone] Event archived — ${event.title}`;
+        body = [
+          `Thanks — we received your reply for "${stepName}" on event "${event.title}".`,
+          ``,
+          `This event has been archived (either by the organiser, or automatically`,
+          `after a long period of inactivity past its deadline). Your reply was not`,
+          `counted toward completion, but is still recorded in the event's audit`,
+          `trail.`,
+          ``,
+          `If this is unexpected, reach out to ${event.initiator} — they can`,
+          `un-archive the event from their dashboard and your reply will become`,
+          `valid on resend.`,
         ].join('\n');
       } else if (reason === 'event not activated') {
         subject = `[gitdone] Event not yet activated — ${event.title}`;

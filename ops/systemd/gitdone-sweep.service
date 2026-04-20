@@ -1,0 +1,15 @@
+[Unit]
+Description=GitDone lifecycle sweep (pending-activation GC, overdue nudge, auto-archive)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=gitdone
+Group=gitdone
+WorkingDirectory=/opt/gitdone/app
+ExecStart=/usr/bin/node /opt/gitdone/app/bin/sweep.js
+EnvironmentFile=-/etc/default/gitdone-web
+# A single sweep runs in well under a second; cap anyway so a bad
+# state can't wedge the timer.
+TimeoutStartSec=60
+Nice=10

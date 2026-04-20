@@ -101,6 +101,7 @@ function eligibleSteps(event) {
 
 function shouldCountWorkflow(event, commit) {
   if (!event.activated_at) return { count: false, reason: 'event not activated' };
+  if (event.archived_at) return { count: false, reason: 'event archived' };
   if (isComplete(event)) return { count: false, reason: 'event already complete' };
   if (!meetsTrust(commit, event)) return { count: false, reason: 'trust below min_trust_level' };
   if (!commit.participant_match) return { count: false, reason: 'sender not a named participant' };
@@ -121,6 +122,7 @@ function shouldCountWorkflow(event, commit) {
 
 function shouldCountDeclaration(event, commit) {
   if (!event.activated_at) return { count: false, reason: 'event not activated' };
+  if (event.archived_at) return { count: false, reason: 'event archived' };
   if (isComplete(event)) return { count: false, reason: 'declaration already signed' };
   if (!meetsTrust(commit, event)) return { count: false, reason: 'trust below min_trust_level' };
   if (!senderMatchesSigner(commit, event)) {
@@ -133,6 +135,7 @@ function shouldCountAttestation(event, commit) {
   // Attestation events stay open past completion (audit trail continues),
   // but counting-for-completion stops. Keep committing; stop counting.
   if (!event.activated_at) return { count: false, reason: 'event not activated' };
+  if (event.archived_at) return { count: false, reason: 'event archived' };
   if (isComplete(event)) return { count: false, reason: 'event already complete' };
   const trustOk = meetsTrust(commit, event);
   if (!trustOk && !event.allow_anonymous) {

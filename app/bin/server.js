@@ -1359,7 +1359,9 @@ router.get('/manage/:token', async (req, res, params) => {
       ? 'Event closed.'
       : (req.url.includes('?activated=1'))
         ? 'Event activated — invitations have been sent to all participants.'
-        : null;
+        : (req.url.includes('?unarchived=1'))
+          ? 'Event un-archived — replies will count again.'
+          : null;
   let stepAttempts = {};
   if (event.type === 'event') {
     const { listCommits } = require('../src/gitrepo');
@@ -1388,6 +1390,19 @@ router.post('/manage/:token/remind', async (req, res, params) => {
   if (!event) { res.writeHead(404); return res.end('event missing'); }
   await executeRemind(event);
   res.writeHead(303, { location: `/manage/${params.token}?reminded=1` });
+  res.end();
+});
+
+// Un-archive reverses an auto-archive (or a future manual archive).
+// Clears event.archived_at + archive_reason and redirects back to the
+// dashboard. Idempotent — un-archiving an already-active event is a
+// no-op that still 303s back.
+router.post('/manage/:token/unarchive', async (req, res, params) => {
+  const rec = await loadToken(params.token);
+  if (!rec) { res.writeHead(404); return res.end('link invalid'); }
+  const { unarchive } = require('../src/sweep');
+  await unarchive(rec.event_id);
+  res.writeHead(303, { location: `/manage/${params.token}?unarchived=1` });
   res.end();
 });
 
@@ -1436,6 +1451,9 @@ const MANAGE_CSS = `
 .mg-pill.open { background:#0d1117; color:#58a6ff; border-color:#58a6ff; }
 .mg-pill.complete { background:#0d1117; color:#3fb950; border-color:#3fb950; }
 .mg-pill.pending-activation { background:#0d1117; color:#ffb000; border-color:#ffb000; }
+.mg-pill.archived { background:#0d1117; color:#6e7681; border-color:#6e7681; }
+.mg-archived-banner { background:rgba(110,118,129,0.06); border:1px solid #30363d; border-left:3px solid #6e7681; color:#8b949e; padding:0.7rem 0.95rem; margin:0 0 1rem; font-size:0.92em; line-height:1.5; }
+.mg-archived-banner strong { color:#c9d1d9; display:block; margin-bottom:0.25rem; }
 .mg-pending-activation { background:rgba(255,176,0,0.06); border:1px solid #ffb000; border-left-width:3px; color:#ffb000; padding:0.7rem 0.95rem; margin:0 0 1rem; font-size:0.92em; line-height:1.5; }
 .mg-pending-activation strong { color:#ffb000; display:block; margin-bottom:0.25rem; }
 .mg-actions { display:flex; gap:0.7rem; margin:1rem 0; }
@@ -1467,11 +1485,14 @@ const MANAGE_CSS = `
 function renderManagementDashboard({ token, rec, event, flash, stepAttempts = {} }) {
   const complete = event.completion && event.completion.status === 'complete';
   const pendingActivation = !event.activated_at && !complete;
+  const archived = !!event.archived_at && !complete;
   const pill = complete
     ? html`<span class="mg-pill complete">complete</span>`
-    : (pendingActivation
-      ? html`<span class="mg-pill pending-activation">pending activation</span>`
-      : html`<span class="mg-pill open">open</span>`);
+    : (archived
+      ? html`<span class="mg-pill archived">archived</span>`
+      : (pendingActivation
+        ? html`<span class="mg-pill pending-activation">pending activation</span>`
+        : html`<span class="mg-pill open">open</span>`));
   let bodyMiddle;
   if (event.type === 'event') {
     const allSteps = event.steps || [];
@@ -1612,16 +1633,23 @@ function renderManagementDashboard({ token, rec, event, flash, stepAttempts = {}
         to send invitations. Until then, replies to the reply addresses below are accepted for the audit trail
         but don't count toward completion.
       </div>` : raw('')}
+    ${archived ? html`<div class="mg-archived-banner">
+        <strong>Archived${event.archive_reason === 'auto_stale' ? ' automatically' : ''} on <code>${String(event.archived_at).slice(0,10)}</code></strong>
+        Replies to the reply addresses still land in the audit trail but don't count toward completion.
+        <form method="POST" action="/manage/${token}/unarchive" style="display:inline;margin-left:0.4rem">
+          <button type="submit" style="background:transparent;border:1px solid #3fb950;color:#3fb950;padding:0.2em 0.6em;cursor:pointer;font:inherit;font-size:0.85em">Un-archive</button>
+        </form>
+      </div>` : raw('')}
 
     ${bodyMiddle}
 
     <div class="mg-actions">
       <form method="POST" action="/manage/${token}/remind" style="margin:0">
-        <button type="submit" class="mg-remind" ${complete || pendingActivation ? raw('disabled') : ''}>Send reminders</button>
+        <button type="submit" class="mg-remind" ${complete || pendingActivation || archived ? raw('disabled') : ''}>Send reminders</button>
       </form>
       <form method="POST" action="/manage/${token}/close" style="margin:0"
             onsubmit="return confirm('Close this event now? This writes a completion commit and cannot be undone.');">
-        <button type="submit" class="mg-close" ${complete || pendingActivation ? raw('disabled') : ''}>Close event</button>
+        <button type="submit" class="mg-close" ${complete || pendingActivation || archived ? raw('disabled') : ''}>Close event</button>
       </form>
     </div>
 
