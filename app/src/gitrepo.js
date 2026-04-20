@@ -227,6 +227,32 @@ async function loadCommit(eventId, sequence) {
   catch { return null; }
 }
 
+// List all reply commits (commit-NNN.json) under an event's repo,
+// ordered by sequence ascending. Returns [] when the repo doesn't
+// exist yet or the dir is empty. Used by the dashboard to surface
+// replies that were committed for audit but didn't count (e.g.
+// missing_attachment) — the event.json status alone can't distinguish
+// "no reply yet" from "reply arrived but rejected".
+async function listCommits(eventId) {
+  if (!EVENT_ID_RE.test(eventId)) return [];
+  const commitsDir = path.join(repoPath(eventId), 'commits');
+  let files;
+  try { files = await fs.readdir(commitsDir); }
+  catch { return []; }
+  const seqs = [];
+  for (const f of files) {
+    const m = f.match(/^commit-(\d+)\.json$/);
+    if (m) seqs.push(parseInt(m[1], 10));
+  }
+  seqs.sort((a, b) => a - b);
+  const out = [];
+  for (const seq of seqs) {
+    const c = await loadCommit(eventId, seq);
+    if (c) out.push(c);
+  }
+  return out;
+}
+
 // Next sequence number in the reverify-NNN.json namespace (separate
 // from the reply commit-NNN.json namespace).
 async function nextReverifySequence(root) {
@@ -399,6 +425,7 @@ module.exports = {
   generateEventSalt,
   repoPath,
   loadCommit,
+  listCommits,
   nextReverifySequence,
   commitReverify,
   commitCompletion,

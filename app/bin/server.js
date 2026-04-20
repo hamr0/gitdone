@@ -1245,10 +1245,22 @@ router.get('/manage/:token', async (req, res, params) => {
     : (req.url.includes('?closed=1'))
       ? 'Event closed.'
       : null;
+  let stepAttempts = {};
+  if (event.type === 'event') {
+    const { listCommits } = require('../src/gitrepo');
+    const commits = await listCommits(event.id).catch(() => []);
+    for (const c of commits) {
+      if (!c.step_id) continue;
+      const prev = stepAttempts[c.step_id];
+      if (!prev || (c.sequence || 0) > (prev.sequence || 0)) {
+        stepAttempts[c.step_id] = c;
+      }
+    }
+  }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
     title: `manage — ${event.title}`,
-    body: renderManagementDashboard({ token: params.token, rec, event, flash }),
+    body: renderManagementDashboard({ token: params.token, rec, event, flash, stepAttempts }),
   }));
 });
 
@@ -1322,9 +1334,13 @@ const MANAGE_CSS = `
 .mg-steps .mg-details-row td { background:#0d1117; padding:0.45rem 0.7rem 0.6rem; border-bottom:1px solid #30363d; }
 .mg-steps .mg-details { background:#161b22; border-left:2px solid #3fb950; padding:0.5rem 0.75rem; font-size:0.88em; white-space:pre-wrap; line-height:1.5; color:#c9d1d9; }
 .mg-steps .col-att-flag { text-align:center; width:28px; }
+.mg-steps .mg-reject-row td { background:#0d1117; padding:0.35rem 0.7rem 0.5rem; border-bottom:1px solid #30363d; }
+.mg-steps .mg-reject { font-size:0.85em; color:#ffb000; border-left:2px solid #ffb000; padding:0.3rem 0.65rem; background:rgba(255,176,0,0.05); }
+.mg-steps .mg-reject code { background:#161b22; color:#c9d1d9; padding:0.05em 0.3em; }
+.mg-steps .mg-reject-at { color:#6e7681; font-family:inherit; }
 `;
 
-function renderManagementDashboard({ token, rec, event, flash }) {
+function renderManagementDashboard({ token, rec, event, flash, stepAttempts = {} }) {
   const complete = event.completion && event.completion.status === 'complete';
   const pill = complete
     ? html`<span class="mg-pill complete">complete</span>`
@@ -1342,7 +1358,17 @@ function renderManagementDashboard({ token, rec, event, flash }) {
         return !d || d.status !== 'complete';
       });
       const statusCls = s.status === 'complete' ? 'status-complete' : (blocked ? 'status-blocked' : 'status-pending');
-      const statusLabel = s.status === 'complete' ? '✓ complete' : (blocked ? '⏸ waiting' : '○ pending');
+      const latest = stepAttempts[s.id];
+      const rejectedAttempt = s.status !== 'complete' && latest
+        ? (s.requires_attachment && (!latest.attachments || latest.attachments.length === 0)
+            ? { reason: 'missing attachment', at: latest.received_at, domain: latest.sender_domain }
+            : (!latest.participant_match
+                ? { reason: 'sender not a named participant', at: latest.received_at, domain: latest.sender_domain }
+                : null))
+        : null;
+      const statusLabel = s.status === 'complete'
+        ? '✓ complete'
+        : (blocked ? '⏸ waiting' : (rejectedAttempt ? '⚠ reply rejected' : '○ pending'));
       const depsLabel = (s.depends_on || []).length
         ? (s.depends_on || []).map((dep) => {
             const idx = allSteps.findIndex((x) => x.id === dep);
@@ -1371,6 +1397,19 @@ function renderManagementDashboard({ token, rec, event, flash }) {
           <tr class="mg-details-row" data-step="${s.id}" hidden>
             <td></td>
             <td colspan="${String(colspan)}"><div class="mg-details">${s.details}</div></td>
+          </tr>
+        `);
+      }
+      if (rejectedAttempt) {
+        const colspan = 4 + (anyDeadlines ? 1 : 0) + (anyAtt ? 1 : 0);
+        out.push(html`
+          <tr class="mg-reject-row">
+            <td></td>
+            <td colspan="${String(colspan)}">
+              <div class="mg-reject">
+                ↳ reply received${rejectedAttempt.domain ? html` from <code>@${rejectedAttempt.domain}</code>` : raw('')} · <strong>${rejectedAttempt.reason}</strong> · not counted · <span class="mg-reject-at">${rejectedAttempt.at ? rejectedAttempt.at.slice(0, 16).replace('T', ' ') : ''}</span>
+              </div>
+            </td>
           </tr>
         `);
       }
