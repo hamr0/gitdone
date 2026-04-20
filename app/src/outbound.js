@@ -46,13 +46,14 @@ function rfc5322Date(d = new Date()) {
 // Headers passed here are emitted verbatim. The caller should not
 // pre-encode subjects with RFC 2047 unless they contain non-ASCII;
 // for ASCII subjects pass them as-is.
-function buildRawMessage({ from, to, subject, body, inReplyTo, references, autoSubmitted, messageId, extraHeaders, domain }) {
+function buildRawMessage({ from, to, subject, body, inReplyTo, references, autoSubmitted, messageId, extraHeaders, domain, replyTo }) {
   if (!from || !to || !subject || body == null) {
     throw new Error('buildRawMessage: from, to, subject, body are required');
   }
   const lines = [];
   lines.push(`From: ${from}`);
   lines.push(`To: ${to}`);
+  if (replyTo) lines.push(`Reply-To: ${replyTo}`);
   lines.push(`Subject: ${subject}`);
   lines.push(`Message-Id: ${messageId || newMessageId(domain || 'git-done.com')}`);
   lines.push(`Date: ${rfc5322Date()}`);

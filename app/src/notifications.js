@@ -87,13 +87,14 @@ function declarationSignerBody({ event }) {
 
 // --- senders ---
 
-async function sendOne({ to, subject, body, event }) {
+async function sendOne({ to, subject, body, event, replyTo }) {
   const from = gitdoneFrom();
   const rawMessage = buildRawMessage({
     from,
     to,
     subject,
     body,
+    replyTo,
     autoSubmitted: 'auto-generated',
     domain: config.domain,
     extraHeaders: { 'X-GitDone-Event': event.id },
@@ -122,6 +123,7 @@ async function notifyWorkflowParticipants(event, { stepsOverride } = {}) {
       subject: `[gitdone] ${event.title} — ${step.name} — your step`,
       body: workflowStepBody({ event, step, stepIndex: idx, totalSteps: total }),
       event,
+      replyTo: stepReplyAddr(event, step.id),
     });
   });
   return Promise.all(jobs);
@@ -136,6 +138,7 @@ async function notifyDeclarationSigner(event) {
     subject: `[gitdone] "${event.title}" — please sign`,
     body: declarationSignerBody({ event }),
     event,
+    replyTo: cryptoReplyAddr(event),
   });
   return [result];
 }

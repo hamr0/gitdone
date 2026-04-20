@@ -1465,7 +1465,7 @@ function renderManagementDashboard({ token, rec, event, flash }) {
       <p style="margin:0.5rem 0 0;color:#6e7681;font-size:0.82em">The subject and body can be anything; the address tag is the command. Authentication is DKIM + envelope-sender == event organizer, so only you can trigger these from your own inbox.</p>
     </div>
 
-    <p style="margin-top:1.5rem"><a href="/events/${event.id}">read-only view</a> · <a href="/">home</a></p>
+    <p style="margin-top:1.5rem"><a href="/">home</a></p>
   `;
 }
 
