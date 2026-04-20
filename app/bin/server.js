@@ -213,6 +213,10 @@ const WORKFLOW_FORM_CSS = `
 .vf-steps-table .col-dl { width: 24%; }
 .vf-steps-table .col-deps { width: 12%; }
 .vf-steps-table .col-att { width: 40px; text-align: center; }
+.vf-errors { background:#0d1117; border:1px solid #f85149; border-left-width:3px; color:#f0b8b8; padding:0.7rem 0.95rem; margin-bottom:1rem; font-size:0.92em; }
+.vf-errors strong { color:#f85149; text-transform:uppercase; letter-spacing:0.08em; font-size:0.8em; display:block; margin-bottom:0.35rem; }
+.vf-errors ul { margin:0; padding-left:1.2rem; color:#c9d1d9; }
+.vf-errors li { margin:0.12rem 0; }
 .vf-steps-table .col-remove { width: 28px; text-align: center; padding: 0; }
 .vf-remove-step { background: transparent; border: 0; color: #6e7681; font-size: 1.2em; line-height: 1; padding: 0.15rem 0.45rem; cursor: pointer; font-family: inherit; }
 .vf-remove-step:hover { color: #f85149; }
