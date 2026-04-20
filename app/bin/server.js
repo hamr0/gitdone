@@ -79,7 +79,7 @@ const LANDING_CSS = `
 .vF .kicker { font-size: 0.7em; letter-spacing: 0.22em; color: #8b949e; margin: 0 0 0.4rem; text-transform: uppercase; }
 .vF .kicker .dot { color: #3fb950; margin: 0 0.3em; }
 .vF h1 { font-family: inherit; font-size: clamp(2.4rem, 8vw, 4.4rem); line-height: 0.88;
-         font-weight: 700; letter-spacing: -0.04em; margin: 0 0 0.5rem; color: #c9d1d9; }
+         font-weight: 700; letter-spacing: -0.04em; margin: 0 0 1.1rem; color: #c9d1d9; }
 .vF h1 .slash { color: #ffb000; text-shadow: 0 0 18px rgba(255,176,0,.35); }
 .vF h1 .cursor { display: inline-block; width: 0.4em; height: 0.9em; background: #3fb950;
                  vertical-align: baseline; margin-left: 0.1em;
@@ -187,7 +187,7 @@ const WORKFLOW_FORM_CSS = `
 .vf-steps-table th { text-align: left; font-weight: 500; color: #8b949e; padding: 0.35rem 0.5rem; border-bottom: 1px solid #30363d; background: #161b22; font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.08em; }
 .vf-steps-table td { padding: 0.28rem 0.35rem; border-bottom: 1px solid #21262d; vertical-align: middle; }
 .vf-steps-table tr:last-child td { border-bottom: 0; }
-.vf-steps-table input[type=text], .vf-steps-table input[type=email], .vf-steps-table input[type=datetime-local] { width: 100%; padding: 0.3rem 0.45rem; border: 1px solid transparent; background: transparent; color: #c9d1d9; font-size: 0.9em; border-radius: 0; font-family: inherit; }
+.vf-steps-table input[type=text], .vf-steps-table input[type=email], .vf-steps-table input[type=date] { width: 100%; padding: 0.3rem 0.45rem; border: 1px solid transparent; background: transparent; color: #c9d1d9; font-size: 0.9em; border-radius: 0; font-family: inherit; }
 .vf-steps-table input:focus { border-color: #3fb950; background: #0d1117; outline: 0; box-shadow: 0 0 0 1px rgba(63,185,80,.2); }
 .vf-steps-table tr:hover input:not(:focus) { background: #161b22; }
 .vf-steps-table .col-num { width: 28px; color: #6e7681; font-variant-numeric: tabular-nums; text-align: right; padding-right: 0.4rem; font-size: 0.82em; }
@@ -234,7 +234,7 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
         <td class="col-num">${i + 1}</td>
         <td class="col-name"><input type="text" name="step_name" value="${n}" maxlength="200" placeholder="step name"></td>
         <td class="col-email"><input type="email" name="step_participant" value="${p}" placeholder="email@…"></td>
-        <td class="col-dl"><input type="datetime-local" name="step_deadline" value="${d}"></td>
+        <td class="col-dl"><input type="date" name="step_deadline" value="${d ? d.slice(0, 10) : ''}"></td>
         <td class="col-deps"><input type="text" name="step_depends_on" value="${dep}" placeholder="e.g. 1" title="step numbers this step waits for, comma-separated"></td>
         <td class="col-att"><input type="checkbox" name="step_requires_attachment" value="on" ${a ? raw('checked') : ''} title="requires attachment"></td>
       </tr>
