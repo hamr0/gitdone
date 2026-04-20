@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" fill="#0d1117"/>
+  <text x="7" y="48" font-family="JetBrains Mono, ui-monospace, monospace"
+        font-weight="700" font-size="44" fill="#c9d1d9" letter-spacing="-1">g</text>
+  <text x="36" y="48" font-family="JetBrains Mono, ui-monospace, monospace"
+        font-weight="700" font-size="44" fill="#ffb000" letter-spacing="-1">/</text>
+</svg>

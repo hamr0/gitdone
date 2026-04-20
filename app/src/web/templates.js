@@ -48,6 +48,7 @@ function layout({ title, body, dev, devHUD }) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHTML(title || 'gitdone')}</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>
 /* Terminal theme — retro CRT (charcoal + phosphor green + amber). */
 html, body { background: #0d1117; }

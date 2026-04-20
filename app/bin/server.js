@@ -64,6 +64,23 @@ const LISTEN_PORT = parseInt(process.env.GITDONE_WEB_PORT || '3001', 10);
 
 const router = createRouter();
 
+// Favicon served from disk (one route, cached by the browser). Both
+// /favicon.svg (the canonical SVG) and /favicon.ico (the default path
+// browsers probe) resolve to the same SVG bytes.
+const FAVICON_PATH = path.join(__dirname, '..', 'src', 'web', 'favicon.svg');
+let FAVICON_BODY = null;
+try { FAVICON_BODY = fs.readFileSync(FAVICON_PATH); } catch {}
+function serveFavicon(res) {
+  if (!FAVICON_BODY) { res.writeHead(404); return res.end(); }
+  res.writeHead(200, {
+    'content-type': 'image/svg+xml',
+    'cache-control': 'public, max-age=86400',
+  });
+  res.end(FAVICON_BODY);
+}
+router.get('/favicon.svg', async (req, res) => serveFavicon(res));
+router.get('/favicon.ico', async (req, res) => serveFavicon(res));
+
 // Design Lab winner — landing page (variant F: retro-terminal hybrid).
 // CRT-green + amber phosphor, monospace, oversized wordmark with slash,
 // two heavy cells (second inverted green → amber on hover).
