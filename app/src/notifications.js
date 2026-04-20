@@ -115,12 +115,11 @@ async function notifyWorkflowParticipants(event, { stepsOverride } = {}) {
   const target = stepsOverride
     ? stepsOverride
     : event.steps.filter((s) => !s.depends_on || s.depends_on.length === 0);
-  const subj = `[gitdone] "${event.title}" — your step`;
   const jobs = target.map((step) => {
     const idx = event.steps.indexOf(step);
     return sendOne({
       to: step.participant,
-      subject: subj,
+      subject: `[gitdone] ${event.title} — ${step.name} — your step`,
       body: workflowStepBody({ event, step, stepIndex: idx, totalSteps: total }),
       event,
     });

@@ -491,33 +491,52 @@ async function main() {
     }
   }
 
-  // Auto-reply to participant when the only thing blocking the step
-  // from counting was a missing attachment. The commit is already
-  // persisted above (audit trail preserves the reply-without-file);
-  // we just tell the sender what needs to be different on resend.
-  let attachmentReply = null;
-  if (completion && completion.decision && completion.decision.reason === 'missing_attachment' && tag && event) {
-    const to = envelope.sender || from.address || null;
+  // Auto-reply to the participant when the reply was committed but
+  // couldn't count — tell them exactly why so they aren't left
+  // wondering. Covers: missing_attachment (resend with file) and
+  // event already complete (workflow closed; reply is on the audit
+  // trail but won't progress anything).
+  let participantReply = null;
+  if (completion && completion.decision && tag && event) {
+    const reason = completion.decision.reason;
+    const handled = reason === 'missing_attachment' || reason === 'event already complete';
+    const to = handled ? (envelope.sender || from.address || null) : null;
     if (to) {
       const fromAddr = `event+${tag.eventId}-${tag.stepId}@${config.domain}`;
       const step = completion.decision.step || (event.steps || []).find((s) => s.id === tag.stepId);
       const stepName = step ? step.name : tag.stepId;
-      const body = [
-        `Thanks — we received your reply for "${stepName}" on event "${event.title}".`,
-        ``,
-        `This step requires an attachment, and we didn't find one on your reply.`,
-        `Your message is recorded in the event's audit trail, but the step will`,
-        `stay pending until a reply arrives with a file attached.`,
-        ``,
-        `Please reply again to this address with the document attached:`,
-        `  ${fromAddr}`,
-        ``,
-        `If you believe this is a mistake, reach out to ${event.initiator}.`,
-      ].join('\n');
+      let subject;
+      let body;
+      if (reason === 'missing_attachment') {
+        subject = `[gitdone] Attachment required — ${event.title} — ${stepName}`;
+        body = [
+          `Thanks — we received your reply for "${stepName}" on event "${event.title}".`,
+          ``,
+          `This step requires an attachment, and we didn't find one on your reply.`,
+          `Your message is recorded in the event's audit trail, but the step will`,
+          `stay pending until a reply arrives with a file attached.`,
+          ``,
+          `Please reply again to this address with the document attached:`,
+          `  ${fromAddr}`,
+          ``,
+          `If you believe this is a mistake, reach out to ${event.initiator}.`,
+        ].join('\n');
+      } else {
+        subject = `[gitdone] Event closed — ${event.title}`;
+        body = [
+          `Thanks — we received your reply for "${stepName}" on event "${event.title}".`,
+          ``,
+          `This event has already been closed, so your reply was not counted`,
+          `toward completion. Your message is still recorded in the event's`,
+          `audit trail for posterity.`,
+          ``,
+          `If this was unexpected, reach out to ${event.initiator}.`,
+        ].join('\n');
+      }
       const rawMessage = buildRawMessage({
         from: `gitdone <${fromAddr}>`,
         to,
-        subject: `[GitDone] Attachment required — ${event.title}`,
+        subject,
         inReplyTo: parsed.messageId || null,
         references: parsed.messageId || null,
         body,
@@ -525,7 +544,8 @@ async function main() {
         autoSubmitted: 'auto-replied',
       });
       const sendResult = await sendmail({ from: fromAddr, rawMessage });
-      attachmentReply = {
+      participantReply = {
+        kind: reason,
         to,
         from: fromAddr,
         ok: sendResult.ok,
@@ -533,7 +553,8 @@ async function main() {
         code: sendResult.code || null,
       };
       logger.emit({
-        kind: 'missing_attachment_reply',
+        kind: 'participant_auto_reply',
+        reason,
         event_id: tag.eventId,
         step_id: tag.stepId,
         to,
