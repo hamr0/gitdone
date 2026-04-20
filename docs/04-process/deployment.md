@@ -91,6 +91,30 @@ milter_default_action = accept
 sudo systemctl enable --now opendkim postfix
 ```
 
+### 6.1 Role-address aliases
+
+The `gitdone` pipe transport catches all `*@git-done.com` recipients by
+default, which means `postmaster@`, `abuse@`, etc. never reach a real
+inbox. Add virtual aliases BEFORE the pipe fallback so RFC 2142 role
+addresses forward to the operator:
+
+```bash
+sudo install -m 644 /opt/gitdone/ops/postfix/virtual /etc/postfix/virtual
+sudo postmap /etc/postfix/virtual
+sudo postconf -e 'virtual_alias_maps = hash:/etc/postfix/virtual'
+sudo postfix reload
+```
+
+Confirm:
+
+```bash
+postmap -q 'postmaster@git-done.com' hash:/etc/postfix/virtual
+# → avoidaccess@gmail.com
+```
+
+Required for: Microsoft SNDS sign-up (verification email goes to
+`abuse@`), Google Postmaster Tools, and any future abuse-report path.
+
 ## 7. systemd unit — web
 
 `/etc/systemd/system/gitdone-web.service`:

@@ -104,6 +104,22 @@ everything in this entry is observable in a browser today.
 - `/manage` POST replies with the same "check your inbox" message
   whether or not the email has events — no account-existence oracle.
 
+### Mail hygiene
+
+- **RFC 2142 role addresses forwarded** — `postmaster@`, `abuse@`,
+  `hostmaster@`, `security@` on both `git-done.com` and
+  `mail.git-done.com` forward to `avoidaccess@gmail.com` via a
+  Postfix `virtual_alias_maps` entry that runs BEFORE the `gitdone`
+  pipe fallback. Required for deliverability-reputation services
+  (Microsoft SNDS, Google Postmaster Tools) whose verification mail
+  lands on these addresses. Config persisted at `ops/postfix/virtual`
+  with installation steps in `docs/04-process/deployment.md` §6.1.
+- **Signed up for Microsoft SNDS** — verification on
+  `abuse@git-done.com`. Gives per-day feedback on the VPS IP's
+  reputation with Outlook/MSN/Hotmail recipients (complaint rate,
+  spam-trap hits, throttling signals). Passive operator tool; no code
+  change.
+
 ### PRD
 
 - §6.1 rewritten: form mock-up reflects `depends_on` (not `flow`),

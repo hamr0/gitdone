@@ -1,0 +1,23 @@
+# Virtual aliases for RFC 2142 role addresses + any other
+# manually-forwarded boxes.
+#
+# These MUST come BEFORE the gitdone virtual_transport (fallback)
+# so they do not hit the receive.js pipe (which only handles
+# event+* patterns). Wire with:
+#
+#   sudo install -m 644 ops/postfix/virtual /etc/postfix/virtual
+#   sudo postmap /etc/postfix/virtual
+#   sudo postconf -e 'virtual_alias_maps = hash:/etc/postfix/virtual'
+#   sudo postfix reload
+#
+# Format: <recipient>  <forward-to>
+
+# RFC 2142 role addresses — forwarded to the operator's gmail so
+# abuse reports, security disclosures, and deliverability services
+# (Microsoft SNDS, Google Postmaster Tools) can reach a real human.
+postmaster@git-done.com       avoidaccess@gmail.com
+postmaster@mail.git-done.com  avoidaccess@gmail.com
+abuse@git-done.com            avoidaccess@gmail.com
+abuse@mail.git-done.com       avoidaccess@gmail.com
+hostmaster@git-done.com       avoidaccess@gmail.com
+security@git-done.com         avoidaccess@gmail.com
