@@ -1543,7 +1543,7 @@ function renderManagementDashboard({ token, rec, event, flash, stepAttempts = {}
       return out;
     });
     bodyMiddle = html`
-      <h2><span class="num">1</span> Steps
+      <h2>Steps
         <span class="hint" style="font-weight:400;color:#888;font-size:0.88em;text-transform:none;letter-spacing:0;margin-left:0.3rem">
           ${String(done)} of ${String(total)} complete
         </span>
@@ -1581,7 +1581,7 @@ function renderManagementDashboard({ token, rec, event, flash, stepAttempts = {}
     `;
   } else if (event.mode === 'declaration') {
     bodyMiddle = html`
-      <h2><span class="num">1</span> Declaration</h2>
+      <h2>Declaration</h2>
       <div class="mg-section">
         <p class="mg-meta">Signer: <code>${event.signer}</code></p>
         <p class="mg-meta">Reply address: <code>event+${event.id}@${config.domain}</code></p>
@@ -1591,7 +1591,7 @@ function renderManagementDashboard({ token, rec, event, flash, stepAttempts = {}
   } else {
     const counted = (event.replies || []).length;
     bodyMiddle = html`
-      <h2><span class="num">1</span> Attestation</h2>
+      <h2>Attestation</h2>
       <div class="mg-section">
         <p class="mg-meta">Reply address: <code>event+${event.id}@${config.domain}</code></p>
         <p class="mg-meta">Threshold: <strong>${String(event.threshold)}</strong> · Dedup: <code>${event.dedup}</code> · Anonymous: ${event.allow_anonymous ? 'allowed' : 'not allowed'}</p>
