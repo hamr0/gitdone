@@ -213,6 +213,18 @@ const WORKFLOW_FORM_CSS = `
 .vf-steps-table .col-dl { width: 24%; }
 .vf-steps-table .col-deps { width: 12%; }
 .vf-steps-table .col-att { width: 40px; text-align: center; }
+.vf-details-toggle { background: none; border: 0; color: #58a6ff; cursor: pointer; font: inherit; font-size: 0.8em; padding: 0.1em 0.3em; letter-spacing: 0.02em; }
+.vf-details-toggle:hover { color: #ffb000; }
+.vf-details-toggle::before { content: "+ details"; }
+.vf-details-row.open .vf-details-toggle::before { content: "\u2212 details"; }
+.vf-details-row td { padding: 0 0.4rem 0.6rem 28px; border-bottom: 1px solid #21262d; }
+.vf-details-row .vf-details-wrap { display: none; }
+.vf-details-row.open .vf-details-wrap,
+.vf-details-row.has-content .vf-details-wrap { display: block; margin-top: 0.25rem; }
+.vf-details-row textarea { width: 100%; min-height: 4.5em; padding: 0.4rem 0.55rem; background: #161b22; color: #c9d1d9; border: 1px solid #30363d; border-radius: 0; font: inherit; font-size: 0.88em; resize: vertical; box-sizing: border-box; }
+.vf-details-row textarea:focus { border-color: #3fb950; outline: 0; box-shadow: 0 0 0 1px rgba(63,185,80,.2); }
+.vf-details-row .vf-details-count { font-size: 0.72em; color: #6e7681; text-align: right; margin-top: 0.15em; }
+.vf-details-row .vf-details-count.over { color: #f85149; }
 .vf-add-row { margin: 0.5rem 0 0; font-size: 0.85em; }
 .vf-add-row button { background: none; border: 0; color: #58a6ff; cursor: pointer; padding: 0; font: inherit; text-decoration: none; }
 .vf-add-row button:hover { color: #ffb000; text-decoration: underline; }
@@ -234,6 +246,7 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
   const deadlines = values.step_deadline || [];
   const atts = values.step_requires_attachment || [];
   const depsArr = values.step_depends_on || [];
+  const detailsArr = values.step_details || [];
   const stepRows = Math.max(2, names.length || 2);
   const selectedTrust = values.min_trust_level || 'verified';
   const trustOpts = VALID_TRUST_LEVELS.map((t) => html`
@@ -246,14 +259,27 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
     const d = deadlines[i] || '';
     const a = atts[i] === 'on' || atts[i] === true;
     const dep = depsArr[i] || '';
+    const det = detailsArr[i] || '';
+    const detOpen = det.length > 0;
     rows.push(html`
       <tr>
         <td class="col-num">${i + 1}</td>
-        <td class="col-name"><input type="text" name="step_name" value="${n}" maxlength="200" placeholder="step name"></td>
+        <td class="col-name">
+          <input type="text" name="step_name" value="${n}" maxlength="200" placeholder="step name">
+        </td>
         <td class="col-email"><input type="email" name="step_participant" value="${p}" placeholder="email@…"></td>
         <td class="col-dl"><input type="date" name="step_deadline" value="${d ? d.slice(0, 10) : ''}"></td>
         <td class="col-deps"><input type="text" name="step_depends_on" value="${dep}" placeholder="e.g. 1" title="step numbers this step waits for, comma-separated"></td>
         <td class="col-att"><input type="checkbox" name="step_requires_attachment" value="on" ${a ? raw('checked') : ''} title="requires attachment"></td>
+      </tr>
+      <tr class="vf-details-row ${detOpen ? raw('has-content open') : ''}">
+        <td colspan="6">
+          <button type="button" class="vf-details-toggle" data-toggle-details title="long-form instructions for the participant (optional, up to 4096 chars)"></button>
+          <div class="vf-details-wrap">
+            <textarea name="step_details" maxlength="4096" placeholder="Optional plain-text details for the participant. Example: 'Please review section 3.2 of the contract, focus on indemnification language. Reply with signed PDF or inline notes.' Shown in the invite email.">${det}</textarea>
+            <div class="vf-details-count" data-details-count>0 / 4096</div>
+          </div>
+        </td>
       </tr>
     `);
   }
@@ -316,13 +342,13 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
     </form>
     <script>${raw(`
       (function(){
-        // Deadline hint: when a step has a depends_on, the deadline becomes
-        // a hard-cap SLA on top of the implicit "wait for deps" rule.
-        // Surface this by dimming the deadline cell and showing a tooltip
-        // so users know it's optional when deps are set.
         var tbody = document.querySelector('.vf-steps-table tbody');
         if (!tbody) return;
-        function sync(row){
+
+        // Deadline hint: when a step has a depends_on, the deadline becomes
+        // a hard-cap SLA on top of the implicit "wait for deps" rule.
+        function syncDeadline(row){
+          if (!row.matches('tr:not(.vf-details-row)')) return;
           var dep = row.querySelector('input[name="step_depends_on"]');
           var dl  = row.querySelector('input[name="step_deadline"]');
           if (!dep || !dl) return;
@@ -332,13 +358,34 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
             ? 'Optional — step already waits for its dependencies. Set only if you need a wall-clock cap.'
             : '';
         }
-        tbody.addEventListener('input', function(e){
-          if (e.target && (e.target.name === 'step_depends_on' || e.target.name === 'step_deadline')) {
-            sync(e.target.closest('tr'));
-          }
+
+        // Details toggle: "+ details" / "- details" opens the textarea row.
+        // If the textarea has content on load, the row is pre-opened (via
+        // the server-rendered .open class) so edits don't hide content.
+        tbody.addEventListener('click', function(e){
+          var btn = e.target.closest('[data-toggle-details]');
+          if (!btn) return;
+          btn.closest('tr.vf-details-row').classList.toggle('open');
         });
+
+        // Details char counter.
+        function syncCount(ta){
+          var box = ta.closest('.vf-details-row').querySelector('[data-details-count]');
+          if (!box) return;
+          var len = ta.value.length;
+          box.textContent = len + ' / 4096';
+          box.classList.toggle('over', len > 4096);
+        }
+
+        tbody.addEventListener('input', function(e){
+          var t = e.target;
+          if (t.name === 'step_depends_on' || t.name === 'step_deadline') syncDeadline(t.closest('tr'));
+          if (t.name === 'step_details') syncCount(t);
+        });
+
         // initial sync
-        Array.prototype.forEach.call(tbody.querySelectorAll('tr'), sync);
+        Array.prototype.forEach.call(tbody.querySelectorAll('tr:not(.vf-details-row)'), syncDeadline);
+        Array.prototype.forEach.call(tbody.querySelectorAll('textarea[name="step_details"]'), syncCount);
       })();
     `)}</script>
   `;
@@ -356,6 +403,7 @@ router.get('/events/new', async (req, res) => {
     step_participant: sp.getAll('step_participant'),
     step_deadline: sp.getAll('step_deadline'),
     step_depends_on: sp.getAll('step_depends_on'),
+    step_details: sp.getAll('step_details'),
   };
   // If _add_step is set, add an empty step slot
   if (sp.get('_add_step')) {
@@ -363,6 +411,7 @@ router.get('/events/new', async (req, res) => {
     values.step_participant.push('');
     values.step_deadline.push('');
     values.step_depends_on.push('');
+    values.step_details.push('');
   }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({ title: 'create event — gitdone', body: renderWorkflowForm({ values }) }));
@@ -393,6 +442,7 @@ const PREVIEW_CSS = `
                      color: #58a6ff; border: 1px solid #58a6ff; padding: 0.1em 0.45em; margin-right: 0.4em; }
 .pv ol.steps .chip.att { color: #ffb000; border-color: #ffb000; }
 .pv ol.steps .chip.dep { color: #3fb950; border-color: #3fb950; }
+.pv ol.steps .details { margin-top: 0.35rem; padding: 0.45rem 0.7rem; background: #161b22; border-left: 2px solid #3fb950; font-size: 0.88em; color: #c9d1d9; white-space: pre-wrap; line-height: 1.5; }
 .pv .actions { display: flex; gap: 0.7rem; margin-top: 1.3rem; flex-wrap: wrap; }
 .pv .actions button { font-family: inherit; font-size: 0.9em; padding: 0.65rem 1.4rem; border-radius: 0;
                       cursor: pointer; letter-spacing: 0.05em; text-transform: uppercase; font-weight: 600; }
@@ -431,11 +481,13 @@ function renderPreview({ validated, rawBody }) {
   const dls = rowArr('step_deadline');
   const atts = rowArr('step_requires_attachment');
   const deps = rowArr('step_depends_on');
+  const details = rowArr('step_details');
   for (let i = 0; i < names.length; i++) {
     hid('step_name', names[i]);
     hid('step_participant', parts[i]);
     hid('step_deadline', dls[i]);
     hid('step_depends_on', deps[i]);
+    hid('step_details', details[i]);
     // Checkbox semantics: only include the hidden when it was on.
     if (atts[i] === 'on' || atts[i] === true) hid('step_requires_attachment', 'on');
     else hid('step_requires_attachment', '');
@@ -474,6 +526,7 @@ function renderPreview({ validated, rawBody }) {
                   ${s.requires_attachment ? html`<span class="chip att">attachment required</span>` : raw('')}
                   ${s.deadline ? html`deadline: <code>${s.deadline.slice(0, 10)}</code>` : html`<span style="color:#6e7681">no deadline</span>`}
                 </div>
+                ${s.details ? html`<div class="details">${s.details}</div>` : raw('')}
               </div>
             </li>
           `;
@@ -563,6 +616,7 @@ router.post('/events', async (req, res) => {
               <div class="sub">reply-to: <code>event+${event.id}-${s.id}@${config.domain}</code>
                 ${s.deadline ? html` · deadline <code>${s.deadline.slice(0, 10)}</code>` : raw('')}
               </div>
+              ${s.details ? html`<div class="details">${s.details}</div>` : raw('')}
             </div>
           </li>
         `)}

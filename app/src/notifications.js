@@ -43,6 +43,13 @@ function workflowStepBody({ event, step, stepIndex, totalSteps }) {
   ];
   if (step.deadline) lines.push(`Deadline: ${step.deadline}`);
   if (step.requires_attachment) lines.push(`Required: include an attachment with your reply.`);
+  if (step.details) {
+    lines.push(
+      ``,
+      `What to do:`,
+      ...step.details.split(/\r?\n/).map((l) => `  ${l}`),
+    );
+  }
   lines.push(
     ``,
     `Reply from ${step.participant} to:`,

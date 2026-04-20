@@ -232,6 +232,40 @@ test('validateWorkflowEvent: skips deadline ordering when dependent has no deadl
   assert.equal(r.ok, true);
 });
 
+test('validateWorkflowEvent: accepts and preserves step details', () => {
+  const det = 'Please review section 3.2 of the contract.\nFocus on indemnification.\nReply with signed PDF.';
+  const r = validateWorkflowEvent({
+    title: 'x', initiator: 'a@b.com',
+    step_name: ['review'],
+    step_participant: ['legal@x.com'],
+    step_details: [det],
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.value.steps[0].details, det);
+});
+
+test('validateWorkflowEvent: empty details is stored as null (not empty string)', () => {
+  const r = validateWorkflowEvent({
+    title: 'x', initiator: 'a@b.com',
+    step_name: ['s'],
+    step_participant: ['a@x.com'],
+    step_details: [''],
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.value.steps[0].details, null);
+});
+
+test('validateWorkflowEvent: rejects details over 4096 chars', () => {
+  const r = validateWorkflowEvent({
+    title: 'x', initiator: 'a@b.com',
+    step_name: ['s'],
+    step_participant: ['a@x.com'],
+    step_details: ['a'.repeat(4097)],
+  });
+  assert.equal(r.ok, false);
+  assert.ok(r.errors.some((e) => /details.*too long/i.test(e)));
+});
+
 test('validateWorkflowEvent: rejects circular dependency', () => {
   // step 1 depends on 2, step 2 depends on 1
   const r = validateWorkflowEvent({

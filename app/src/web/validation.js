@@ -17,6 +17,7 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2
 const MAX_TITLE = 200;
 const MAX_STEPS = 50;
 const MAX_STEP_NAME = 200;
+const MAX_STEP_DETAILS = 4096; // ~600 words; forces brevity, fits in a notification email body without deliverability grief
 const VALID_TRUST_LEVELS = ['unverified', 'authorized', 'forwarded', 'verified'];
 
 function clean(s) {
@@ -178,6 +179,7 @@ function validateWorkflowEvent(form) {
   const deadlines = asArray(form.step_deadline);
   const attachmentFlags = asArray(form.step_requires_attachment);
   const dependsOnRaw = asArray(form.step_depends_on);
+  const detailsRaw = asArray(form.step_details);
 
   if (names.length === 0) {
     errors.push('at least one step is required');
@@ -221,11 +223,18 @@ function validateWorkflowEvent(form) {
     }
     seenStepIds.add(id);
 
+    const rawDetails = clean(detailsRaw[i] || '');
+    if (rawDetails.length > MAX_STEP_DETAILS) {
+      errors.push(`step ${i + 1} details: too long (max ${MAX_STEP_DETAILS} chars, got ${rawDetails.length}). Consider attaching a document and referencing it instead.`);
+      continue;
+    }
+
     steps.push({
       id,
       name: n,
       participant: pEmail.value,
       deadline: d.value,
+      details: rawDetails || null,
       requires_attachment: attachmentFlags[i] === 'on' || attachmentFlags[i] === 'true' || attachmentFlags[i] === true,
       status: 'pending',
       // carried through the cycle-check as 0-based indices, then resolved
