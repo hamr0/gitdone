@@ -293,9 +293,9 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
     `);
   }
   const errBlock = errors.length
-    ? html`<div style="background:#fee;border:1px solid #c99;padding:0.75rem;margin-bottom:1rem">
+    ? html`<div class="vf-errors">
         <strong>Please fix:</strong>
-        <ul style="margin:0.3rem 0 0 1rem">${errors.map((e) => html`<li>${e}</li>`)}</ul>
+        <ul>${errors.map((e) => html`<li>${e}</li>`)}</ul>
       </div>`
     : raw('');
   return html`
@@ -705,6 +705,10 @@ async function sendManagementEmail({ event, manageUrl }) {
 // apply to the picked mode stay on screen but dim. Reference:
 // docs/01-product/design/landing-and-crypto-v1.md
 const CRYPTO_FORM_CSS = `
+.vf-errors { background:#0d1117; border:1px solid #f85149; border-left-width:3px; color:#f0b8b8; padding:0.7rem 0.95rem; margin-bottom:1rem; font-size:0.92em; }
+.vf-errors strong { color:#f85149; text-transform:uppercase; letter-spacing:0.08em; font-size:0.8em; display:block; margin-bottom:0.35rem; }
+.vf-errors ul { margin:0; padding-left:1.2rem; color:#c9d1d9; }
+.vf-errors li { margin:0.12rem 0; }
 .cf { color: #c9d1d9; }
 .cf .head { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 0.6rem; }
 .cf .head h1 { font-size: 1.1rem; font-weight: 600; color: #c9d1d9; margin: 0; letter-spacing: 0.02em; }
@@ -746,9 +750,9 @@ function renderCryptoForm({ values = {}, errors = [] } = {}) {
         : 'accumulating — every email counts'}</option>
   `);
   const errBlock = errors.length
-    ? html`<div style="background:#fee;border:1px solid #c99;padding:0.75rem;margin-bottom:1rem">
+    ? html`<div class="vf-errors">
         <strong>Please fix:</strong>
-        <ul style="margin:0.3rem 0 0 1rem">${errors.map((e) => html`<li>${e}</li>`)}</ul>
+        <ul>${errors.map((e) => html`<li>${e}</li>`)}</ul>
       </div>`
     : raw('');
   const signerDim = mode === 'attestation' ? raw('dim') : raw('');
