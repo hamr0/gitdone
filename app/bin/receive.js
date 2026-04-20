@@ -491,15 +491,20 @@ async function main() {
     }
   }
 
-  // Auto-reply to the participant when the reply was committed but
-  // couldn't count — tell them exactly why so they aren't left
-  // wondering. Covers: missing_attachment (resend with file) and
-  // event already complete (workflow closed; reply is on the audit
-  // trail but won't progress anything).
+  // Auto-reply to the participant so every reply gets a signal back:
+  //   - ACCEPTED: "your step is marked complete" (closes the "did my
+  //     reply work?" loop; symmetric with the rejection paths below).
+  //   - missing_attachment: please resend with a file.
+  //   - event already complete / not activated: reply is in the audit
+  //     trail but didn't count; say why.
+  // Threaded via In-Reply-To so clients group the ack under the same
+  // conversation thread and it doesn't clutter the inbox.
   let participantReply = null;
   if (completion && completion.decision && tag && event) {
     const reason = completion.decision.reason;
-    const handled = reason === 'missing_attachment'
+    const accepted = completion.applied === true;
+    const handled = accepted
+      || reason === 'missing_attachment'
       || reason === 'event already complete'
       || reason === 'event not activated';
     const to = handled ? (envelope.sender || from.address || null) : null;
@@ -509,7 +514,21 @@ async function main() {
       const stepName = step ? step.name : tag.stepId;
       let subject;
       let body;
-      if (reason === 'missing_attachment') {
+      if (accepted) {
+        subject = `[gitdone] Accepted — ${event.title} — ${stepName}`;
+        const tail = completion.completed_event
+          ? `All steps are now complete; the event is closed. Thank you.`
+          : `Thank you — nothing else is needed from you on this step.`;
+        body = [
+          `Your reply for "${stepName}" on event "${event.title}" was accepted.`,
+          `The step is marked complete and the reply is recorded in the event's`,
+          `git audit trail (DKIM-verified, OpenTimestamped).`,
+          ``,
+          tail,
+          ``,
+          `Organiser: ${event.initiator}`,
+        ].join('\n');
+      } else if (reason === 'missing_attachment') {
         subject = `[gitdone] Attachment required — ${event.title} — ${stepName}`;
         body = [
           `Thanks — we received your reply for "${stepName}" on event "${event.title}".`,
@@ -559,21 +578,27 @@ async function main() {
       });
       const sendResult = await sendmail({ from: fromAddr, rawMessage });
       participantReply = {
-        kind: reason,
+        kind: accepted ? 'accepted' : reason,
         to,
         from: fromAddr,
         ok: sendResult.ok,
         reason: sendResult.reason || null,
         code: sendResult.code || null,
       };
-      logger.emit({
-        kind: 'participant_auto_reply',
-        reason,
-        event_id: tag.eventId,
-        step_id: tag.stepId,
-        to,
-        ok: sendResult.ok,
-      });
+      // Separate log line only for rejection paths; the accepted-case
+      // ack is already visible via completion.applied=true in the main
+      // output, and emitting two stdout JSON objects breaks tests that
+      // parse stdout as a single record.
+      if (!accepted) {
+        logger.emit({
+          kind: 'participant_auto_reply',
+          reason,
+          event_id: tag.eventId,
+          step_id: tag.stepId,
+          to,
+          ok: sendResult.ok,
+        });
+      }
     }
   }
 
