@@ -89,6 +89,31 @@ async function clearCaptures() {
   await Promise.all(files.map((f) => fsp.unlink(path.join(capturesDir, f))));
 }
 
+// Events are created in pending-activation state; the initiator must
+// click the 72h activation link before participants are notified. In
+// tests we simulate that click by reading every activation token off
+// disk and GET-ing /activate/:token.
+function get(p) {
+  return new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port, path: p }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+    }).on('error', reject);
+  });
+}
+
+async function activateAll() {
+  const dir = path.join(tmp, 'activation_tokens');
+  let files = [];
+  try { files = await fsp.readdir(dir); } catch { return; }
+  for (const f of files) {
+    if (!f.endsWith('.json')) continue;
+    const rec = JSON.parse(await fsp.readFile(path.join(dir, f), 'utf8'));
+    await get(`/activate/${rec.token}`);
+  }
+}
+
 async function readCapture(toAddress) {
   const safe = toAddress.replace('@', '_at_').replace(/[^a-zA-Z0-9._-]/g, '_');
   const file = path.join(capturesDir, `${safe}.eml`);
@@ -114,6 +139,7 @@ test('chain of dependencies notifies only the root (step 1)', async () => {
     step_depends_on: ['', '1', '2'],
   });
   assert.equal(r.status, 200);
+  await activateAll();
   const recipients = await capturedRecipients();
   assert.ok(recipients.includes('organiser@ex.com'));
   assert.ok(recipients.includes('one@ex.com'));
@@ -135,6 +161,7 @@ test('no-dependency (all root) workflow notifies every step', async () => {
     step_depends_on: ['', ''],
   });
   assert.equal(r.status, 200);
+  await activateAll();
   const recipients = await capturedRecipients();
   assert.ok(recipients.includes('a@ex.com'));
   assert.ok(recipients.includes('b@ex.com'));
@@ -149,6 +176,7 @@ test('declaration notifies the designated signer', async () => {
     signer: 'witness@ex.com',
   });
   assert.equal(r.status, 200);
+  await activateAll();
   const recipients = await capturedRecipients();
   assert.ok(recipients.includes('witness@ex.com'));
   const msg = await readCapture('witness@ex.com');

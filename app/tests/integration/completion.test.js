@@ -68,6 +68,7 @@ test('sequential workflow: step 1 reply completes step 1 and cascades to step 2'
       min_trust_level: 'unverified',   // let unsigned mail count in tests
       initiator: 'boss@ex.com',
       salt: 'salt-seq-01',
+      activated_at: '2026-01-01T00:00:00Z',
       steps: [
         { id: 'one', name: 'Step one', participant: 'one@ex.com', status: 'pending', depends_on: [] },
         { id: 'two', name: 'Step two', participant: 'two@ex.com', status: 'pending', depends_on: ['one'] },
@@ -138,6 +139,7 @@ test('non-sequential workflow: replies count in any order, no cascade', async ()
       id: 'evns01', type: 'event',
       min_trust_level: 'unverified', initiator: 'boss@ex.com',
       salt: 'salt-ns-01',
+      activated_at: '2026-01-01T00:00:00Z',
       steps: [
         { id: 'a', participant: 'a@ex.com', status: 'pending', depends_on: [] },
         { id: 'b', participant: 'b@ex.com', status: 'pending', depends_on: [] },
@@ -169,6 +171,7 @@ test('declaration: signer reply completes the event', async () => {
       min_trust_level: 'unverified',
       initiator: 'journo@ex.com', signer: 'witness@ex.com',
       salt: 'salt-decl-01',
+      activated_at: '2026-01-01T00:00:00Z',
     }));
     const eml = buildEml([
       'From: witness@ex.com', 'To: event+evdecl01@git-done.com', 'Subject: I hereby declare',
@@ -196,6 +199,7 @@ test('declaration: reply from wrong sender does not complete', async () => {
       min_trust_level: 'unverified',
       initiator: 'j@ex.com', signer: 'witness@ex.com',
       salt: 'salt-decl-02',
+      activated_at: '2026-01-01T00:00:00Z',
     }));
     const eml = buildEml([
       'From: random@other.com', 'To: event+evdecl02@git-done.com', 'Subject: not the signer',
@@ -223,6 +227,7 @@ test('attestation unique: two distinct senders reach threshold=2 and complete', 
       min_trust_level: 'unverified',
       allow_anonymous: true, threshold: 2, dedup: 'unique', replies: [],
       initiator: 'chair@ex.com', salt: 'salt-att-01',
+      activated_at: '2026-01-01T00:00:00Z',
     }));
 
     const sendFrom = async (email) => {
@@ -263,6 +268,7 @@ test('attestation: duplicate sender does not advance threshold (unique dedup)', 
       min_trust_level: 'unverified', allow_anonymous: true,
       threshold: 2, dedup: 'unique', replies: [],
       initiator: 'c@ex.com', salt: 'salt-att-02',
+      activated_at: '2026-01-01T00:00:00Z',
     }));
 
     const send = () => runReceive(

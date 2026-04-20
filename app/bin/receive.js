@@ -499,7 +499,9 @@ async function main() {
   let participantReply = null;
   if (completion && completion.decision && tag && event) {
     const reason = completion.decision.reason;
-    const handled = reason === 'missing_attachment' || reason === 'event already complete';
+    const handled = reason === 'missing_attachment'
+      || reason === 'event already complete'
+      || reason === 'event not activated';
     const to = handled ? (envelope.sender || from.address || null) : null;
     if (to) {
       const fromAddr = `event+${tag.eventId}-${tag.stepId}@${config.domain}`;
@@ -520,6 +522,18 @@ async function main() {
           `  ${fromAddr}`,
           ``,
           `If you believe this is a mistake, reach out to ${event.initiator}.`,
+        ].join('\n');
+      } else if (reason === 'event not activated') {
+        subject = `[gitdone] Event not yet activated — ${event.title}`;
+        body = [
+          `Thanks — we received your reply for "${stepName}" on event "${event.title}".`,
+          ``,
+          `This event hasn't been activated by the organiser yet, so your reply`,
+          `was not counted. Your message is still recorded in the event's audit`,
+          `trail. Once the organiser activates the event, you'll get the normal`,
+          `invitation; please reply again then so the step can be marked complete.`,
+          ``,
+          `If this is unexpected, reach out to ${event.initiator}.`,
         ].join('\n');
       } else {
         subject = `[gitdone] Event closed — ${event.title}`;

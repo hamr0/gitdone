@@ -107,7 +107,7 @@ test('POST /events mints a magic token and sends management email', async () => 
     step_name: 'Step 1', step_participant: 'one@example.com',
   });
   assert.equal(r.status, 200);
-  assert.match(r.body, /Management link sent to boss@example\.com/);
+  assert.match(r.body, /Check boss@example\.com to activate/);
 
   // A token file should exist on disk
   const tokensDir = path.join(tmp, 'magic_tokens');

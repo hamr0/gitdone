@@ -77,6 +77,7 @@ test('stats+ from the initiator: reply lists step statuses', async () => {
       min_trust_level: 'unverified',      // accept unsigned test mail
       initiator: 'boss@ex.com', title: 'Q2',
       salt: 'salt-stats',
+      activated_at: '2026-01-01T00:00:00Z',
       steps: [
         { id: 'one', name: 'Legal', participant: 'l@ex.com', status: 'complete', completed_at: '2026-04-19T00:00:00Z', depends_on: [] },
         { id: 'two', name: 'Design', participant: 'd@ex.com', status: 'pending', depends_on: ['one'] },
@@ -114,6 +115,7 @@ test('stats+ from a random sender: rejected with reason', async () => {
       id: 'evna01', type: 'event',
       min_trust_level: 'unverified', initiator: 'boss@ex.com', title: 't',
       salt: 'salt-na',
+      activated_at: '2026-01-01T00:00:00Z',
       steps: [{ id: 'a', participant: 'a@ex.com', status: 'pending', depends_on: [] }],
     }));
     const eml = buildEml([
@@ -143,6 +145,7 @@ test('remind+ resends invitation to pending-first-step participant', async () =>
       id: 'evr01', type: 'event',
       min_trust_level: 'unverified', initiator: 'boss@ex.com', title: 'Q3',
       salt: 'salt-r',
+      activated_at: '2026-01-01T00:00:00Z',
       steps: [
         { id: 'one', name: 'Legal', participant: 'l@ex.com', status: 'pending', depends_on: [] },
         { id: 'two', name: 'Design', participant: 'd@ex.com', status: 'pending', depends_on: ['one'] },
@@ -184,6 +187,7 @@ test('close+ flips event to complete and writes completion.json', async () => {
       threshold: 99, dedup: 'unique', allow_anonymous: true, replies: [],
       title: 'abandon this',
       salt: 'salt-close',
+      activated_at: '2026-01-01T00:00:00Z',
     }));
     const eml = buildEml([
       'From: c@ex.com', 'To: close+evc01@git-done.com', 'Subject: close',

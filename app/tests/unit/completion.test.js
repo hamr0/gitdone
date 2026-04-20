@@ -24,6 +24,7 @@ function mkWorkflow(overrides = {}) {
   return {
     id: 'ev1', type: 'event', min_trust_level: 'verified',
     salt: 'a'.repeat(64),
+    activated_at: '2026-01-01T00:00:00Z',
     steps: [
       { id: 'one', name: 'one', participant: 'one@x.com', status: 'pending', depends_on: [] },
       { id: 'two', name: 'two', participant: 'two@x.com', status: 'pending', depends_on: ['one'] },
@@ -37,6 +38,7 @@ function mkDeclaration(overrides = {}) {
     id: 'ev2', type: 'crypto', mode: 'declaration', min_trust_level: 'verified',
     signer: 'w@x.com',
     salt: 'b'.repeat(64),
+    activated_at: '2026-01-01T00:00:00Z',
     ...overrides,
   };
 }
@@ -46,6 +48,7 @@ function mkAttestation(overrides = {}) {
     id: 'ev3', type: 'crypto', mode: 'attestation', min_trust_level: 'verified',
     threshold: 3, dedup: 'unique', allow_anonymous: false, replies: [],
     salt: 'c'.repeat(64),
+    activated_at: '2026-01-01T00:00:00Z',
     ...overrides,
   };
 }

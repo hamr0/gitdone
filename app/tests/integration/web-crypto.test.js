@@ -184,7 +184,7 @@ test('POST /crypto generates a magic token the same way as events', async () => 
     threshold: '3', dedup: 'unique',
   });
   assert.equal(r.status, 200);
-  assert.match(r.body, /Management link sent to owner@example\.com/);
+  assert.match(r.body, /Check owner@example\.com to activate/);
   const tokens = await fsp.readdir(path.join(tmp, 'magic_tokens'));
   assert.ok(tokens.some((f) => /^[a-f0-9]{32}\.json$/.test(f)));
 });

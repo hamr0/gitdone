@@ -83,6 +83,11 @@ async function createEvent(partialEvent) {
     id,
     created_at: new Date().toISOString(),
     salt: partialEvent.salt || generateEventSalt(),
+    // Events are created in a pending-activation state. The initiator
+    // must click the 72h activation magic link before participants are
+    // notified and replies start counting. Closes the impersonation
+    // hole where anyone could create an event in someone else's name.
+    activated_at: null,
     ...partialEvent,
     id, // ensure generated id overrides any caller-supplied id field
   };
@@ -95,11 +100,28 @@ async function createEvent(partialEvent) {
   return event;
 }
 
+// Mark an event activated. Atomic read-modify-write. Idempotent:
+// re-activating an already-active event is a no-op that returns the
+// existing event unchanged. Callers (the /activate route) still do the
+// participant notify; this function only persists the flag.
+async function activateEvent(eventId, { now = new Date().toISOString() } = {}) {
+  const event = await loadEvent(eventId);
+  if (!event) throw new Error(`activateEvent: event ${eventId} not found`);
+  if (event.activated_at) return { event, alreadyActive: true };
+  const next = { ...event, activated_at: now };
+  const file = path.join(config.dataDir, 'events', `${eventId}.json`);
+  const tmp = file + '.tmp';
+  await fs.writeFile(tmp, JSON.stringify(next, null, 2) + '\n');
+  await fs.rename(tmp, file);
+  return { event: next, alreadyActive: false };
+}
+
 module.exports = {
   loadEvent,
   findStep,
   senderMatchesStep,
   createEvent,
+  activateEvent,
   generateEventId,
   generateEventSalt,
 };

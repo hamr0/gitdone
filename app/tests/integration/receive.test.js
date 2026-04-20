@@ -108,6 +108,7 @@ test('integration: routing — matched event, matched step, matched participant'
     await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
     await fs.writeFile(path.join(tmp, 'events', 'demo123.json'), JSON.stringify({
       id: 'demo123', type: 'event', salt: 'test-salt-demo123',
+      activated_at: '2026-01-01T00:00:00Z',
       steps: [{ id: 'step1', participant: 'legal@example.com', status: 'pending', depends_on: [] }],
     }));
     const eml = buildEml([
@@ -139,6 +140,7 @@ test('integration: routing — known event, sender does NOT match step participa
     await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
     await fs.writeFile(path.join(tmp, 'events', 'demo456.json'), JSON.stringify({
       id: 'demo456', salt: 'test-salt-demo456',
+      activated_at: '2026-01-01T00:00:00Z',
       steps: [{ id: 'step1', participant: 'expected@example.com' }],
     }));
     const eml = buildEml([
@@ -213,6 +215,7 @@ test('integration: 1.C — matched reply is committed to event git repo', async 
     await fs.writeFile(path.join(tmp, 'events', 'demoA.json'), JSON.stringify({
       id: 'demoA', title: 'Commit test',
       salt: 'test-salt-demoA',
+      activated_at: '2026-01-01T00:00:00Z',
       steps: [{ id: 'step1', participant: 'alice@ex.com' }],
     }));
     const eml = buildEml([
@@ -265,7 +268,8 @@ test('integration: 1.C — second reply increments sequence', async () => {
   try {
     await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
     await fs.writeFile(path.join(tmp, 'events', 'demoB.json'), JSON.stringify({
-      id: 'demoB', salt: 'test-salt-demoB', steps: [{ id: 'step1', participant: 'a@b.com' }],
+      id: 'demoB', salt: 'test-salt-demoB',
+      activated_at: '2026-01-01T00:00:00Z', steps: [{ id: 'step1', participant: 'a@b.com' }],
     }));
     const env = { GITDONE_DATA_DIR: tmp };
     const mk = (msgId) => buildEml([
