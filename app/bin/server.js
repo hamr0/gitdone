@@ -795,14 +795,14 @@ router.post('/crypto', async (req, res) => {
   const msg = event.mode === 'declaration'
     ? html`
       <h1>Declaration created</h1>
-      <p><strong>${event.title}</strong> — ID: <code>${event.id}</code></p>
+      <p class="lede"><strong>${event.title}</strong> — organized by <code>${event.initiator}</code> · ID: <code>${event.id}</code></p>
       <p>The signer you named will get a reply address. When they reply from <code>${event.signer}</code>
       with a DKIM-verified email, it's committed to the event repo as a permanent record.</p>
       <p>Signer: <code>${event.signer}</code><br>Reply-to: <code>${replyAddr}</code></p>
     `
     : html`
       <h1>Attestation created</h1>
-      <p><strong>${event.title}</strong> — ID: <code>${event.id}</code></p>
+      <p class="lede"><strong>${event.title}</strong> — organized by <code>${event.initiator}</code> · ID: <code>${event.id}</code></p>
       <p>Share this reply address with potential signers (social media, mass email, QR code — up to you).
       Every DKIM-verified reply counts; completion is <strong>${String(event.threshold)} distinct signers</strong> with
       <code>${event.dedup}</code> dedup.</p>
@@ -810,17 +810,20 @@ router.post('/crypto', async (req, res) => {
       Share as: <code>mailto:${replyAddr}?subject=${encodeURIComponent('re: ' + event.title)}</code></p>
     `;
   const full = html`
-    ${msg}
-    ${emailResult.ok
-      ? html`<p style="background:#efe;padding:0.75rem;border:1px solid #9c9;margin-top:1rem">
-          <strong>Management link sent to ${event.initiator}.</strong>
-          Valid 30 days; lets you track progress and close the event.
-        </p>`
-      : html`<p style="background:#fee;padding:0.75rem;border:1px solid #c99;margin-top:1rem">
-          <strong>Management link could not be emailed</strong> (${emailResult.reason || 'send failed'}).
-          Save this URL: <code>${manageUrl}</code>
-        </p>`}
-    <p><a href="/">home</a></p>
+    <style>${raw(PREVIEW_CSS)}</style>
+    <div class="pv">
+      ${msg}
+      ${emailResult.ok
+        ? html`<div style="background:rgba(63,185,80,.08);border:1px solid #3fb950;color:#3fb950;padding:0.6rem 0.85rem;margin-top:1rem;font-size:0.9em">
+            <strong>Management link sent to ${event.initiator}.</strong>
+            Valid 30 days; lets you track progress and close the event.
+          </div>`
+        : html`<div style="background:rgba(255,176,0,.08);border:1px solid #ffb000;color:#ffb000;padding:0.65rem 0.9rem;margin-top:1rem;font-size:0.9em;line-height:1.5">
+            <strong>Management link could not be emailed</strong> (${emailResult.reason || 'send failed'}).
+            Save this URL: <code style="color:#ffb000;background:#0d1117;word-break:break-all">${manageUrl}</code>
+          </div>`}
+      <p style="margin-top:1.2rem"><a href="/">← home</a> · <a href="/manage">your events</a></p>
+    </div>
   `;
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({ title: 'crypto event created — gitdone', body: full }));
