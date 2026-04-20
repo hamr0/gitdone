@@ -1309,8 +1309,12 @@ const MANAGE_CSS = `
 .mg-close { background:#0d1117; color:#f85149; border:1px solid #f85149; }
 .mg-close:hover { background:#f85149; color:#0d1117; }
 .mg-actions button:disabled { opacity:0.4; cursor:not-allowed; }
-.mg-email-cmds { font-size:0.85em; color:#8b949e; background:#161b22; border:1px solid #30363d; border-radius:0; padding:0.7rem 0.9rem; margin-top:1rem; }
+.mg-email-cmds { font-size:0.85em; color:#8b949e; background:#161b22; border:1px solid #30363d; border-radius:0; padding:0.8rem 1rem; margin-top:1rem; }
 .mg-email-cmds code { background:#0d1117; color:#ffb000; border:1px solid #30363d; padding:0.08em 0.35em; border-radius:2px; }
+.mg-email-cmd-list { margin:0; display:grid; grid-template-columns:auto 1fr; gap:0.25rem 0.85rem; }
+.mg-email-cmd-list dt { margin:0; }
+.mg-email-cmd-list dd { margin:0; color:#c9d1d9; }
+@media (max-width: 560px) { .mg-email-cmd-list { grid-template-columns:1fr; } .mg-email-cmd-list dd { margin:0 0 0.45rem 0.3rem; } }
 .mg-details-toggle { background:none; border:0; color:#58a6ff; cursor:pointer; font:inherit; font-size:0.8em; padding:0 0.25em; letter-spacing:0.03em; vertical-align:baseline; }
 .mg-details-toggle:hover { color:#ffb000; }
 .mg-details-toggle::before { content:"+ details"; }
@@ -1449,10 +1453,16 @@ function renderManagementDashboard({ token, rec, event, flash }) {
     </div>
 
     <div class="mg-email-cmds">
-      Prefer email? From <code>${rec.initiator}</code> reply to:
-      <code>stats+${event.id}@${config.domain}</code> ·
-      <code>remind+${event.id}@${config.domain}</code> ·
-      <code>close+${event.id}@${config.domain}</code>.
+      <p style="margin:0 0 0.4rem">Prefer email? Send a short message from <code>${rec.initiator}</code> (DKIM-verified) to any of these:</p>
+      <dl class="mg-email-cmd-list">
+        <dt><code>stats+${event.id}@${config.domain}</code></dt>
+        <dd>get current progress back as a reply (which steps are done, pending, or waiting on deps)</dd>
+        <dt><code>remind+${event.id}@${config.domain}</code></dt>
+        <dd>re-notify everyone whose step is still pending</dd>
+        <dt><code>close+${event.id}@${config.domain}</code></dt>
+        <dd>close the event early — writes a completion commit to the repo, cannot be undone</dd>
+      </dl>
+      <p style="margin:0.5rem 0 0;color:#6e7681;font-size:0.82em">The subject and body can be anything; the address tag is the command. Authentication is DKIM + envelope-sender == event organizer, so only you can trigger these from your own inbox.</p>
     </div>
 
     <p style="margin-top:1.5rem"><a href="/events/${event.id}">read-only view</a> · <a href="/">home</a></p>
