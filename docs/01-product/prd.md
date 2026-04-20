@@ -359,43 +359,111 @@ No clicks on magic links. No web forms. No accounts. No app installs.
 
 ### 6.1 Event creation (web UI, simplified)
 
-Initiator visits `gitdone.yourdomain` and fills out a minimal form:
+Initiator visits `git-done.com` and fills out a minimal form. Two
+entry points on the landing page, plus a self-serve sign-in strip for
+returning organizers.
+
+**Workflow (`/events/new`)**
 
 ```
-Event type:  [ Workflow | Crypto ]
 Title:       [________________]
 Your email:  [________________]
 
-(Workflow)
-  Flow:        [ Sequential | Non-sequential | Hybrid ]
-  Steps:
-    + Add step
-      Step name: [_________]
-      Participant email: [_________]
-      Requires attachment: [yes/no]
-      Due date: [optional]
+Min trust:   [ verified | forwarded | authorized | unverified ]
+             (default: verified — cryptographic proof the sender wrote it)
 
-(Crypto)
-  Completion threshold: [__] distinct replies
-  Allow anonymous: [yes/no]
-  Expected participants: [optional list of emails]
+Steps (table):
+  #   Name            Participant         Deadline      Depends on   Att
+  1   [___________]   [____________]      [_________]   [_______]    [ ]
+  2   [___________]   [____________]      [_________]   [_______]    [ ]
+  + add step
 ```
 
-Submit. Receives:
+`Depends on` is a comma-separated list of 1-based step numbers the
+step waits for. Empty = runs immediately. This replaces the v2-era
+`flow: sequential | non-sequential | hybrid` enum — a DAG is strictly
+more expressive.
+
+**Crypto (`/crypto/new`)**
+
+```
+Title:       [________________]
+Your email:  [________________]
+
+Mode:        [ declaration — one signer, one record
+             | attestation — gather signatures from a group ]
+
+(Declaration)  Signer email: [________________]
+(Attestation)  Threshold: [__] distinct signers
+               Dedup: [ unique | latest | accumulating ]
+               Allow anonymous replies: [ ]
+```
+
+The mode radio is a pair of selectable tiles; non-applicable fields
+dim live when the mode changes.
+
+**Preview before create.** Submit goes to a server-rendered preview
+page, NOT directly to event creation. The preview shows:
+
+- Title, organizer email, min trust level in plain language
+- **Flow prose** — the dependency graph rendered as English (e.g.
+  *"Steps 1 and 2, then Step 3."*)
+- Steps in topological execution order, with participant, deadline,
+  dependency chips, and an "attachment required" chip when set
+- Two buttons: **Confirm & send invites** and **← Go back to edit**
+
+Nothing persists until the user clicks Confirm. The edit button
+re-renders the form with the values preserved. No server-side state
+between the two POSTs; all fields carry through hidden inputs.
+
+**Validation before confirm.** The validator enforces:
+
+- Cycle-free DAG (3-color DFS).
+- `depends_on` references must be in-range (1..N) and not self.
+- **Deadline-vs-dependency ordering**: a dependent step's deadline
+  must be ≥ every dependency's deadline. Otherwise the workflow is
+  impossible.
+
+**On confirm, the initiator receives:**
 - Event ID
-- Management magic link (emailed)
-- For workflow events: emails sent to participants with reply-to addresses
-- For crypto events: a shareable mailto: link to send to potential vouchers
+- Management magic link (emailed — opaque 32-hex token, 30-day TTL)
+- For workflow events: one notification email per eligible root step
+- For crypto events: reply-to address + a shareable `mailto:` link
 
 ### 6.2 Management
 
-Click the management link from the email. See:
-- Progress (X of Y steps done, or X of Y vouches received)
-- Timeline (commits with timestamps and OTS anchors)
-- Pending actions
-- Option to resend reminder emails
-- Option to close event early
-- When complete: download repo as zip, or clone URL
+Two self-serve paths. Both coexist.
+
+**Path A — per-event magic link (emailed at creation).** Opaque
+32-hex token, 30-day TTL, bookmarkable. Clicking it lands on the
+dashboard for that single event. This is the link sent to the
+initiator on event create.
+
+**Path B — magic-link self-sign-in at `/manage`.** Enter your email,
+receive a one-time link (15-minute TTL, single-use). Clicking it sets
+a signed 30-day session cookie and lands on a dashboard listing
+**every** event and crypto record you've ever organized. Each row
+has an "open" button that jumps into that event's per-event
+dashboard.
+
+Path B exists for initiators who lost the per-event link, switched
+devices, or organize many events. The response to "enter your email"
+is identical whether or not the address has events — no
+account-existence oracle.
+
+**Session cookie:** HMAC-signed, self-contained (no server session
+store). Key from `GITDONE_SESSION_SECRET`. `HttpOnly; SameSite=Lax;
+Secure`. 30-day Max-Age. Sign-out clears it.
+
+**Dashboard (per-event) shows:**
+- Progress — X of Y steps done; or for attestation, X of N distinct
+  signers
+- Step table: step name, participant, `depends_on`, per-step status
+  (complete / pending / waiting-on-deps)
+- Timeline — commits with Message-ID, DKIM status, OTS anchor state
+- "Send reminders" button → `executeRemind`
+- "Close event" button → `executeClose` + `commitCompletion`
+- Email-fallback footer listing `stats+/remind+/close+` addresses
 
 ### 6.3 Receipt
 

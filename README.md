@@ -1,147 +1,135 @@
 # gitdone
 
-Email-native multi-party workflow coordination with cryptographic proof
-of the reply sequence. Participants reply to email; every reply is
-DKIM-verified, OpenTimestamped, and committed to a per-event git
-repository. Proofs verify offline via `gitdone-verify` — even if
-gitdone the service disappears.
+**Multi-party actions coordinated by email. Proved by git.**
 
-Status: **Phase 1 in progress** — end-to-end plumbing works (create →
-notify → reply → verify → commit → complete). Management dashboard
-and email commands are still open. See
-[`docs/04-process/phase1-plan.md`](docs/04-process/phase1-plan.md).
+Live at **https://git-done.com**.
 
-## What it does
+---
 
-An initiator creates an **event** at `https://git-done.com`:
+## What it is
 
-- **Workflow event** — ordered or parallel steps, each with a named
-  participant and optional deadline. Example: vendor sign-offs for an
-  event; legal → design → exec review.
-- **Crypto event** — one of two modes:
-  - **Declaration** — one DKIM-verified reply from a single named
-    signer becomes a permanent cryptographic record.
-  - **Attestation** — anyone the initiator shares the reply address
-    with can sign; completion is N distinct signers (configurable
-    dedup: `unique`, `latest`, `accumulating`).
+A free tool for running workflows and gathering signatures entirely
+over email. Every reply is cryptographically verified, stamped against
+Bitcoin, and committed to a permanent public record. No accounts. No
+passwords. No apps to install. If gitdone disappears tomorrow, every
+record still verifies — forever.
 
-Each participant (or signer) gets a unique reply-to address at
-`event+{id}-{step}@git-done.com`. They reply from their normal inbox.
-gitdone verifies the DKIM signature, archives the signing key,
-OpenTimestamps the commit, and forwards the original message with
-attachments straight to the initiator — gitdone stores only hashes.
+## What you can do with it
 
-Offline verification: `git clone` the event's repo and run
-[`tools/gitdone-verify`](tools/gitdone-verify/). No gitdone calls, no
-account, no credentials.
+### Coordinate a workflow with several people
 
-## Principles (PRD §0.1)
+"Legal reviews the contract, then design mocks it up, then the exec
+team signs off." Create an event with those three steps, put each
+person's email in, add deadlines if you want, decide who waits for
+whom. Each person gets a reply address they respond to from their
+normal inbox. gitdone watches for their replies, verifies they really
+came from the person they claim to come from, and moves the workflow
+forward. You see progress in your own inbox and on a dashboard.
 
-- No accounts. No REST API. No telemetry.
-- **Invisible beats correct** — day-to-day interactions happen by email,
-  not web forms. The web UI is creation + management; participants
-  never touch it.
-- **Proofs outlive the service** — every verification works without
-  gitdone being alive.
-- **Cryptographic auth, not social** — initiator commands are
-  DKIM-verified emails from the event's recorded initiator address.
+Works for any order — ordered chain, parallel, or a mix ("step 3
+happens after both step 1 and step 2 are in"). Deadlines are optional
+per step. Reminders are one email away.
 
-## Tech stack
+### Gather a signature — or many signatures
 
-- Node.js ≥ 18, CommonJS, no bundler.
-- **HTTP:** vanilla `node:http` + tagged-template HTML. No Express,
-  no React, no frontend framework.
-- **Storage:** JSON files under `data/` and per-event git repos. No
-  database.
-- **Email in:** Postfix → pipe to `app/bin/receive.js`. DKIM/SPF/DMARC
-  via `mailauth`. MIME via `mailparser`.
-- **Email out:** `sendmail(1)` (Postfix), signed by `opendkim` milter
-  at the MTA — zero Node-side crypto.
-- **Timestamps:** OpenTimestamps, upgraded every 6 h by a systemd timer.
-- **Production deps:** `mailauth`, `mailparser`, `simple-git`. That's
-  it — everything else is Node stdlib.
+Two modes, depending on what you need:
 
-## Layout
+- **A single signed record.** One person you name replies, and that
+  reply becomes a permanent cryptographic record you can point anyone
+  at. Good for: witness statements, sign-offs, single approvals.
+- **A crowd-sourced attestation.** Share one reply address publicly
+  (social post, QR code, mass email). Anyone who replies counts toward
+  a threshold you set. Good for: petitions, polls of known signers,
+  witness lists, community statements. You choose whether duplicates
+  count as one or many.
 
-```
-app/
-  bin/           receive.js, server.js, ots-upgrade.js
-  src/           classifier, verify, ots, forward, outbound,
-                 event-store, completion, magic-token, notifications,
-                 web/
-  tests/         unit, integration, fixtures
-tools/
-  gitdone-verify/   offline CLI
-docs/
-  00-context/    background
-  01-product/    prd.md, design/
-  04-process/    phase1-plan.md, definition-of-done.md, etc.
-poc/             throwaway proofs-of-concept
-```
+## How people participate
 
-## Running
+They get an email. They reply. That's the whole experience.
 
-```bash
-cd app
+No account to make. No link to click. No app to install. No password.
+If they reply from their own email address, gitdone can cryptographically
+prove it came from them. You (the organizer) get a copy in your inbox
+with every attachment intact.
 
-# tests (unit + integration)
-npm test
+## How it's different
 
-# dev web server (uses ./data-dev, injects feedback HUD + live-reload)
-node bin/server.js --dev
+- **It outlives the service.** Every record is a git repository plus
+  an offline verifier tool. If gitdone-the-website dies, the records
+  still exist on your disk, and anyone can check they're real without
+  any gitdone server. Most online tools go away with the company; these
+  don't.
+- **You own the evidence.** The full audit trail — every reply, every
+  cryptographic signature, every timestamp — lands in your inbox and
+  in a repository you control.
+- **Nothing to install.** Participants never sign up for anything,
+  never install anything, never read terms of service. They reply to
+  an email.
+- **No tracking.** gitdone doesn't watch your activity, doesn't build
+  a profile, doesn't sell anything. No ads. No analytics. No up-sell.
+  The business model is that there is no business model.
 
-# pipe a .eml through the receive pipeline
-cat some.eml | node bin/receive.js
-```
+## When you'd use it
 
-## Commands (entry points)
+- Vendor sign-offs, contract approvals, campaign launches — anything
+  where several people have to say "yes" in order, and you want proof.
+- Petitions and attestations — when you need N real people to put
+  their names to something, with proof it was them.
+- Release gates, change requests, board resolutions — anywhere a paper
+  trail would be useful but a full CRM is overkill.
+- Legal, compliance, or audit-adjacent work where the evidence has to
+  survive the tool that collected it.
 
-- `app/bin/receive.js` — Postfix pipe transport per incoming message.
-- `app/bin/server.js` — long-lived web server. Nginx proxies `:443`
-  → this.
-- `app/bin/ots-upgrade.js` — cron target for OTS upgrade (6 h systemd
-  timer).
-- `tools/gitdone-verify/` — offline CLI that verifies any event's
-  proofs without the service.
+## When you wouldn't
 
-## Addresses (plus-tag routing)
+- Anything that needs a rich form — gitdone asks for short replies,
+  not structured data.
+- Chat. It's not a chat app.
+- Anything that needs recipients who can't receive verified email
+  (SMS-only, address-book-only, etc.).
 
-| Address | Purpose | Auth |
-|---|---|---|
-| `event+{id}-{step}@` | workflow reply for a specific step | DKIM + participant match |
-| `event+{id}@` | crypto reply (declaration or attestation) | DKIM + signer / anyone |
-| `verify+{id}@` | public verification report | none (public) |
-| `reverify+{id}-{N}@` | contested-commit upgrade | cryptographic |
-| `stats+{id}@` | initiator: current progress | DKIM + sender == initiator |
-| `remind+{id}@` | initiator: resend reminders | DKIM + sender == initiator |
-| `close+{id}@` | initiator: close early | DKIM + sender == initiator |
+## Start one
 
-## Verification
+1. Open **https://git-done.com**
+2. Pick **Event** (workflow) or **Crypto** (signature).
+3. Fill in names, emails, deadlines.
+4. Review the preview. Confirm.
+5. Invites go out. A management link arrives in your inbox.
 
-```bash
-# Clone any gitdone event repo, then:
-tools/gitdone-verify/bin/gitdone-verify ./some-event-repo/
-```
+Or skip the link and sign in at **https://git-done.com/manage** —
+enter your email, receive a one-time link, see every event you've
+ever organized. No password involved.
 
-Runs six check layers (structure, git fsck, schema discipline, DKIM
-PEM verify against archived keys, OpenTimestamps with tamper detection,
-completion rules). Zero network calls to gitdone. Works in
-air-gapped environments.
+## Verifying a record
+
+Every completed event leaves behind a small git repository. Anyone
+who has it (you, the participants, an auditor) can verify it offline
+with the open-source `gitdone-verify` tool. No network calls, no
+gitdone service, no trust in us. Works from a USB stick on an
+airgapped laptop ten years from now.
+
+## The fine print
+
+- gitdone never stores attachments — they're forwarded to the
+  organizer and hashed into the record. The hash lives forever; the
+  attachment lives in your inbox.
+- Email addresses in the record are hashed with a per-event salt, not
+  stored in plaintext. Anyone with the original email can confirm a
+  match; no one can scrape the repository for a contact list.
+- The service concentrates trust in four places, all named up front:
+  the participants' mail providers (who sign their replies with DKIM),
+  Bitcoin miners (who anchor the OpenTimestamps stamps), git (which
+  uses SHA-1 for commit hashes), and whoever maintains the verifier
+  tool. We don't pretend there's no trust; we try to make it visible.
 
 ## Docs
 
-- [`docs/01-product/prd.md`](docs/01-product/prd.md) — full product spec.
-- [`docs/04-process/phase1-plan.md`](docs/04-process/phase1-plan.md) —
-  module tracker.
-- [`CHANGELOG.md`](CHANGELOG.md) — shipped changes, newest first.
-- [`DESIGN_MEMORY.md`](DESIGN_MEMORY.md) /
-  [`DESIGN_PLAN.md`](DESIGN_PLAN.md) — UI patterns and remaining
-  surfaces.
-- [`CLAUDE.md`](CLAUDE.md) — instructions for AI agents working in
-  this repo.
+- [Product requirements (PRD)](docs/01-product/prd.md) — what it is,
+  what it isn't, why.
+- [Changelog](CHANGELOG.md) — what shipped, newest first.
+- Source: <https://github.com/hamr0/gitdone>.
 
-## License
+## Licensing
 
-Core service: source-available (TBD). `tools/gitdone-verify/` is MIT
-— per PRD §0.2 it must remain forkable so every proof stays
-independently verifiable.
+The `gitdone-verify` tool is and will remain MIT-licensed — every
+record must stay independently verifiable, forever.

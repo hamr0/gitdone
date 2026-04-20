@@ -19,6 +19,108 @@ internal refactors and commit-level churn stay in `git log`.
 
 ---
 
+## [Phase 1 — production deploy + UX polish + self-serve auth] — 2026-04-20
+
+First public deploy to **https://git-done.com**. The site is now live;
+everything in this entry is observable in a browser today.
+
+### Shipped (visible to users)
+
+- **https://git-done.com is live.** Fedora/AlmaLinux VPS running
+  vanilla Node behind nginx + Let's Encrypt; Postfix pipe-transport +
+  opendkim for mail; systemd units for web, OTS upgrade, and health
+  checks. Apex DNS record added.
+- **Retro-terminal visual theme** site-wide — JetBrains Mono,
+  charcoal background (`#0d1117`), phosphor green (`#3fb950`) for
+  actions, amber (`#ffb000`) for emphasis/links. Replaces the prior
+  Wikipedia-style form layout on all pages (landing, event form,
+  crypto form, management dashboard, preview, success pages).
+  Frozen at `docs/01-product/design/terminal-theme-v1.md` with five
+  invariants and a palette token reference.
+- **`g/` favicon** — minimal SVG wordmark, matches the landing
+  wordmark at tab scale.
+- **Self-serve sign-in** at `/manage` (PRD §6.2 Path B): enter email
+  → 15-min single-use magic link → 30-day signed session cookie →
+  dashboard listing every event and crypto record organized by that
+  email. Per-event 30-day management tokens continue to work in
+  parallel.
+- **Preview-before-create** for workflow events (PRD §6.1):
+  validated form submits to a server-rendered preview with flow prose,
+  steps in topological order, confirm/edit buttons. No persistence
+  until Confirm.
+- **Flow prose renderer** — dependency graph → English on preview and
+  success pages. Examples: *"Step 1 runs alone."* /
+  *"All N steps run in parallel."* / *"Steps 1 and 2, then Step 3."*
+- **Deadline-vs-dependency validation** — rejects deadlines that
+  would make the DAG impossible (dependent step due before its
+  dependency). Error names both step numbers and dates.
+- **Friendlier crypto form** — header rewritten to "Create a signed
+  record"; declaration/attestation modes each get plain-language
+  subtitles; mode radio is a live-toggling pair of selectable tiles;
+  "allow anonymous replies" gets an inline explanation.
+- **Trust-level dropdown** labels expanded with plain-language
+  explanations. Default stays `verified` — matches the product's
+  core promise.
+- **Landing page** copy leads with one-line purpose per mode
+  (*"An auditable multi-party workflow."* / *"A cryptographically
+  timestamped signature."*) before dropping into technical vocabulary.
+  Dedicated "Manage your events & crypto" strip between header and
+  CTAs.
+- **Organizer email** shown on every success page (fixes prior
+  missing-context gap on the post-create screen).
+- **Date inputs** changed from `datetime-local` → `date` — users
+  only need day-level granularity for workflow deadlines.
+
+### Ops (invisible to users, critical to keep it running)
+
+- **VPS health check** — systemd timer runs every 15 min; alerts
+  `avoidaccess@gmail.com` on unit failure, API down, disk >80%,
+  postfix deferred queue, journal errors, stale OTS stamps, TLS cert
+  <14 days. Silent on green.
+- **Home-server backup** — daily cron on federver (04:15 UTC) pulls
+  from the VPS: `/var/lib/gitdone/{events,repos,magic_tokens}`,
+  `/etc/letsencrypt/`, `/etc/opendkim/keys/` (irreplaceable), and
+  `/etc/default/gitdone-web` (session secret). Rotates past 30 days.
+  Pings a Kuma push monitor on success for heartbeat alerting.
+- **Kuma monitors** — HTTP(s) on `https://git-done.com/health`
+  (60s interval, external uptime watchdog) plus the backup push
+  heartbeat (24h + 1h grace).
+- **UptimeRobot-equivalent is Kuma on federver**, not a third party.
+- **Installer** at `ops/homeserver/federver-install.sh` for
+  one-shot setup on a new home server.
+- **Deployment doc rewrite** (`docs/04-process/deployment.md`) for
+  the actual stack (Fedora/AlmaLinux, vanilla node, Postfix pipe,
+  nginx+certbot). Staging demoted to an appendix until we have real
+  users.
+
+### Security
+
+- Session cookie: HMAC-SHA256 of `<b64url(email)>.<exp>`, verified in
+  constant time. Self-contained; no server session store. Secret
+  from `GITDONE_SESSION_SECRET` env (64 hex bytes in production,
+  generated per-deploy and backed up in `pass gitdone/vps/session_secret`).
+- Magic-link tokens are single-use: unlinked on first read, regardless
+  of subsequent parse success. 32 hex chars = 128 bits entropy.
+- `/manage` POST replies with the same "check your inbox" message
+  whether or not the email has events — no account-existence oracle.
+
+### PRD
+
+- §6.1 rewritten: form mock-up reflects `depends_on` (not `flow`),
+  preview-before-create documented, deadline-vs-dep validation rule
+  stated.
+- §6.2 rewritten: two-path management documented (per-event magic
+  link + self-serve `/manage` sign-in), cookie details recorded.
+
+### Tests
+
+- 328 tests passing (up from 309 at Phase 1 feature-complete). Adds:
+  8 for flow-prose, 8 for magic-session, 3 for deadline-vs-dep
+  validation, integration helpers updated to exercise the two-step
+  preview flow.
+
+---
+
 ## [Phase 1 — 1.H.5 management dashboard] — 2026-04-19
 
 Replaces the `GET /manage/:token` stub from 1.H.4 with the real
