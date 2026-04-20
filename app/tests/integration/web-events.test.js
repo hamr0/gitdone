@@ -70,7 +70,9 @@ function get(path) {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve({
-        status: res.statusCode, body: Buffer.concat(chunks).toString('utf8'),
+        status: res.statusCode,
+        headers: res.headers,
+        body: Buffer.concat(chunks).toString('utf8'),
       }));
     }).on('error', reject);
   });
@@ -140,7 +142,7 @@ test('POST /events (invalid) returns 422 with errors', async () => {
   assert.match(r.body, /name required/i);
 });
 
-test('GET /events/:id shows the event read-only', async () => {
+test('GET /events/:id 303-redirects to /manage when not signed in (participant emails are not public)', async () => {
   const r = await post('/events', {
     title: 'read-back', initiator: 'a@b.com',
     step_name: ['one', 'two'],
@@ -151,11 +153,8 @@ test('GET /events/:id shows the event read-only', async () => {
   const m = r.body.match(/ID: <code>([a-z0-9]{12})<\/code>/);
   const id = m[1];
   const view = await get(`/events/${id}`);
-  assert.equal(view.status, 200);
-  assert.match(view.body, /read-back/);
-  assert.match(view.body, /x@y\.com/);
-  assert.match(view.body, /z@y\.com/);
-  assert.match(view.body, /deadline 2026-06-01/);
+  assert.equal(view.status, 303);
+  assert.match(view.headers.location, /\/manage/);
 });
 
 test('GET /events/bogus-id returns 404 (traversal guard)', async () => {

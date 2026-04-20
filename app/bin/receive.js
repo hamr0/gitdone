@@ -432,6 +432,7 @@ async function main() {
         sender_hash: saltedSenderHash(envelope.sender || from.address, event.salt),
         sender_domain: from.address ? from.address.split('@')[1] : null,
         received_at: receivedAt,
+        has_attachment: (attachments || []).length > 0,
       };
       let applied = null;
       let didCascade = false;
@@ -487,6 +488,57 @@ async function main() {
       }
     } catch (err) {
       completion = { error: err.message || String(err) };
+    }
+  }
+
+  // Auto-reply to participant when the only thing blocking the step
+  // from counting was a missing attachment. The commit is already
+  // persisted above (audit trail preserves the reply-without-file);
+  // we just tell the sender what needs to be different on resend.
+  let attachmentReply = null;
+  if (completion && completion.decision && completion.decision.reason === 'missing_attachment' && tag && event) {
+    const to = envelope.sender || from.address || null;
+    if (to) {
+      const fromAddr = `event+${tag.eventId}-${tag.stepId}@${config.domain}`;
+      const step = completion.decision.step || (event.steps || []).find((s) => s.id === tag.stepId);
+      const stepName = step ? step.name : tag.stepId;
+      const body = [
+        `Thanks — we received your reply for "${stepName}" on event "${event.title}".`,
+        ``,
+        `This step requires an attachment, and we didn't find one on your reply.`,
+        `Your message is recorded in the event's audit trail, but the step will`,
+        `stay pending until a reply arrives with a file attached.`,
+        ``,
+        `Please reply again to this address with the document attached:`,
+        `  ${fromAddr}`,
+        ``,
+        `If you believe this is a mistake, reach out to ${event.initiator}.`,
+      ].join('\n');
+      const rawMessage = buildRawMessage({
+        from: `gitdone <${fromAddr}>`,
+        to,
+        subject: `[GitDone] Attachment required — ${event.title}`,
+        inReplyTo: parsed.messageId || null,
+        references: parsed.messageId || null,
+        body,
+        domain: config.domain,
+        autoSubmitted: 'auto-replied',
+      });
+      const sendResult = await sendmail({ from: fromAddr, rawMessage });
+      attachmentReply = {
+        to,
+        from: fromAddr,
+        ok: sendResult.ok,
+        reason: sendResult.reason || null,
+        code: sendResult.code || null,
+      };
+      logger.emit({
+        kind: 'missing_attachment_reply',
+        event_id: tag.eventId,
+        step_id: tag.stepId,
+        to,
+        ok: sendResult.ok,
+      });
     }
   }
 

@@ -946,6 +946,10 @@ async function sendCryptoManagementEmail({ event, manageUrl }) {
 
 // Debug/read-only event view — helpful during dev; will be locked down
 // or removed when 1.H.5 (magic-link management) lands.
+// Read-only detail view. Requires the signed-in session email to match
+// event.initiator — keeps participant emails out of reach for anyone
+// who happens to know or guess an event ID (PRD §0.1.10 plaintext
+// discipline). Linked from the /manage/:token dashboard.
 router.get('/events/:id', async (req, res, params) => {
   const { loadEvent } = require('../src/event-store');
   const event = await loadEvent(params.id);
@@ -955,6 +959,13 @@ router.get('/events/:id', async (req, res, params) => {
       title: 'not found',
       body: html`<h1>Event not found</h1><p><a href="/">home</a></p>`,
     }));
+  }
+  const sessionEmail = currentSessionEmail(req);
+  const isOwner = sessionEmail
+    && String(sessionEmail).toLowerCase() === String(event.initiator || '').toLowerCase();
+  if (!isOwner) {
+    res.writeHead(303, { location: `/manage?next=${encodeURIComponent('/events/' + event.id)}` });
+    return res.end();
   }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
@@ -968,9 +979,11 @@ router.get('/events/:id', async (req, res, params) => {
         <h2>Steps</h2>
         <ul>
           ${event.steps.map((s) => html`
-            <li><strong>${s.name}</strong> → ${s.participant}
-              ${s.deadline ? html` · deadline ${s.deadline}` : raw('')}
+            <li>
+              <strong>${s.name}</strong> → <code>${s.participant}</code>
+              ${s.deadline ? html` · deadline <code>${s.deadline.slice(0, 10)}</code>` : raw('')}
               ${s.requires_attachment ? html` · <em>attachment required</em>` : raw('')}
+              ${s.details ? html`<div style="margin:0.4rem 0 0.6rem;padding:0.45rem 0.7rem;background:#161b22;border-left:2px solid #3fb950;white-space:pre-wrap;font-size:0.9em">${s.details}</div>` : raw('')}
             </li>
           `)}
         </ul>
@@ -1298,6 +1311,13 @@ const MANAGE_CSS = `
 .mg-actions button:disabled { opacity:0.4; cursor:not-allowed; }
 .mg-email-cmds { font-size:0.85em; color:#8b949e; background:#161b22; border:1px solid #30363d; border-radius:0; padding:0.7rem 0.9rem; margin-top:1rem; }
 .mg-email-cmds code { background:#0d1117; color:#ffb000; border:1px solid #30363d; padding:0.08em 0.35em; border-radius:2px; }
+.mg-details-toggle { background:none; border:0; color:#58a6ff; cursor:pointer; font:inherit; font-size:0.8em; padding:0 0.25em; letter-spacing:0.03em; vertical-align:baseline; }
+.mg-details-toggle:hover { color:#ffb000; }
+.mg-details-toggle::before { content:"+ details"; }
+.mg-details-toggle[aria-expanded="true"]::before { content:"− details"; }
+.mg-steps .mg-details-row td { background:#0d1117; padding:0.45rem 0.7rem 0.6rem; border-bottom:1px solid #30363d; }
+.mg-steps .mg-details { background:#161b22; border-left:2px solid #3fb950; padding:0.5rem 0.75rem; font-size:0.88em; white-space:pre-wrap; line-height:1.5; color:#c9d1d9; }
+.mg-steps .col-att-flag { text-align:center; width:28px; }
 `;
 
 function renderManagementDashboard({ token, rec, event, flash }) {
@@ -1307,35 +1327,87 @@ function renderManagementDashboard({ token, rec, event, flash }) {
     : html`<span class="mg-pill open">open</span>`;
   let bodyMiddle;
   if (event.type === 'event') {
-    const rows = (event.steps || []).map((s, i) => {
+    const allSteps = event.steps || [];
+    const done = allSteps.filter((s) => s.status === 'complete').length;
+    const total = allSteps.length;
+    const anyDeadlines = allSteps.some((s) => s.deadline);
+    const anyAtt = allSteps.some((s) => s.requires_attachment);
+    const rows = allSteps.flatMap((s, i) => {
       const blocked = s.status !== 'complete' && (s.depends_on || []).some((dep) => {
-        const d = (event.steps || []).find((x) => x.id === dep);
+        const d = allSteps.find((x) => x.id === dep);
         return !d || d.status !== 'complete';
       });
       const statusCls = s.status === 'complete' ? 'status-complete' : (blocked ? 'status-blocked' : 'status-pending');
       const statusLabel = s.status === 'complete' ? '✓ complete' : (blocked ? '⏸ waiting' : '○ pending');
-      return html`
-        <tr>
-          <td>${String(i + 1)}</td>
-          <td><strong>${s.name}</strong></td>
-          <td>${s.participant}</td>
-          <td>${(s.depends_on || []).length ? html`after ${s.depends_on.join(', ')}` : raw('—')}</td>
-          <td class="${statusCls}">${statusLabel}</td>
-        </tr>
-      `;
+      const depsLabel = (s.depends_on || []).length
+        ? (s.depends_on || []).map((dep) => {
+            const idx = allSteps.findIndex((x) => x.id === dep);
+            return idx >= 0 ? `#${idx + 1}` : dep;
+          }).join(', ')
+        : '—';
+      const out = [
+        html`
+          <tr>
+            <td>${String(i + 1)}</td>
+            <td>
+              <strong>${s.name}</strong>
+              ${s.details ? html` <button type="button" class="mg-details-toggle" data-step="${s.id}" aria-expanded="false" title="show details"></button>` : raw('')}
+            </td>
+            <td><code>${s.participant}</code></td>
+            ${anyDeadlines ? html`<td>${s.deadline ? html`<code>${s.deadline.slice(0, 10)}</code>` : raw('—')}</td>` : raw('')}
+            ${anyAtt ? html`<td class="col-att-flag">${s.requires_attachment ? html`<span title="attachment required">📎</span>` : raw('')}</td>` : raw('')}
+            <td>${raw(depsLabel === '—' ? '—' : 'after ' + depsLabel)}</td>
+            <td class="${statusCls}">${statusLabel}</td>
+          </tr>
+        `,
+      ];
+      if (s.details) {
+        const colspan = 4 + (anyDeadlines ? 1 : 0) + (anyAtt ? 1 : 0);
+        out.push(html`
+          <tr class="mg-details-row" data-step="${s.id}" hidden>
+            <td></td>
+            <td colspan="${String(colspan)}"><div class="mg-details">${s.details}</div></td>
+          </tr>
+        `);
+      }
+      return out;
     });
     bodyMiddle = html`
-      <h2><span class="num">1</span> Steps <span class="hint" style="font-weight:400;color:#888;font-size:0.88em;text-transform:none;letter-spacing:0;margin-left:0.3rem">${String((event.steps || []).length)} total</span></h2>
+      <h2><span class="num">1</span> Steps
+        <span class="hint" style="font-weight:400;color:#888;font-size:0.88em;text-transform:none;letter-spacing:0;margin-left:0.3rem">
+          ${String(done)} of ${String(total)} complete
+        </span>
+      </h2>
       <div class="mg-section">
         <table class="mg-steps">
           <thead>
             <tr>
-              <th>#</th><th>Step</th><th>Participant</th><th>Depends on</th><th>Status</th>
+              <th>#</th><th>Step</th><th>Participant</th>
+              ${anyDeadlines ? html`<th>Deadline</th>` : raw('')}
+              ${anyAtt ? html`<th title="attachment required"></th>` : raw('')}
+              <th>Depends on</th><th>Status</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
+      <script>${raw(`
+        (function(){
+          var tbl = document.querySelector('.mg-steps');
+          if (!tbl) return;
+          tbl.addEventListener('click', function(e){
+            var btn = e.target.closest('[data-step]');
+            if (!btn || btn.tagName !== 'BUTTON') return;
+            var id = btn.dataset.step;
+            var row = tbl.querySelector('tr.mg-details-row[data-step="' + id + '"]');
+            if (!row) return;
+            var open = row.hasAttribute('hidden');
+            if (open) row.removeAttribute('hidden');
+            else row.setAttribute('hidden', '');
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+          });
+        })();
+      `)}</script>
     `;
   } else if (event.mode === 'declaration') {
     bodyMiddle = html`

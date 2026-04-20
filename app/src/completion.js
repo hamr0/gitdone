@@ -110,6 +110,11 @@ function shouldCountWorkflow(event, commit) {
   if (!stepDepsMet(event, step)) {
     return { count: false, reason: 'step has unmet dependencies' };
   }
+  if (step.requires_attachment && !commit.has_attachment) {
+    // Reply is committed (audit trail) but step stays pending. receive.js
+    // sends an auto-reply to the participant explaining the miss.
+    return { count: false, reason: 'missing_attachment', step };
+  }
   return { count: true, step };
 }
 

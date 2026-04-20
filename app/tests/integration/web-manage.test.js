@@ -188,9 +188,11 @@ test('GET /manage/:token shows the step table for a workflow event', async () =>
   assert.match(view.body, /Send reminders/);
   assert.match(view.body, /Close event/);
   assert.match(view.body, /<table class="mg-steps">/);
-  // both steps rendered; step 2 shows "after 1" and is marked waiting
-  assert.match(view.body, /after legal/);
-  assert.match(view.body, /⏸ waiting|⏸ waiting/);
+  // both steps rendered; step 2 shows "after #1" and is marked waiting
+  assert.match(view.body, /after #1/);
+  assert.match(view.body, /⏸ waiting/);
+  // progress count
+  assert.match(view.body, /0 of 2 complete/);
 });
 
 test('POST /manage/:token/close flips state and redirects with flash', async () => {

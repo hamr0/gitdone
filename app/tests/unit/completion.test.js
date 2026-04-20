@@ -90,6 +90,36 @@ test('workflow: no-dependency steps both count independently', () => {
   assert.equal(shouldCount(ev, mkCommit({ step_id: 'two' })).count, true);
 });
 
+test('workflow: step requires_attachment blocks when commit has none', () => {
+  const ev = mkWorkflow({
+    steps: [
+      { id: 'one', participant: 'a@x.com', status: 'pending', depends_on: [], requires_attachment: true },
+    ],
+  });
+  const r = shouldCount(ev, mkCommit({ step_id: 'one', has_attachment: false }));
+  assert.equal(r.count, false);
+  assert.equal(r.reason, 'missing_attachment');
+  assert.equal(r.step.id, 'one');   // step is returned so caller can compose the reply
+});
+
+test('workflow: step requires_attachment counts when has_attachment=true', () => {
+  const ev = mkWorkflow({
+    steps: [
+      { id: 'one', participant: 'a@x.com', status: 'pending', depends_on: [], requires_attachment: true },
+    ],
+  });
+  assert.equal(shouldCount(ev, mkCommit({ step_id: 'one', has_attachment: true })).count, true);
+});
+
+test('workflow: step without requires_attachment ignores has_attachment flag', () => {
+  const ev = mkWorkflow({
+    steps: [
+      { id: 'one', participant: 'a@x.com', status: 'pending', depends_on: [] },
+    ],
+  });
+  assert.equal(shouldCount(ev, mkCommit({ step_id: 'one', has_attachment: false })).count, true);
+});
+
 test('workflow: low trust does not count', () => {
   const ev = mkWorkflow();
   const r = shouldCount(ev, mkCommit({ trust_level: 'unverified' }));
