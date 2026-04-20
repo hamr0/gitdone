@@ -19,6 +19,74 @@ internal refactors and commit-level churn stay in `git log`.
 
 ---
 
+## [Phase 1 — post-deploy UX tightening] — 2026-04-20 (evening)
+
+Six same-day follow-ups to the morning launch, driven by the first real
+end-to-end test. One of these (the Reply-To fix) is a **functional
+correctness bug** that was masking every inbound reply pressed from
+Gmail's Reply button. The rest are UX sharpening the launch exposed.
+
+### Fixed
+
+- **Reply-To on participant invites.** Outbound notifications now set
+  `Reply-To: event+<id>-<step>@git-done.com` so mail clients route a
+  Reply back to the per-step tag address instead of the generic
+  `gitdone@git-done.com` From header. Without this, Gmail's Reply
+  button landed replies on `gitdone@` — receive.js logged them with
+  `routing.matched=false` and silently dropped them (no commit, no
+  auto-reply). This was the participant-side silent-failure the PRD
+  §5.1 template already described; the implementation had drifted.
+  Declaration-signer invites get the same treatment.
+
+### Shipped
+
+- **Dashboard surfaces rejected replies per step.** A reply that
+  commits for the audit trail but doesn't count (missing attachment,
+  sender not a named participant) now renders a muted amber row under
+  the step: *"↳ reply received from @domain · missing attachment ·
+  not counted · 2026-04-20 16:17"*. Previously the step just sat
+  "pending" with no signal the participant had engaged. Pulled from the
+  per-event commits via a new `listCommits()` helper in `gitrepo.js`.
+- **Remove-step button on the workflow form.** Each row gets a
+  trailing × that splices it out. Hidden on the last remaining row
+  (validation requires ≥1). Same GET-round-trip pattern as the
+  existing "+ add step" button — no client JS.
+- **Validation error box rethemed** to match the retro-terminal
+  palette (charcoal bg, red left-border, muted grey list items).
+  Previous `#fee`/`#c99` inline styles rendered nearly white-on-
+  charcoal — unreadable. Class now lives in both `WORKFLOW_FORM_CSS`
+  and `CRYPTO_FORM_CSS`.
+- **Deadline semantics made explicit.** Participant invite emails now
+  spell out *"soft — replies after this date are still counted, but
+  the organiser will be notified if your step is overdue."* Form
+  column tooltip + step-section hint match. No behavioural change —
+  just closing the anxiety gap around whether a missed deadline
+  invalidates a late reply. (It doesn't, and never did.)
+
+### Removed
+
+- **"Read-only view" link** on the management dashboard. Became
+  redundant after the dashboard itself started rendering full event
+  metadata (steps, participants, deadlines, details) and after
+  `/events/:id` got session-gated to stop leaking participant emails.
+  The dashboard supersedes it.
+
+### Design / product principles reinforced by this session
+
+- **Silence is a bug.** A reply that arrives should never produce
+  zero signal — to the participant, to the organiser, or in the audit
+  trail. The Reply-To bug, the dashboard-no-reject-indicator gap, and
+  the "deadline sounds like enforcement" confusion all traced to
+  violations of this.
+
+### Tests
+
+- 335/335 passing. No new test files; the existing suite caught all
+  regressions from the Reply-To change (11 integration tests exercise
+  the full notify→reply→commit flow).
+
+---
+
 ## [Phase 1 — production deploy + UX polish + self-serve auth] — 2026-04-20
 
 First public deploy to **https://git-done.com**. The site is now live;

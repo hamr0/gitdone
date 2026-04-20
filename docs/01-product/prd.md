@@ -328,6 +328,13 @@ Hit Reply. Type their response. Attach files if needed. Send.
 
 **Total effort: reply to an email.**
 
+The `Reply-To` header is authoritative for this flow. Participant
+invitations set `Reply-To: event+<id>-<step>@<domain>` so every
+mainstream mail client (Gmail, Outlook, iOS Mail, Apple Mail,
+Thunderbird) routes the Reply button to the per-step tag address
+regardless of what From was used. Nothing here relies on the
+participant reading the email body and typing in an address.
+
 No clicks on magic links. No web forms. No accounts. No app installs.
 
 ### 5.3 What happens next
@@ -423,6 +430,16 @@ between the two POSTs; all fields carry through hidden inputs.
 - **Deadline-vs-dependency ordering**: a dependent step's deadline
   must be ≥ every dependency's deadline. Otherwise the workflow is
   impossible.
+
+**Deadline semantics (soft).** A step's deadline is a target, not an
+enforcement gate. Replies that arrive after the deadline are still
+DKIM-verified, still committed, and still count toward step completion.
+The organiser is notified when a deadline passes without a reply (one
+nudge email per step, not a reminder storm). The PRD principle is
+cooperative coordination, not deadline enforcement — if the signer
+shows up two days late, their reply counts. The participant invite
+email states this explicitly so the soft semantics are visible to both
+sides.
 
 **On confirm, the initiator receives:**
 - Event ID
