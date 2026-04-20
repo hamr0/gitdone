@@ -115,21 +115,63 @@ poc/             # throwaway proofs-of-concept
 
 ## Key patterns
 
-- **Event types:** `event` (workflow) with `sequential | non-sequential |
-  hybrid` flow, or `crypto` (one or many cryptographically-verifiable
-  replies).
+- **Event types:** `event` (workflow) with per-step `depends_on` DAG
+  (replaced the `flow` enum in 1.H.2b), or `crypto` in `declaration`
+  (one signer) or `attestation` (N distinct signers) mode.
 - **Minimum trust level** per event (`unverified | authorized | forwarded
   | verified`) gates step completion against the verify result.
-- **Magic-link management** (1.H.4, not yet shipped): JWT, 30-day expiry,
-  one per event.
+- **Per-event magic link** (1.H.4): opaque 32-hex token, 30-day TTL,
+  file-backed under `data/magic_tokens/<token>.json`. Emailed at event
+  create. Bookmarkable.
+- **Self-serve session login** at `/manage`: enter email → 15-min
+  single-use magic link → 30-day HMAC-signed cookie. Shows a dashboard
+  of all events owned by that email. Secret from `GITDONE_SESSION_SECRET`
+  (generate with `openssl rand -hex 32`, persist per-deploy).
+- **Preview-before-create** for workflow events: POST `/events` renders
+  a preview with flow prose (`renderFlowProse`) + confirm/edit buttons.
+  Nothing persists until `_action=confirm`.
 - **Attachments are forwarded byte-preserving to the event owner**
   (`app/src/forward.js`); gitdone never stores them.
 
+## Production
+
+Live at **https://git-done.com**. AlmaLinux 8 VPS at `104.129.2.254`;
+nginx `:443 → :3001`; Postfix pipe-transport `gitdone` user →
+`/opt/gitdone/app/bin/receive.sh`; opendkim selector `gd202604`.
+
+Code lives at `/opt/gitdone/` as a git clone. App is under
+`/opt/gitdone/app/` (note the nested path; earlier deploys had files at
+the root). Data is separate at `/var/lib/gitdone/` — never in the code
+dir.
+
+Systemd units:
+- `gitdone-web.service` — vanilla Node on 127.0.0.1:3001
+- `gitdone-ots-upgrade.timer` — every 6h, OTS upgrades
+- `gitdone-health.timer` — every 15min, emails `avoidaccess@gmail.com`
+  on any degradation (disk, mailq, unit state, cert expiry, etc.)
+
+Env is in `/etc/default/gitdone-web`:
+`GITDONE_DATA_DIR`, `GITDONE_WEB_PORT`, `GITDONE_PUBLIC_URL`,
+`GITDONE_DOMAIN`, `GITDONE_SESSION_SECRET`.
+Session secret is 64 hex bytes, backed up at
+`pass gitdone/vps/session_secret`.
+
+Backup runs off-VPS on federver (daily 04:15 UTC) via
+`ops/homeserver/gitdone-backup.sh` — pulls events/repos/dkim/cert/env
+to `/mnt/data/data/gitdone-backups/`. Monitored by Kuma (HTTP +
+push heartbeat).
+
 ## UI conventions
 
-Design patterns are locked in `DESIGN_MEMORY.md`. Reuse them on new
-surfaces instead of re-deriving. The v1 event form reference lives at
-`docs/01-product/design/event-form-v1.md`.
+The site-wide visual language is the retro-terminal theme — charcoal
+bg, JetBrains Mono, CRT green `#3fb950` for actions, amber `#ffb000`
+for emphasis/links, no border-radius on structural elements. Full
+palette tokens, typography rules, and five invariants:
+`docs/01-product/design/terminal-theme-v1.md`. Frozen references for
+specific surfaces live alongside it:
+- `event-form-v1.md` (workflow form layout)
+- `landing-and-crypto-v1.md` (landing + crypto form; superseded
+  in-place by terminal theme but the layout choices are still current)
 
 ## Design Lab adaptation
 
@@ -148,8 +190,11 @@ running the `design-lab` skill:
 
 ## Documentation
 
-- Index: `docs/KNOWLEDGE_BASE.md` (if present) or `docs/README.md`.
+- Index: `docs/README.md`.
 - PRD: `docs/01-product/prd.md`.
 - Phase 1 plan: `docs/04-process/phase1-plan.md`.
+- Deployment + ops runbook: `docs/04-process/deployment.md`.
+- Home-server backup: `ops/homeserver/README.md` +
+  `ops/homeserver/FEDERVER_INSTALL.md`.
 - Changelog: `CHANGELOG.md`.
 - Memory: `.claude/memory/MEMORY.md`.
