@@ -1,0 +1,13 @@
+[Unit]
+Description=GitDone weekly stats digest (emails last 4 weeks to alerts inbox)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=gitdone
+Group=gitdone
+WorkingDirectory=/opt/gitdone/app
+ExecStart=/usr/bin/node /opt/gitdone/app/bin/stats-weekly.js
+EnvironmentFile=-/etc/default/gitdone-web
+TimeoutStartSec=60
+Nice=10

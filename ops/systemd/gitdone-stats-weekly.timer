@@ -1,0 +1,12 @@
+[Unit]
+Description=Run gitdone weekly stats digest
+
+[Timer]
+# Mondays at 06:00 UTC — runs after the Monday 04:30 daily snapshot
+# so the current ISO week always has at least one data point.
+OnCalendar=Mon *-*-* 06:00:00 UTC
+Persistent=true
+AccuracySec=10min
+
+[Install]
+WantedBy=timers.target
