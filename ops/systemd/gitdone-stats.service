@@ -1,0 +1,12 @@
+[Unit]
+Description=GitDone daily stats snapshot (appends to /var/log/gitdone/stats.log)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=gitdone
+Group=gitdone
+ExecStart=/opt/gitdone/ops/gitdone-stats.sh
+EnvironmentFile=-/etc/default/gitdone-web
+TimeoutStartSec=60
+Nice=10

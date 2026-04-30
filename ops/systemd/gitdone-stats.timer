@@ -1,0 +1,12 @@
+[Unit]
+Description=Run gitdone daily stats snapshot
+
+[Timer]
+# Daily at 04:30 UTC — clusters with the home-server backup window
+# (04:15) so all "data" jobs run in the same low-traffic slot.
+OnCalendar=*-*-* 04:30:00 UTC
+Persistent=true
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target
