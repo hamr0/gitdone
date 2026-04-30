@@ -916,6 +916,31 @@ testing happens on staging, not the laptop.
 5. Generate OpenTimestamps client binary on VPS
 6. Configure Node service (PM2) for Express + receive.js listener
 
+### 9.2.1 Operator visibility (stats)
+
+Two artefacts give the operator privacy-safe aggregate counts of how
+the service is being used. Neither surfaces to end users; both are
+read-only walks of `data/events/*.json`.
+
+- **`app/bin/stats.js`** — on-demand CLI. Prints unique organisers,
+  unique named recipients (workflow participants + declaration
+  signers; attestation senders are anonymous-by-design and excluded),
+  events by type and status, completed-vs-incomplete, workflow step
+  totals, attestation reply totals. JSON to stdout, human table to
+  stderr. `--diff` adds a Δ column comparing to the most recent
+  entry in `/var/log/gitdone/stats.log`.
+- **Daily JSONL snapshot log** (`gitdone-stats.timer`, 04:30 UTC)
+  appends one line per day to `/var/log/gitdone/stats.log`. Trivial
+  to tail / `jq` / chart later.
+- **Weekly digest email** (`gitdone-stats-weekly.timer`, Mondays
+  06:00 UTC) groups the daily snapshots by ISO week (Mon–Sun), takes
+  the most recent snapshot per week, and emails the last 4 weeks as
+  a compact week-over-week table to `GITDONE_STATS_RECIPIENT`
+  (default `avoidaccess@gmail.com` — the alerts identity, never
+  the organiser address).
+
+All three are aggregates only; no PII leaves the box.
+
 ### 9.3 No vendor dependencies
 
 - No SendGrid, no Mailgun, no Postmark — Postfix directly

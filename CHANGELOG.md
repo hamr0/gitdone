@@ -15,6 +15,29 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Operator stats — counters, daily log, weekly digest
+
+Privacy-safe aggregate counts of how gitdone is being used. Computed
+on demand by walking `events/*.json`; no PII leaves the box.
+
+- **`app/bin/stats.js`** — CLI prints unique organisers, unique
+  recipients (named participants only — attestation senders are
+  anonymous-by-design and excluded), events by type/status,
+  completed-vs-incomplete, workflow step totals, attestation reply
+  totals. JSON to stdout, human table to stderr.
+- **`--diff` flag** reads the most recent line of
+  `/var/log/gitdone/stats.log` and adds a Δ column showing how each
+  counter has moved since.
+- **Daily JSONL log** via `gitdone-stats.timer` (04:30 UTC) appends
+  one snapshot per day to `/var/log/gitdone/stats.log`. JSONL so
+  `tail | jq` works without ceremony.
+- **Weekly digest email** via `gitdone-stats-weekly.timer` (Mondays
+  06:00 UTC) groups daily snapshots by ISO week, takes the latest
+  in each, and emails the last 4 weeks as a compact week-over-week
+  table to `GITDONE_STATS_RECIPIENT` (default
+  `avoidaccess@gmail.com`).
+- Cleaned up `demo123` legacy debug fixture from prod data.
+
 ### Status taxonomy: split "complete" into `completed` vs `closed early`
 
 Terminal state was previously a single bucket labelled "complete",
