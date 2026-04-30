@@ -8,46 +8,92 @@
 //   node app/bin/stats.js              human + json
 //   node app/bin/stats.js --json       json only (no human output)
 //   node app/bin/stats.js --quiet      json only (alias for --json)
+//   node app/bin/stats.js --diff       human output with a "Δ since
+//                                      <last-snapshot-date>" column;
+//                                      reads the most recent line of
+//                                      $GITDONE_STATS_LOG (default
+//                                      /var/log/gitdone/stats.log).
 //
 // On the VPS:
-//   ssh gitdone-vps 'cd /opt/gitdone/app && node bin/stats.js'
+//   ssh gitdone-vps 'cd /opt/gitdone/app && node bin/stats.js --diff'
 
 'use strict';
 
+const fs = require('node:fs');
 const { collect } = require('../src/stats');
 
 const jsonOnly = process.argv.includes('--json') || process.argv.includes('--quiet');
+const wantDiff = process.argv.includes('--diff');
+const STATS_LOG = process.env.GITDONE_STATS_LOG || '/var/log/gitdone/stats.log';
 
-function formatHuman(s) {
+// Read the most recent JSON line from the stats log. Returns null if
+// the file is missing, empty, or its last line is unparseable.
+function readLastSnapshot(file) {
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); }
+  catch (err) { if (err.code === 'ENOENT') return null; throw err; }
+  const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) return null;
+  try { return JSON.parse(lines[lines.length - 1]); }
+  catch { return null; }
+}
+
+// "+3" / "-1" / "" for a numeric delta. Empty string for zero so the
+// human output stays uncluttered when nothing changed.
+function fmtDelta(prev, cur) {
+  if (typeof prev !== 'number' || typeof cur !== 'number') return '';
+  const d = cur - prev;
+  if (d === 0) return '';
+  return d > 0 ? `  (+${d})` : `  (${d})`;
+}
+
+function formatHuman(s, prev) {
   const lines = [];
-  lines.push(`gitdone stats — ${s.snapshot_at}`);
+  const head = prev
+    ? `gitdone stats — ${s.snapshot_at} (Δ since ${prev.snapshot_at.slice(0, 10)})`
+    : `gitdone stats — ${s.snapshot_at}`;
+  lines.push(head);
   lines.push(``);
-  lines.push(`  unique organisers           ${s.unique_organisers}`);
-  lines.push(`  unique recipients (named)   ${s.unique_recipients_named}`);
+  const row = (label, key, sub) => {
+    const cur = sub ? s[key] && s[key][sub] : s[key];
+    const old = sub
+      ? (prev && prev[key] ? prev[key][sub] : undefined)
+      : (prev ? prev[key] : undefined);
+    lines.push(`  ${label.padEnd(28)}${cur}${prev ? fmtDelta(old, cur) : ''}`);
+  };
+  row('unique organisers', 'unique_organisers');
+  row('unique recipients (named)', 'unique_recipients_named');
   lines.push(``);
-  lines.push(`  events total                ${s.events_total}`);
+  row('events total', 'events_total');
   lines.push(`    by type:`);
-  lines.push(`      workflow                ${s.by_type.event}`);
-  lines.push(`      declaration             ${s.by_type.declaration}`);
-  lines.push(`      attestation             ${s.by_type.attestation}`);
+  row('  workflow', 'by_type', 'event');
+  row('  declaration', 'by_type', 'declaration');
+  row('  attestation', 'by_type', 'attestation');
   lines.push(`    by status:`);
-  lines.push(`      pending activation      ${s.by_status.pending_activation}`);
-  lines.push(`      open                    ${s.by_status.open}`);
-  lines.push(`      completed               ${s.by_status.completed}`);
-  lines.push(`      closed early            ${s.by_status.closed_early}`);
-  lines.push(`      archived                ${s.by_status.archived}`);
+  row('  pending activation', 'by_status', 'pending_activation');
+  row('  open', 'by_status', 'open');
+  row('  completed', 'by_status', 'completed');
+  row('  closed early', 'by_status', 'closed_early');
+  row('  archived', 'by_status', 'archived');
   lines.push(``);
-  lines.push(`  completed vs incomplete     ${s.completed_vs_incomplete.completed} / ${s.completed_vs_incomplete.incomplete}`);
+  const cv = s.completed_vs_incomplete;
+  const pcv = prev && prev.completed_vs_incomplete;
+  const cvDelta = pcv
+    ? `${fmtDelta(pcv.completed, cv.completed).replace('  ', '')} / ${fmtDelta(pcv.incomplete, cv.incomplete).replace('  ', '')}`
+    : '';
+  lines.push(`  ${'completed vs incomplete'.padEnd(28)}${cv.completed} / ${cv.incomplete}${cvDelta && cvDelta !== ' / ' ? '  (' + cvDelta + ')' : ''}`);
   lines.push(``);
-  lines.push(`  workflow step totals        ${s.workflow_step_completed_total} of ${s.workflow_step_count_total} complete`);
-  lines.push(`  attestation replies total   ${s.attestation_replies_total}`);
-  if (s.parse_errors) lines.push(`  parse errors                ${s.parse_errors}`);
+  const stepLabel = `${s.workflow_step_completed_total} of ${s.workflow_step_count_total} complete`;
+  lines.push(`  ${'workflow step totals'.padEnd(28)}${stepLabel}`);
+  row('attestation replies total', 'attestation_replies_total');
+  if (s.parse_errors) lines.push(`  ${'parse errors'.padEnd(28)}${s.parse_errors}`);
   return lines.join('\n');
 }
 
 (async () => {
   const s = await collect();
-  if (!jsonOnly) process.stderr.write(formatHuman(s) + '\n');
+  const prev = wantDiff ? readLastSnapshot(STATS_LOG) : null;
+  if (!jsonOnly) process.stderr.write(formatHuman(s, prev) + '\n');
   process.stdout.write(JSON.stringify(s) + '\n');
 })().catch((err) => {
   process.stderr.write(`stats: ${err && err.stack || err}\n`);
