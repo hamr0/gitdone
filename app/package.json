@@ -11,7 +11,7 @@
     "test:integration": "node --test 'tests/integration/**/*.test.js'"
   },
   "dependencies": {
-    "knowless": "file:../../knowless",
+    "knowless": "^1.1.1",
     "mailauth": "^4.6.0",
     "mailparser": "^3.6.0",
     "simple-git": "^3.20.0"
