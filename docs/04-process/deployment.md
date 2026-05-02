@@ -267,11 +267,37 @@ sudo -u gitdone /opt/gitdone/ops/health-check.sh    # force a run
 
 ## 11. Runbook — deploy
 
-Local testing first, then push-and-restart on the VPS.
+Local testing first, pre-flight against the VPS, then push-and-restart.
+
+### 11.1 Pre-flight (run BEFORE pushing)
+
+Catches the three classes of latent breakage that `npm test` doesn't:
+unresolvable deps, missing lockfile, Node-version drift.
+
+```bash
+# 1. No file:/link:/git:// deps in app/package.json — they only resolve
+#    on the maintainer laptop and silently break npm ci on the VPS.
+grep -E '"(file|link|git\+?[a-z]*):"' app/package.json && \
+  echo "FAIL: non-registry dep" && exit 1
+
+# 2. Lockfile is tracked. `npm ci` requires it; without it the VPS
+#    install is non-reproducible and may skip new deps entirely.
+git ls-files --error-unmatch app/package-lock.json >/dev/null
+
+# 3. Engine ≤ VPS Node major. knowless required Node ≥22.5 once;
+#    VPS was pinned to 20 and `auth.startLogin` blew up at runtime
+#    (node:sqlite is a 22.5+ built-in) — only `/health` worked.
+node -p "require('./app/package.json').engines?.node || 'none'"
+ssh vps 'node --version'
+# Compare manually. If app needs a newer major, upgrade VPS Node FIRST,
+# in a separate change, before merging the dep bump.
+```
+
+### 11.2 Deploy
 
 ```bash
 # --- local ---
-cd app && npm test                              # expect 309/309
+cd app && npm test                              # expect 353/353
 node bin/server.js --dev                        # manual smoke via http://localhost:3001
 git push origin main
 
@@ -280,18 +306,48 @@ ssh vps
 cd /opt/gitdone
 sudo git fetch --tags
 sudo git checkout <sha-or-tag>
+# Do NOT pipe `npm ci` through `tail` / `head` — it masks failure.
 sudo -u root bash -c 'cd app && npm ci --omit=dev'
 sudo systemctl restart gitdone-web.service
 curl -fsS https://git-done.com/health
 journalctl -u gitdone-web.service -n 50 --no-pager
+```
 
-# --- rollback ---
+Note: `/health` returns 200 even when auth is broken — it's a zero-dep
+endpoint by design (§Appendix B). For real verification, also
+`curl -fsS -o /dev/null -w '%{http_code}\n' https://git-done.com/manage`
+(triggers the knowless bootstrap on first hit).
+
+### 11.3 Rollback
+
+```bash
 sudo git checkout <previous-sha>
+sudo -u root bash -c 'cd app && npm ci --omit=dev'   # only if deps changed
 sudo systemctl restart gitdone-web.service
 ```
 
 Restart is sub-second because there's no build step. Data lives outside
 `/opt/gitdone/`, so rollback is always safe.
+
+### 11.4 Upgrading Node major (AlmaLinux module stream)
+
+When a dep raises `engines.node` past the installed major, upgrade Node
+in a dedicated maintenance window before the dep bump merges. Current
+VPS is AlmaLinux 8 with the `nodejs:22` AppStream module:
+
+```bash
+sudo systemctl stop gitdone-web.service
+# If a NodeSource package is currently installed, remove it first —
+# it conflicts with module installs on the same files.
+sudo dnf -y remove nodejs nodejs-libs nodejs-full-i18n
+sudo dnf -y module reset nodejs
+sudo dnf -y --disablerepo='nodesource-*' module install nodejs:22/common
+node --version    # expect v22.x
+cd /opt/gitdone/app && sudo rm -rf node_modules
+sudo -u root bash -c 'cd /opt/gitdone/app && npm ci --omit=dev'
+sudo systemctl start gitdone-web.service
+sudo systemctl start gitdone-ots-upgrade.service   # smoke-test the timer-driven unit too
+```
 
 ## 12. Backup
 
