@@ -6,13 +6,21 @@
 // listens on a local port. nginx proxies :443 -> this port.
 //
 // Routes:
-//   GET  /                — landing page (2 buttons: Create Event / Create Crypto)
-//   GET  /health          — JSON health check (for monitoring)
-//   GET  /events/new      — event creation form (Phase 1.H.2)
-//   POST /events          — create event, generate magic link (Phase 1.H.2, 1.H.4)
-//   GET  /crypto/new      — crypto event creation form (Phase 1.H.3)
-//   POST /crypto          — create crypto event (Phase 1.H.3)
-//   GET  /manage/:token   — initiator dashboard (Phase 1.H.5)
+//   GET  /                        — landing page (2 buttons: Create Event / Create Crypto)
+//   GET  /health                  — JSON health check (for monitoring)
+//   GET  /events/new              — event creation form (Phase 1.H.2)
+//   POST /events                  — create event (Phase 1.H.2)
+//   GET  /crypto/new              — crypto event creation form (Phase 1.H.3)
+//   POST /crypto                  — create crypto event (Phase 1.H.3)
+//   GET  /manage                  — session dashboard / sign-in form (knowless)
+//   POST /manage                  — knowless login (magic link)
+//   GET  /manage/callback         — knowless callback: set 30-day cookie
+//   GET  /manage/verify           — knowless forward-auth
+//   POST /manage/logout           — clear session cookie
+//   GET  /manage/event/:id        — per-event management dashboard (session-gated)
+//   POST /manage/event/:id/remind — send reminders (session-gated)
+//   POST /manage/event/:id/unarchive — un-archive (session-gated)
+//   POST /manage/event/:id/close  — close event (session-gated)
 //
 // Non-goals: no REST API (§0.1.6), no accounts (§0.1.1), no telemetry
 // (§0.1.5). The git repo IS the API for third parties; gitdone-verify
@@ -28,6 +36,7 @@ const { URL } = require('node:url');
 // Dev-mode detection FIRST — we may need to set GITDONE_DATA_DIR before
 // requiring config/event-store (which cache the value at load time).
 const IS_DEV = process.argv.includes('--dev') || process.env.GITDONE_DEV === '1';
+if (IS_DEV) process.env.GITDONE_DEV_MAGIC_LINKS = '1';
 if (IS_DEV && !process.env.GITDONE_DATA_DIR) {
   const devDataDir = path.join(process.cwd(), 'data-dev');
   try { fs.mkdirSync(devDataDir, { recursive: true }); } catch {}
@@ -41,7 +50,8 @@ const { layout: rawLayout, html, raw } = require('../src/web/templates');
 const { parseBody } = require('../src/web/body');
 const { validateWorkflowEvent, validateCryptoEvent, VALID_TRUST_LEVELS, VALID_CRYPTO_MODES, VALID_DEDUP_RULES } = require('../src/web/validation');
 const { createEvent } = require('../src/event-store');
-const { createToken, loadToken } = require('../src/magic-token');
+const { getAuth } = require('../src/auth');
+const { createEventFinder } = require('../src/web/handle-events');
 const { sendmail, buildRawMessage } = require('../src/outbound');
 const { notifyWorkflowParticipants, notifyDeclarationSigner } = require('../src/notifications');
 const devChannel = IS_DEV ? require('../src/web/dev-channel') : null;
@@ -299,8 +309,7 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
       </div>`
     : raw('');
   return html`
-    <h1>Create Event</h1>
-    <p><a href="/">← back</a></p>
+    <p style="margin:0 0 1rem"><a href="/" style="color:#8b949e;font-size:0.88em">← back</a></p>
     ${errBlock}
     <style>${raw(WORKFLOW_FORM_CSS)}</style>
     <form class="vf-form" method="POST" action="/events" data-variant-root="F">
@@ -602,89 +611,63 @@ router.post('/events', async (req, res) => {
     }));
   }
 
-  // Confirmed — persist event in pending-activation state. Participants
-  // are NOT notified; we send a single email to the initiator with an
-  // activation magic link (72h) and the management link (30d). The
-  // activation step proves the initiator controls the email address
-  // before any outbound notifications go out to named participants,
-  // closing the impersonation/spam hole where anyone could create an
-  // event in someone else's name.
-  const { createActivationToken } = require('../src/activation-token');
+  // Confirmed — persist event in pending-activation state, then trigger
+  // knowless Mode A. The magic link both verifies email ownership AND
+  // opens a session whose nextUrl lands on the event dashboard. The
+  // dashboard route does the actual activate-and-notify on first arrival
+  // (see GET /manage/event/:id). If the requester is already signed in
+  // as the initiator, skip the email round-trip.
   const event = await createEvent({
     type: 'event',
     ...v.value,
   });
-  const mgmtToken = await createToken({ eventId: event.id, initiator: event.initiator });
-  const activation = await createActivationToken({
-    eventId: event.id,
-    initiator: event.initiator,
-    managementToken: mgmtToken.token,
+  const dashboardPath = `/manage/event/${event.id}`;
+  const auth = await getAuth();
+  const handle = await currentHandle(req);
+  const sameSession = handle && auth.deriveHandle(event.initiator) === handle;
+  if (sameSession) {
+    res.writeHead(303, { location: dashboardPath });
+    return res.end();
+  }
+  await auth.startLogin({
+    email: event.initiator,
+    nextUrl: dashboardPath,
+    sourceIp: req.socket.remoteAddress || '',
+    subjectOverride: activationSubject(event.title),
+    bodyOverride: buildEventActivationBody(event),
+    // gitdone is the trusted server-side caller (AF-10). The per-IP
+    // new-handle limit is meant for self-serve login forms; here the
+    // rate-limiting concern is event creation itself, which lives at
+    // gitdone's layer, not at knowless's.
+    bypassRateLimit: true,
   });
-  const manageUrl = `${publicBaseUrl()}/manage/${mgmtToken.token}`;
-  const activateUrl = `${publicBaseUrl()}/activate/${activation.token}`;
-  const emailResult = await sendActivationEmail({ event, activateUrl, manageUrl });
-  const flow = renderFlowProse(event.steps);
-  const msg = html`
-    <style>${raw(PREVIEW_CSS)}</style>
-    <div class="pv">
-      <h1>Event created</h1>
-      <p class="lede"><strong>${event.title}</strong> — organized by <code>${event.initiator}</code> · ID: <code>${event.id}</code></p>
-
-      <h2>Flow</h2>
-      <p class="flow">${flow}</p>
-
-      <h2>Participant reply addresses</h2>
-      <p style="color:#8b949e;font-size:0.88em;margin:0 0 0.6rem">Each step has a unique reply-to. Replies are DKIM-verified, timestamped, and committed to the event's git repo.</p>
-      <ol class="steps">
-        ${event.steps.map((s, i) => html`
-          <li>
-            <span class="n">${i + 1}</span>
-            <div>
-              <span class="name">${s.name}</span> → <code>${s.participant}</code>
-              <div class="sub">reply-to: <code>event+${event.id}-${s.id}@${config.domain}</code>
-                ${s.deadline ? html` · deadline <code>${s.deadline.slice(0, 10)}</code>` : raw('')}
-              </div>
-              ${s.details ? html`<div class="details">${s.details}</div>` : raw('')}
-            </div>
-          </li>
-        `)}
-      </ol>
-
-      ${emailResult.ok
-        ? html`<div class="mg-flash" style="background:rgba(255,176,0,.08);border:1px solid #ffb000;color:#ffb000;padding:0.7rem 0.95rem;margin-top:1rem;font-size:0.92em;line-height:1.5">
-            <strong>Check ${event.initiator} to activate.</strong>
-            Participants are <em>not</em> notified yet. Click the activation link we just sent (valid 72 hours) to kick off the event and send invitations. The same email also includes your 30-day management link.
-          </div>`
-        : html`<div style="background:rgba(248,81,73,.08);border:1px solid #f85149;color:#f85149;padding:0.7rem 0.95rem;margin-top:1rem;font-size:0.92em;line-height:1.5">
-            <strong>Activation email could not be sent</strong> (${emailResult.reason || 'send failed'}).
-            Activation URL (72h): <code style="color:#ffb000;background:#0d1117;word-break:break-all">${activateUrl}</code>
-          </div>`}
-      <p style="margin-top:1.2rem"><a href="/">← home</a> · <a href="/manage">your events</a></p>
-    </div>
-  `;
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  res.end(layout({ title: 'event created — gitdone', body: msg }));
+  res.end(layout({
+    title: 'event created — gitdone',
+    body: renderCheckYourInboxPage({ event, kind: 'event' }),
+  }));
 });
 
-// Compose + submit the activation email. Goes to the initiator only;
-// no participants see anything until the activation link is clicked.
-// Plain text; outbound DKIM signing is handled by the opendkim milter
-// at the MTA (see outbound.js).
-async function sendActivationEmail({ event, activateUrl, manageUrl }) {
-  const from = `gitdone@${config.domain}`;
+// Build the magic-link email body for a workflow event. knowless calls
+// this with the magic-link URL it composes; we surround it with the
+// event-specific context (steps list, command tags, manage link).
+// Constraints from validateBodyOverride: ASCII only, no CR, ≤2048 chars,
+// URL on its own line and present exactly once.
+function buildEventActivationBody(event) {
+  const safeTitle = asciiSafe(event.title);
+  const safeInitiator = asciiSafe(event.initiator);
   const stepsList = event.steps
-    .map((s, i) => `  ${i + 1}. ${s.name} — ${s.participant}`)
+    .map((s, i) => `  ${i + 1}. ${asciiSafe(s.name)} - ${asciiSafe(s.participant)}`)
     .join('\n');
-  const body = [
-    `You created the event "${event.title}" on gitdone.`,
+  return ({ url }) => [
+    `You created the event "${safeTitle}" on gitdone.`,
     ``,
-    `Before we notify anyone, we need you to confirm this email address`,
-    `by clicking the activation link below. Until you do, no invitations`,
-    `are sent and no replies count. The link is valid for 72 hours; if`,
-    `it expires, the event is archived and participants are never contacted.`,
+    `Click the link below to sign in and activate. Activating sends`,
+    `invitations to all named participants. Until you click, no one is`,
+    `contacted and no replies count. The link is valid for 15 minutes;`,
+    `if it expires, request a new one at ${publicBaseUrl()}/manage.`,
     ``,
-    `Activate and send invitations:`,
-    `  ${activateUrl}`,
+    url,
     ``,
     `Event ID: ${event.id}`,
     `Minimum trust: ${event.min_trust_level}`,
@@ -692,28 +675,102 @@ async function sendActivationEmail({ event, activateUrl, manageUrl }) {
     `Steps that will be notified on activation:`,
     stepsList,
     ``,
-    `Management link (valid 30 days — bookmark it; works after activation):`,
-    `  ${manageUrl}`,
-    ``,
-    `Day-to-day commands happen by email. After activation, from the`,
-    `address you created the event with (${event.initiator}), reply to:`,
+    `Day-to-day commands by email from ${safeInitiator}:`,
     `  stats+${event.id}@${config.domain}    see current progress`,
     `  remind+${event.id}@${config.domain}   nudge pending participants`,
     `  close+${event.id}@${config.domain}    close the event early`,
     ``,
+    `Manage your events at: ${publicBaseUrl()}/manage`,
+    ``,
     `Anyone can verify a proof offline with the gitdone-verify CLI.`,
     `See https://github.com/hamr0/gitdone`,
   ].join('\n');
-  const rawMessage = buildRawMessage({
-    from,
-    to: event.initiator,
-    subject: `[gitdone] "${event.title}" — click to activate`,
-    body,
-    autoSubmitted: 'auto-generated',
-    domain: config.domain,
-    extraHeaders: { 'X-GitDone-Event': event.id },
-  });
-  return sendmail({ from, rawMessage, to: [event.initiator] });
+}
+
+// Build the magic-link email body for a crypto event (declaration or
+// attestation). Same validation constraints as buildEventActivationBody.
+function buildCryptoActivationBody(event) {
+  const safeTitle = asciiSafe(event.title);
+  const safeInitiator = asciiSafe(event.initiator);
+  const safeSigner = asciiSafe(event.signer);
+  const replyAddr = `event+${event.id}@${config.domain}`;
+  const modeDetails = event.mode === 'declaration'
+    ? [
+        `Mode: declaration - one DKIM-verified reply from the designated signer.`,
+        `Signer: ${safeSigner}`,
+      ]
+    : [
+        `Mode: attestation - ${event.threshold} distinct signers needed (${event.dedup} dedup).`,
+        `Anonymous replies: ${event.allow_anonymous ? 'allowed' : 'not allowed'}`,
+        `Share the reply address below however you like - social, email, QR.`,
+      ];
+  return ({ url }) => [
+    `You created the crypto event "${safeTitle}" on gitdone.`,
+    ``,
+    `Click the link below to sign in and activate. Activating makes the`,
+    `reply address live${event.mode === 'declaration' ? ' and notifies the signer' : ''}. Until you click, no replies count.`,
+    `The link is valid for 15 minutes; if it expires, request a new one`,
+    `at ${publicBaseUrl()}/manage.`,
+    ``,
+    url,
+    ``,
+    `Event ID: ${event.id}`,
+    ...modeDetails,
+    ``,
+    `Reply address (goes live on activation):`,
+    `  ${replyAddr}`,
+    ``,
+    `Day-to-day commands by email from ${safeInitiator}:`,
+    `  stats+${event.id}@${config.domain}    current state`,
+    `  close+${event.id}@${config.domain}    close early`,
+    ``,
+    `Manage your events at: ${publicBaseUrl()}/manage`,
+    ``,
+    `Proofs verify offline via gitdone-verify.`,
+    `See https://github.com/hamr0/gitdone`,
+  ].join('\n');
+}
+
+// knowless caps subjects at 60 strictly-ASCII chars (no CR/LF). Strip
+// non-ASCII so a non-Latin event title doesn't 500 the create-event
+// response, then truncate to fit alongside the bracketed prefix.
+function activationSubject(title) {
+  const prefix = '[gitdone] activate "';
+  const suffix = '"';
+  const room = 60 - prefix.length - suffix.length;
+  const ascii = String(title).replace(/[\r\n]/g, ' ').replace(/[^\x20-\x7e]/g, '');
+  const safe = ascii.trim() || 'event';
+  const trimmed = safe.length > room ? safe.slice(0, room - 3) + '...' : safe;
+  return prefix + trimmed + suffix;
+}
+
+// Strip CR/LF and non-ASCII so user-supplied strings can't break
+// knowless's body validator (ASCII-only, URL on its own line). Returns
+// the original string if already safe.
+function asciiSafe(s) {
+  return String(s == null ? '' : s).replace(/[\r\n]/g, ' ').replace(/[^\x20-\x7e]/g, '');
+}
+
+function renderCheckYourInboxPage({ event, kind }) {
+  const noun = kind === 'crypto'
+    ? (event.mode === 'declaration' ? 'declaration' : 'attestation')
+    : 'event';
+  return html`
+    <style>${raw(PREVIEW_CSS)}</style>
+    <div class="pv">
+      <p class="lede"><strong>${event.title}</strong> &middot; ID: <code>${event.id}</code></p>
+      <div class="mg-flash" style="background:rgba(255,176,0,.08);border:1px solid #ffb000;color:#ffb000;padding:0.7rem 0.95rem;margin-top:1rem;font-size:0.95em;line-height:1.5">
+        <strong>Check ${event.initiator}.</strong>
+        We sent a sign-in link. Click it to activate the ${noun}; until then,
+        ${kind === 'event'
+          ? 'no participants are notified and no replies count.'
+          : (event.mode === 'declaration'
+              ? 'the signer has not been notified and the reply address is not live.'
+              : 'the reply address is not live.')}
+      </div>
+      <p style="margin-top:1.2rem"><a href="/">← home</a> &middot; <a href="/manage">your events</a></p>
+    </div>
+  `;
 }
 
 // -------- crypto event creation (1.H.3) --------
@@ -778,8 +835,8 @@ function renderCryptoForm({ values = {}, errors = [] } = {}) {
     ? 'declaration · one signer replies, one permanent record'
     : 'attestation · anyone you share the reply address with can sign';
   return html`
-    <h1 style="margin:1rem 0 0.35rem">Create a signed record</h1>
-    <p style="margin:0 0 1rem;color:#8b949e;font-size:0.9em">A cryptographically timestamped signature — sign something yourself, or gather signatures from a group. <a href="/">← back</a></p>
+    <p style="margin:0 0 0.4rem"><a href="/" style="color:#8b949e;font-size:0.88em">← back</a></p>
+    <p style="margin:0 0 1rem;color:#8b949e;font-size:0.9em">A cryptographically timestamped signature — sign something yourself, or gather signatures from a group.</p>
     ${errBlock}
     <style>${raw(CRYPTO_FORM_CSS)}</style>
     <form class="cf" method="POST" action="/crypto" data-variant-root="F">
@@ -893,118 +950,39 @@ router.post('/crypto', async (req, res) => {
     }));
   }
   // Same pending-activation gate as workflow events: no signer invite
-  // goes out (declaration), no reply-address becomes live, until the
-  // initiator clicks the 72h activation link.
-  const { createActivationToken } = require('../src/activation-token');
+  // (declaration), no reply-address goes live, until the magic link
+  // is clicked. See POST /events for details on the knowless Mode A
+  // pattern.
   const event = await createEvent(v.value);
-  const mgmtToken = await createToken({ eventId: event.id, initiator: event.initiator });
-  const activation = await createActivationToken({
-    eventId: event.id,
-    initiator: event.initiator,
-    managementToken: mgmtToken.token,
+  const dashboardPath = `/manage/event/${event.id}`;
+  const auth = await getAuth();
+  const handle = await currentHandle(req);
+  const sameSession = handle && auth.deriveHandle(event.initiator) === handle;
+  if (sameSession) {
+    res.writeHead(303, { location: dashboardPath });
+    return res.end();
+  }
+  await auth.startLogin({
+    email: event.initiator,
+    nextUrl: dashboardPath,
+    sourceIp: req.socket.remoteAddress || '',
+    subjectOverride: activationSubject(event.title),
+    bodyOverride: buildCryptoActivationBody(event),
+    bypassRateLimit: true, // see AF-10 note in POST /events
   });
-  const manageUrl = `${publicBaseUrl()}/manage/${mgmtToken.token}`;
-  const activateUrl = `${publicBaseUrl()}/activate/${activation.token}`;
-  const emailResult = await sendCryptoActivationEmail({ event, activateUrl, manageUrl });
-  const replyAddr = event.mode === 'declaration'
-    ? `event+${event.id}@${config.domain}`
-    : `event+${event.id}@${config.domain}`;
-  const msg = event.mode === 'declaration'
-    ? html`
-      <h1>Declaration created</h1>
-      <p class="lede"><strong>${event.title}</strong> — organized by <code>${event.initiator}</code> · ID: <code>${event.id}</code></p>
-      <p>The signer you named will get a reply address. When they reply from <code>${event.signer}</code>
-      with a DKIM-verified email, it's committed to the event repo as a permanent record.</p>
-      <p>Signer: <code>${event.signer}</code><br>Reply-to: <code>${replyAddr}</code></p>
-    `
-    : html`
-      <h1>Attestation created</h1>
-      <p class="lede"><strong>${event.title}</strong> — organized by <code>${event.initiator}</code> · ID: <code>${event.id}</code></p>
-      <p>Share this reply address with potential signers (social media, mass email, QR code — up to you).
-      Every DKIM-verified reply counts; completion is <strong>${String(event.threshold)} distinct signers</strong> with
-      <code>${event.dedup}</code> dedup.</p>
-      <p>Reply-to: <code>${replyAddr}</code><br>
-      Share as: <code>mailto:${replyAddr}?subject=${encodeURIComponent('re: ' + event.title)}</code></p>
-    `;
-  const full = html`
-    <style>${raw(PREVIEW_CSS)}</style>
-    <div class="pv">
-      ${msg}
-      ${emailResult.ok
-        ? html`<div style="background:rgba(255,176,0,.08);border:1px solid #ffb000;color:#ffb000;padding:0.7rem 0.95rem;margin-top:1rem;font-size:0.92em;line-height:1.5">
-            <strong>Check ${event.initiator} to activate.</strong>
-            ${event.mode === 'declaration' ? raw('The signer is <em>not</em> notified yet. ') : raw('The reply address is <em>not</em> live yet. ')}
-            Click the activation link we just sent (valid 72 hours) to go live. The same email includes your 30-day management link.
-          </div>`
-        : html`<div style="background:rgba(248,81,73,.08);border:1px solid #f85149;color:#f85149;padding:0.7rem 0.95rem;margin-top:1rem;font-size:0.92em;line-height:1.5">
-            <strong>Activation email could not be sent</strong> (${emailResult.reason || 'send failed'}).
-            Activation URL (72h): <code style="color:#ffb000;background:#0d1117;word-break:break-all">${activateUrl}</code>
-          </div>`}
-      <p style="margin-top:1.2rem"><a href="/">← home</a> · <a href="/manage">your events</a></p>
-    </div>
-  `;
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  res.end(layout({ title: 'crypto event created — gitdone', body: full }));
+  res.end(layout({
+    title: 'crypto event created — gitdone',
+    body: renderCheckYourInboxPage({ event, kind: 'crypto' }),
+  }));
 });
 
-async function sendCryptoActivationEmail({ event, activateUrl, manageUrl }) {
-  const from = `gitdone@${config.domain}`;
-  const replyAddr = `event+${event.id}@${config.domain}`;
-  const modeDetails = event.mode === 'declaration'
-    ? [
-        `Mode: declaration — one DKIM-verified reply from the designated signer.`,
-        `Signer: ${event.signer}`,
-      ]
-    : [
-        `Mode: attestation — ${event.threshold} distinct signers needed (${event.dedup} dedup).`,
-        `Anonymous replies: ${event.allow_anonymous ? 'allowed' : 'not allowed'}`,
-        `Share the reply address below however you like — social, email, QR.`,
-      ];
-  const body = [
-    `You created the crypto event "${event.title}" on gitdone.`,
-    ``,
-    `Before the reply address goes live${event.mode === 'declaration' ? ' and the signer is invited' : ''}, we need you to`,
-    `confirm this email address by clicking the activation link below.`,
-    `Until you do, no invitations go out and no replies count. The link`,
-    `is valid for 72 hours; if it expires, the event is archived.`,
-    ``,
-    `Activate:`,
-    `  ${activateUrl}`,
-    ``,
-    `Event ID: ${event.id}`,
-    ...modeDetails,
-    ``,
-    `Reply address (goes live on activation):`,
-    `  ${replyAddr}`,
-    ``,
-    `Management link (valid 30 days; works after activation):`,
-    `  ${manageUrl}`,
-    ``,
-    `Day-to-day commands by email from ${event.initiator}:`,
-    `  stats+${event.id}@${config.domain}    current state`,
-    `  close+${event.id}@${config.domain}    close early`,
-    ``,
-    `Proofs verify offline via gitdone-verify.`,
-    `See https://github.com/hamr0/gitdone`,
-  ].join('\n');
-  const rawMessage = buildRawMessage({
-    from,
-    to: event.initiator,
-    subject: `[gitdone] "${event.title}" — click to activate`,
-    body,
-    autoSubmitted: 'auto-generated',
-    domain: config.domain,
-    extraHeaders: { 'X-GitDone-Event': event.id },
-  });
-  return sendmail({ from, rawMessage, to: [event.initiator] });
-}
 
 // Debug/read-only event view — helpful during dev; will be locked down
 // or removed when 1.H.5 (magic-link management) lands.
-// Read-only detail view. Requires the signed-in session email to match
-// event.initiator — keeps participant emails out of reach for anyone
-// who happens to know or guess an event ID (PRD §0.1.10 plaintext
-// discipline). Linked from the /manage/:token dashboard.
+// Requires a valid session whose handle matches event.initiator — keeps
+// participant emails out of reach for anyone who knows/guesses an event
+// ID (PRD §0.1.10). Linked from the /manage/:token dashboard.
 router.get('/events/:id', async (req, res, params) => {
   const { loadEvent } = require('../src/event-store');
   const event = await loadEvent(params.id);
@@ -1015,9 +993,11 @@ router.get('/events/:id', async (req, res, params) => {
       body: html`<h1>Event not found</h1><p><a href="/">home</a></p>`,
     }));
   }
-  const sessionEmail = currentSessionEmail(req);
-  const isOwner = sessionEmail
-    && String(sessionEmail).toLowerCase() === String(event.initiator || '').toLowerCase();
+  const handle = await currentHandle(req);
+  let isOwner = false;
+  if (handle && event.initiator) {
+    try { isOwner = (await getAuth()).deriveHandle(event.initiator) === handle; } catch {}
+  }
   if (!isOwner) {
     res.writeHead(303, { location: `/manage?next=${encodeURIComponent('/events/' + event.id)}` });
     return res.end();
@@ -1048,19 +1028,21 @@ router.get('/events/:id', async (req, res, params) => {
   }));
 });
 
-// ---- Magic-link session flow ------------------------------------------
-// GET  /manage                     → if cookie valid: list of your events,
-//                                    else: email form
-// POST /manage                     → mint 15-min token, email magic link
-// GET  /manage/session/:token      → consume token, set 30-day cookie,
-//                                    redirect to /manage
-// POST /manage/logout              → clear cookie, redirect to /
+// ---- Session flow (knowless-backed) -----------------------------------
+// GET  /manage                     → if session valid: list of your events,
+//                                    else: email form (gitdone-themed)
+// POST /manage                     → knowless login: sham-safe magic link
+// GET  /manage/callback            → knowless callback: set 30-day cookie
+// GET  /manage/verify              → knowless forward-auth check
+// POST /manage/logout              → knowless logout: clear cookie
 
-const session = require('../src/magic-session');
-
-function currentSessionEmail(req) {
-  const cookie = session.parseCookie(req.headers.cookie, session.COOKIE_NAME);
-  return session.verifySessionCookie(cookie);
+async function currentHandle(req) {
+  try {
+    const auth = await getAuth();
+    return auth.handleFromRequest(req);
+  } catch {
+    return null;
+  }
 }
 
 const MANAGE_HUB_CSS = `
@@ -1148,8 +1130,9 @@ function summariseEvent(ev) {
   return { status, pillClass, progress, terminal, completed, closed, archived, pending };
 }
 
-async function renderSessionHub({ email, devLink, flash, showArchived = false }) {
-  const all = await session.findEventsByInitiator(email);
+async function renderSessionHub({ handle, auth, flash, showArchived = false }) {
+  const findEventsByHandle = createEventFinder((email) => auth.deriveHandle(email));
+  const all = await findEventsByHandle(handle);
   // Summarise once so both the top strip and row rendering see the
   // same derived status. Stash it on the event for simplicity.
   for (const ev of all) ev._summary = summariseEvent(ev);
@@ -1202,9 +1185,7 @@ async function renderSessionHub({ email, devLink, flash, showArchived = false })
       }
     }
     const sub = html`<span>${line}</span><span class="muted"> · created ${created}</span>`;
-    const manageHref = ev.management_token
-      ? `/manage/${ev.management_token}`
-      : `/manage/event/${ev.id}`;
+    const manageHref = `/manage/event/${ev.id}`;
     return html`
       <div class="row">
         <span class="kind ${kind}">${kind}</span>
@@ -1237,10 +1218,8 @@ async function renderSessionHub({ email, devLink, flash, showArchived = false })
   return html`
     <style>${raw(MANAGE_HUB_CSS)}</style>
     <div class="mh">
-      <h1>Your events</h1>
-      <p class="lede">Signed in as <code>${email}</code>.</p>
+      <p style="margin:0 0 1rem"><a href="/" style="color:#8b949e;font-size:0.88em">← back</a></p>
       ${flash ? html`<div class="flash">${flash}</div>` : raw('')}
-      ${devLink ? html`<div class="devlink"><strong>DEV:</strong> magic link (sendmail unavailable): <code>${devLink}</code></div>` : raw('')}
       ${countsStrip}
       ${rows}
       ${toggle}
@@ -1251,7 +1230,7 @@ async function renderSessionHub({ email, devLink, flash, showArchived = false })
   `;
 }
 
-function renderSignInForm({ flash, devLink, email }) {
+function renderSignInForm({ flash, devLink, email, next }) {
   return html`
     <style>${raw(MANAGE_HUB_CSS)}</style>
     <div class="mh">
@@ -1260,6 +1239,7 @@ function renderSignInForm({ flash, devLink, email }) {
       ${flash ? html`<div class="flash">${flash}</div>` : raw('')}
       ${devLink ? html`<div class="devlink"><strong>DEV:</strong> sendmail unavailable — magic link: <code>${devLink}</code></div>` : raw('')}
       <form method="POST" action="/manage">
+        ${next ? html`<input type="hidden" name="next" value="${next}">` : raw('')}
         <input type="email" name="email" placeholder="you@example.com" required autofocus value="${email || ''}">
         <button type="submit">send link</button>
       </form>
@@ -1268,208 +1248,117 @@ function renderSignInForm({ flash, devLink, email }) {
   `;
 }
 
-// Activation consumption. The initiator clicks the link from the
-// activation email: we consume the token (single-use), flip
-// event.activated_at, fire the participant notifications, and redirect
-// to the management dashboard for that event. Clicking twice returns
-// a clean 404 — the token is gone.
-router.get('/activate/:token', async (req, res, params) => {
-  const { consumeActivationToken } = require('../src/activation-token');
-  const { activateEvent, loadEvent } = require('../src/event-store');
-  const { notifyWorkflowParticipants, notifyDeclarationSigner } = require('../src/notifications');
-  const rec = await consumeActivationToken(params.token);
-  if (!rec) {
-    res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' });
-    return res.end(layout({
-      title: 'activation link invalid — gitdone',
-      body: html`<h1>Link invalid or expired</h1>
-        <p>This activation link has already been used, or its 72-hour window has passed.</p>
-        <p>If the event was never activated, it will be archived and nobody was contacted.</p>
-        <p><a href="/">home</a></p>`,
-    }));
-  }
-  const event = await loadEvent(rec.event_id);
-  if (!event) {
-    res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' });
-    return res.end(layout({
-      title: 'event missing — gitdone',
-      body: html`<h1>Event not found</h1>
-        <p>The activation token was valid but the underlying event is gone.</p>
-        <p><a href="/">home</a></p>`,
-    }));
-  }
-  const { event: activated, alreadyActive } = await activateEvent(rec.event_id);
-  if (!alreadyActive) {
-    // Fire the deferred participant notifications. Best-effort — a
-    // send failure here doesn't block activation (the management
-    // dashboard's "Send reminders" button can re-trigger).
-    try {
-      if (activated.type === 'event') {
-        const results = await notifyWorkflowParticipants(activated);
-        for (const r of results) {
-          if (!r.ok) process.stderr.write(`activate-notify: failed ${r.to}: ${r.reason || r.code}\n`);
-        }
-      } else if (activated.type === 'crypto' && activated.mode === 'declaration') {
-        const results = await notifyDeclarationSigner(activated);
-        for (const r of results) {
-          if (!r.ok) process.stderr.write(`activate-notify: failed ${r.to}: ${r.reason || r.code}\n`);
-        }
-      }
-      // Attestation events have no per-recipient invite — the organiser
-      // shares the reply address themselves. Nothing to send here.
-    } catch (err) {
-      process.stderr.write(`activate-notify: ${err.message || err}\n`);
-    }
-  }
-  const target = rec.management_token ? `/manage/${rec.management_token}?activated=1` : '/manage';
-  res.writeHead(303, { location: target });
-  res.end();
-});
-
 router.get('/manage', async (req, res) => {
-  const email = currentSessionEmail(req);
+  const handle = await currentHandle(req);
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  if (email) {
+  if (handle) {
+    const auth = await getAuth();
     res.end(layout({
       title: 'your events — gitdone',
-      body: await renderSessionHub({ email, showArchived: /[?&]show=archived\b/.test(req.url || '') }),
+      body: await renderSessionHub({ handle, auth, showArchived: /[?&]show=archived\b/.test(req.url || '') }),
     }));
   } else {
+    const u = new URL(req.url || '/', 'http://localhost');
+    const next = u.searchParams.get('next') || '';
     res.end(layout({
       title: 'sign in — gitdone',
-      body: renderSignInForm({}),
+      body: renderSignInForm({ next }),
     }));
   }
 });
 
 router.post('/manage', async (req, res) => {
-  let fields = {};
-  try { fields = await parseBody(req); } catch {}
-  const email = String(fields.email || '').trim().toLowerCase();
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' });
-    return res.end(layout({
-      title: 'sign in — gitdone',
-      body: renderSignInForm({ flash: 'Please enter a valid email address.', email: fields.email }),
-    }));
-  }
-  // Always respond the same regardless of whether the email has events
-  // (no "does X exist?" oracle). Mint the token only if we would actually
-  // email it; if sendmail fails, surface the link in dev mode.
-  const rec = await session.createMagicLink(email);
-  const link = `${publicBaseUrl()}/manage/session/${rec.token}`;
-  const body = `A one-time link to open your gitdone dashboard:
-
-    ${link}
-
-Valid for 15 minutes. Opens once.
-
-If you didn't request this, ignore this email.
-
---
-gitdone`;
-  const rawMessage = buildRawMessage({
-    from: `gitdone <noreply@${config.domain}>`,
-    to: email,
-    subject: 'Your gitdone sign-in link',
-    body,
-    domain: config.domain,
-    autoSubmitted: 'auto-generated',
-  });
-  const result = await sendmail({ from: `noreply@${config.domain}`, rawMessage });
-  let devLink = null;
-  if (!result.ok) {
-    process.stderr.write(`manage/signin: sendmail failed for ${email}: ${result.reason || result.stderr || '?'}\n  link: ${link}\n`);
-    if (IS_DEV) devLink = link;
-  }
-  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  res.end(layout({
-    title: 'check your inbox — gitdone',
-    body: html`
-      <style>${raw(MANAGE_HUB_CSS)}</style>
-      <div class="mh">
-        <h1>Check your inbox</h1>
-        <p class="lede">If <code>${email}</code> has any events on gitdone, we just emailed a one-time sign-in link. It's valid for 15 minutes.</p>
-        ${devLink ? html`<div class="devlink"><strong>DEV:</strong> sendmail unavailable — magic link: <code>${devLink}</code></div>` : raw('')}
-        <p><a href="/manage">← back</a></p>
-      </div>
-    `,
-  }));
+  const auth = await getAuth();
+  return auth.login(req, res);
 });
 
-router.get('/manage/session/:token', async (req, res, params) => {
-  const email = await session.consumeMagicLink(params.token);
-  if (!email) {
-    res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' });
-    return res.end(layout({
-      title: 'link expired — gitdone',
-      body: html`
-        <style>${raw(MANAGE_HUB_CSS)}</style>
-        <div class="mh">
-          <h1>Link expired or already used</h1>
-          <p class="lede">Sign-in links are one-time and expire after 15 minutes.</p>
-          <p><a href="/manage">Get a new link</a> · <a href="/">home</a></p>
-        </div>
-      `,
-    }));
-  }
-  res.writeHead(303, { location: '/manage', 'set-cookie': session.buildSetCookie(email) });
-  res.end();
+router.get('/manage/callback', async (req, res) => {
+  const auth = await getAuth();
+  return auth.callback(req, res);
+});
+
+router.get('/manage/verify', async (req, res) => {
+  const auth = await getAuth();
+  return auth.verify(req, res);
 });
 
 router.post('/manage/logout', async (req, res) => {
-  res.writeHead(303, { location: '/', 'set-cookie': session.buildClearCookie() });
-  res.end();
+  const auth = await getAuth();
+  // knowless.logout clears the cookie but returns 200 with empty body.
+  // Hook res.end so we upgrade to a 303 home, preserving the Set-Cookie.
+  const origEnd = res.end.bind(res);
+  res.end = (...args) => {
+    if (res.statusCode === 200 && !res.headersSent) {
+      res.statusCode = 303;
+      res.setHeader('Location', '/');
+    }
+    return origEnd(...args);
+  };
+  return auth.logout(req, res);
 });
 
-// Session-authed jump to a specific event's management dashboard. Used by
-// the hub's per-event "open" link — finds the event's per-event token and
-// redirects to the canonical /manage/:token URL.
+// Session-gated per-event management dashboard. First arrival by the
+// initiator activates a pending event (idempotent via activateEvent) and
+// fires the deferred participant notifications. The signed-in session is
+// proof of email ownership — established via knowless's magic-link
+// callback (Mode A: "do the thing, confirm by email").
 router.get('/manage/event/:id', async (req, res, params) => {
-  const email = currentSessionEmail(req);
-  if (!email) { res.writeHead(303, { location: '/manage' }); return res.end(); }
-  const { loadEvent } = require('../src/event-store');
-  const ev = await loadEvent(params.id);
-  if (!ev) { res.writeHead(404); return res.end('event not found'); }
-  if (String(ev.initiator || '').toLowerCase() !== email) {
+  const handle = await currentHandle(req);
+  if (!handle) {
+    const u = new URL(req.url || '/', 'http://localhost');
+    const target = `/manage/event/${params.id}${u.search}`;
+    res.writeHead(303, { location: `/manage?next=${encodeURIComponent(target)}` });
+    return res.end();
+  }
+  const auth = await getAuth();
+  const { loadEvent, activateEvent } = require('../src/event-store');
+  let event = await loadEvent(params.id);
+  if (!event) { res.writeHead(404); return res.end('event not found'); }
+  if (auth.deriveHandle(event.initiator) !== handle) {
     res.writeHead(403); return res.end('forbidden');
   }
-  const token = await session.findTokenByEventId(params.id);
-  if (!token) { res.writeHead(404); return res.end('management token for this event has expired; re-create is not supported yet'); }
-  res.writeHead(303, { location: `/manage/${token}` });
-  res.end();
-});
 
-// 1.H.4 — management link landing. Validates the token and shows a minimal
-// confirmation page. Full dashboard is 1.H.5.
-router.get('/manage/:token', async (req, res, params) => {
-  const rec = await loadToken(params.token);
-  if (!rec) {
-    res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' });
-    return res.end(layout({
-      title: 'link invalid — gitdone',
-      body: html`<h1>Link invalid or expired</h1>
-        <p>This management link is no longer valid. Create a new event if you need one.</p>
-        <p><a href="/">home</a></p>`,
-    }));
+  // Auto-activate on first owner visit, but only for live, never-activated
+  // events. Skipping closed/archived events keeps a "view a closed event"
+  // visit from re-firing participant notifications.
+  let justActivated = false;
+  const finalised = (event.completion && event.completion.status === 'complete') || !!event.archived_at;
+  if (!event.activated_at && !finalised) {
+    const { event: activated, alreadyActive } = await activateEvent(params.id);
+    event = activated;
+    if (!alreadyActive) {
+      justActivated = true;
+      const { notifyWorkflowParticipants, notifyDeclarationSigner } = require('../src/notifications');
+      try {
+        if (event.type === 'event') {
+          const results = await notifyWorkflowParticipants(event);
+          for (const r of results) {
+            if (!r.ok) process.stderr.write(`activate-notify: failed ${r.to}: ${r.reason || r.code}\n`);
+          }
+        } else if (event.type === 'crypto' && event.mode === 'declaration') {
+          const results = await notifyDeclarationSigner(event);
+          for (const r of results) {
+            if (!r.ok) process.stderr.write(`activate-notify: failed ${r.to}: ${r.reason || r.code}\n`);
+          }
+        }
+        // Attestation events have no per-recipient invite — organiser
+        // shares the reply address themselves.
+      } catch (err) {
+        process.stderr.write(`activate-notify: ${err.message || err}\n`);
+      }
+    }
   }
-  const { loadEvent } = require('../src/event-store');
-  const event = await loadEvent(rec.event_id);
-  if (!event) {
-    res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' });
-    return res.end(layout({
-      title: 'event missing — gitdone',
-      body: html`<h1>Event not found</h1>
-        <p>Token valid, but the underlying event is gone.</p>
-        <p><a href="/">home</a></p>`,
-    }));
-  }
-  const flash = (req.url.includes('?reminded=1'))
-    ? 'Reminders sent.'
-    : (req.url.includes('?closed=1'))
-      ? 'Event closed.'
-      : (req.url.includes('?activated=1'))
+
+  const flash = justActivated
+    ? (event.type === 'event'
         ? 'Event activated — invitations have been sent to all participants.'
+        : (event.mode === 'declaration'
+            ? 'Activated — the signer has been invited.'
+            : 'Activated — your reply address is now live.'))
+    : (req.url.includes('?reminded=1'))
+      ? 'Reminders sent.'
+      : (req.url.includes('?closed=1'))
+        ? 'Event closed.'
         : (req.url.includes('?unarchived=1'))
           ? 'Event un-archived — replies will count again.'
           : null;
@@ -1488,48 +1377,53 @@ router.get('/manage/:token', async (req, res, params) => {
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
     title: `manage — ${event.title}`,
-    body: renderManagementDashboard({ token: params.token, rec, event, flash, stepAttempts }),
+    body: renderManagementDashboard({ eventId: params.id, initiatorEmail: event.initiator, event, flash, stepAttempts }),
   }));
 });
 
-router.post('/manage/:token/remind', async (req, res, params) => {
-  const rec = await loadToken(params.token);
-  if (!rec) { res.writeHead(404); return res.end('link invalid'); }
+router.post('/manage/event/:id/remind', async (req, res, params) => {
+  const handle = await currentHandle(req);
+  if (!handle) { res.writeHead(303, { location: '/manage' }); return res.end(); }
+  const auth = await getAuth();
   const { loadEvent } = require('../src/event-store');
   const { executeRemind } = require('../src/email-commands');
-  const event = await loadEvent(rec.event_id);
-  if (!event) { res.writeHead(404); return res.end('event missing'); }
+  const event = await loadEvent(params.id);
+  if (!event) { res.writeHead(404); return res.end('event not found'); }
+  if (auth.deriveHandle(event.initiator) !== handle) { res.writeHead(403); return res.end('forbidden'); }
   await executeRemind(event);
-  res.writeHead(303, { location: `/manage/${params.token}?reminded=1` });
+  res.writeHead(303, { location: `/manage/event/${params.id}?reminded=1` });
   res.end();
 });
 
-// Un-archive reverses an auto-archive (or a future manual archive).
-// Clears event.archived_at + archive_reason and redirects back to the
-// dashboard. Idempotent — un-archiving an already-active event is a
-// no-op that still 303s back.
-router.post('/manage/:token/unarchive', async (req, res, params) => {
-  const rec = await loadToken(params.token);
-  if (!rec) { res.writeHead(404); return res.end('link invalid'); }
+router.post('/manage/event/:id/unarchive', async (req, res, params) => {
+  const handle = await currentHandle(req);
+  if (!handle) { res.writeHead(303, { location: '/manage' }); return res.end(); }
+  const auth = await getAuth();
+  const { loadEvent } = require('../src/event-store');
   const { unarchive } = require('../src/sweep');
-  await unarchive(rec.event_id);
-  res.writeHead(303, { location: `/manage/${params.token}?unarchived=1` });
+  const event = await loadEvent(params.id);
+  if (!event) { res.writeHead(404); return res.end('event not found'); }
+  if (auth.deriveHandle(event.initiator) !== handle) { res.writeHead(403); return res.end('forbidden'); }
+  await unarchive(params.id);
+  res.writeHead(303, { location: `/manage/event/${params.id}?unarchived=1` });
   res.end();
 });
 
-router.post('/manage/:token/close', async (req, res, params) => {
-  const rec = await loadToken(params.token);
-  if (!rec) { res.writeHead(404); return res.end('link invalid'); }
+router.post('/manage/event/:id/close', async (req, res, params) => {
+  const handle = await currentHandle(req);
+  if (!handle) { res.writeHead(303, { location: '/manage' }); return res.end(); }
+  const auth = await getAuth();
   const { loadEvent } = require('../src/event-store');
   const { executeClose } = require('../src/email-commands');
   const { updateEventAtomic } = require('../src/completion');
   const { commitCompletion } = require('../src/gitrepo');
-  const event = await loadEvent(rec.event_id);
-  if (!event) { res.writeHead(404); return res.end('event missing'); }
+  const event = await loadEvent(params.id);
+  if (!event) { res.writeHead(404); return res.end('event not found'); }
+  if (auth.deriveHandle(event.initiator) !== handle) { res.writeHead(403); return res.end('forbidden'); }
   const r = executeClose(event, { receivedAt: new Date().toISOString() });
   if (!r.wasAlreadyComplete) {
-    await updateEventAtomic(rec.event_id, () => r.newEvent);
-    await commitCompletion(rec.event_id, r.newEvent, {
+    await updateEventAtomic(params.id, () => r.newEvent);
+    await commitCompletion(params.id, r.newEvent, {
       completedAt: r.newEvent.completion.completed_at,
       triggeringSequence: null,
       summary: { closed_by: 'initiator', reason: 'dashboard-close' },
@@ -1541,7 +1435,14 @@ router.post('/manage/:token/close', async (req, res, params) => {
       process.stderr.write(`dashboard-close notify: ${err.message || err}\n`);
     }
   }
-  res.writeHead(303, { location: `/manage/${params.token}?closed=1` });
+  res.writeHead(303, { location: `/manage/event/${params.id}?closed=1` });
+  res.end();
+});
+
+// Old magic-link management URLs from pre-session emails. Redirect to the
+// hub so the organiser can sign in and find their event there.
+router.get('/manage/:token', async (req, res) => {
+  res.writeHead(303, { location: '/manage' });
   res.end();
 });
 
@@ -1593,7 +1494,7 @@ const MANAGE_CSS = `
 .mg-steps .mg-reject-at { color:#6e7681; font-family:inherit; }
 `;
 
-function renderManagementDashboard({ token, rec, event, flash, stepAttempts = {} }) {
+function renderManagementDashboard({ eventId, initiatorEmail, event, flash, stepAttempts = {} }) {
   const complete = event.completion && event.completion.status === 'complete';
   const pendingActivation = !event.activated_at && !complete;
   const archived = !!event.archived_at && !complete;
@@ -1734,8 +1635,8 @@ function renderManagementDashboard({ token, rec, event, flash, stepAttempts = {}
 
   return html`
     <style>${raw(MANAGE_CSS)}</style>
-    <h1 style="margin-bottom:0.25rem">${event.title}</h1>
-    <p class="mg-meta">Signed in as <code>${rec.initiator}</code> · Event <code>${event.id}</code> · ${pill}</p>
+    <p style="margin:0 0 0.5rem"><a href="/manage" style="color:#8b949e;font-size:0.88em">← back</a></p>
+    <p class="mg-meta">Signed in as <code>${initiatorEmail}</code> · Event <code>${event.id}</code> · ${pill}</p>
     ${flash ? html`<div class="mg-flash">${flash}</div>` : raw('')}
     ${pendingActivation ? html`<div class="mg-pending-activation">
         <strong>Pending activation</strong>
@@ -1747,7 +1648,7 @@ function renderManagementDashboard({ token, rec, event, flash, stepAttempts = {}
     ${archived ? html`<div class="mg-archived-banner">
         <strong>Archived${event.archive_reason === 'auto_stale' ? ' automatically' : ''} on <code>${String(event.archived_at).slice(0,10)}</code></strong>
         Replies to the reply addresses still land in the audit trail but don't count toward completion.
-        <form method="POST" action="/manage/${token}/unarchive" style="display:inline;margin-left:0.4rem">
+        <form method="POST" action="/manage/event/${eventId}/unarchive" style="display:inline;margin-left:0.4rem">
           <button type="submit" style="background:transparent;border:1px solid #3fb950;color:#3fb950;padding:0.2em 0.6em;cursor:pointer;font:inherit;font-size:0.85em">Un-archive</button>
         </form>
       </div>` : raw('')}
@@ -1755,17 +1656,17 @@ function renderManagementDashboard({ token, rec, event, flash, stepAttempts = {}
     ${bodyMiddle}
 
     <div class="mg-actions">
-      <form method="POST" action="/manage/${token}/remind" style="margin:0">
+      <form method="POST" action="/manage/event/${eventId}/remind" style="margin:0">
         <button type="submit" class="mg-remind" ${complete || pendingActivation || archived ? raw('disabled') : ''}>Send reminders</button>
       </form>
-      <form method="POST" action="/manage/${token}/close" style="margin:0"
+      <form method="POST" action="/manage/event/${eventId}/close" style="margin:0"
             onsubmit="return confirm('Close this event now? This writes a completion commit and cannot be undone.');">
         <button type="submit" class="mg-close" ${complete || pendingActivation || archived ? raw('disabled') : ''}>Close event</button>
       </form>
     </div>
 
     <div class="mg-email-cmds">
-      <p style="margin:0 0 0.4rem">Prefer email? Send a short message from <code>${rec.initiator}</code> (DKIM-verified) to any of these:</p>
+      <p style="margin:0 0 0.4rem">Prefer email? Send a short message from <code>${initiatorEmail}</code> (DKIM-verified) to any of these:</p>
       <dl class="mg-email-cmd-list">
         <dt><code>stats+${event.id}@${config.domain}</code></dt>
         <dd>get current progress back as a reply (which steps are done, pending, or waiting on deps)</dd>
@@ -1777,7 +1678,11 @@ function renderManagementDashboard({ token, rec, event, flash, stepAttempts = {}
       <p style="margin:0.5rem 0 0;color:#6e7681;font-size:0.82em">The subject and body can be anything; the address tag is the command. Authentication is DKIM + envelope-sender == event organizer, so only you can trigger these from your own inbox.</p>
     </div>
 
-    <p style="margin-top:1.5rem"><a href="/">home</a></p>
+    <p style="margin-top:1.5rem">
+      <a href="/manage">← your events</a> ·
+      <a href="/">home</a> ·
+      <form method="POST" action="/manage/logout" style="display:inline;margin:0"><button type="submit" style="background:none;border:0;padding:0;color:#8b949e;font:inherit;font-size:inherit;cursor:pointer;text-decoration:underline">sign out</button></form>
+    </p>
   `;
 }
 
@@ -1851,7 +1756,7 @@ if (require.main === module) {
   for (const sig of ['SIGINT', 'SIGTERM']) {
     process.on(sig, () => {
       process.stdout.write(JSON.stringify({ kind: 'web_stop', signal: sig }) + '\n');
-      server.close(() => process.exit(0));
+      process.exit(0);
     });
   }
 }

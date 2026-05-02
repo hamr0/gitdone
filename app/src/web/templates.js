@@ -41,7 +41,13 @@ function html(strings, ...values) {
 // correct") — whitespace, no branding chrome, no JS in production.
 // In dev mode (layout called with { dev: true, devHUD: "..." }),
 // injects the feedback/reload HUD.
-function layout({ title, body, dev, devHUD }) {
+function layout({ title, body, dev, devHUD, pageName }) {
+  // Auto-derive header name from title when not explicitly given.
+  // Title shape across the app is "<page> — gitdone" or just "gitdone".
+  if (pageName === undefined && title) {
+    const m = String(title).match(/^(.*?)\s+—\s+gitdone\s*$/);
+    pageName = m ? m[1].trim() : (title === 'gitdone' ? '' : String(title).trim());
+  }
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -95,10 +101,17 @@ th { color: #8b949e; font-weight: 500; text-transform: uppercase; font-size: 0.7
           padding-top: 0.9rem; letter-spacing: 0.04em; }
 .footer a { color: #8b949e; }
 .footer a:hover { color: #3fb950; }
+.page-header { font-size: 1.1rem; margin: 0 0 1.5rem; padding: 0 0 0.6rem;
+               border-bottom: 1px solid #30363d; letter-spacing: -0.01em; font-weight: 600; }
+.page-header a { color: #c9d1d9; text-decoration: none; }
+.page-header a:hover { color: #3fb950; text-decoration: none; }
+.page-header .slash { color: #ffb000; margin: 0 0.2em; text-shadow: 0 0 12px rgba(255,176,0,.35); }
+.page-header .name { color: #8b949e; font-weight: 400; font-size: 0.92em; letter-spacing: 0.04em; }
 ::selection { background: rgba(63,185,80,.28); color: #c9d1d9; }
 </style>
 </head>
 <body>
+${pageName ? `<header class="page-header"><a href="/">g</a><span class="slash">/</span><span class="name">${escapeHTML(pageName)}</span></header>` : ''}
 ${(body && body[RAW_MARK]) ? body.html : escapeHTML(body || '')}
 <div class="footer">
   <a href="/">gitdone</a> &middot; proofs verify offline &middot;

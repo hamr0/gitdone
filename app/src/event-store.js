@@ -100,20 +100,42 @@ async function createEvent(partialEvent) {
   return event;
 }
 
-// Mark an event activated. Atomic read-modify-write. Idempotent:
-// re-activating an already-active event is a no-op that returns the
-// existing event unchanged. Callers (the /activate route) still do the
-// participant notify; this function only persists the flag.
+// Mark an event activated. Idempotent: re-activating an already-active
+// event is a no-op that returns the existing event unchanged. The
+// `alreadyActive` flag in the result lets callers gate one-shot side
+// effects (e.g. participant notifications) on the first transition only.
+//
+// Concurrency: a per-event in-process mutex serialises read-modify-write
+// against itself so two concurrent activations can't both observe
+// !activated_at and both return alreadyActive=false. gitdone-web is a
+// single Node process today (`gitdone-web.service`); if it ever sharded
+// across workers, this guard would need to move to filesystem-level
+// (O_EXCL on a sentinel) — but the in-process serialisation is correct
+// for the current deployment shape.
+const _activatingNow = new Map();
 async function activateEvent(eventId, { now = new Date().toISOString() } = {}) {
-  const event = await loadEvent(eventId);
-  if (!event) throw new Error(`activateEvent: event ${eventId} not found`);
-  if (event.activated_at) return { event, alreadyActive: true };
-  const next = { ...event, activated_at: now };
-  const file = path.join(config.dataDir, 'events', `${eventId}.json`);
-  const tmp = file + '.tmp';
-  await fs.writeFile(tmp, JSON.stringify(next, null, 2) + '\n');
-  await fs.rename(tmp, file);
-  return { event: next, alreadyActive: false };
+  const inflight = _activatingNow.get(eventId);
+  if (inflight) {
+    // Someone else is mid-transition. Wait for their write, then report
+    // alreadyActive=true so this caller's gated side effects (e.g. the
+    // dashboard's notify-once block) don't fire a second time.
+    const result = await inflight;
+    return { event: result.event, alreadyActive: true };
+  }
+  const work = (async () => {
+    const event = await loadEvent(eventId);
+    if (!event) throw new Error(`activateEvent: event ${eventId} not found`);
+    if (event.activated_at) return { event, alreadyActive: true };
+    const next = { ...event, activated_at: now };
+    const file = path.join(config.dataDir, 'events', `${eventId}.json`);
+    const tmp = file + '.tmp';
+    await fs.writeFile(tmp, JSON.stringify(next, null, 2) + '\n');
+    await fs.rename(tmp, file);
+    return { event: next, alreadyActive: false };
+  })();
+  _activatingNow.set(eventId, work);
+  try { return await work; }
+  finally { _activatingNow.delete(eventId); }
 }
 
 module.exports = {

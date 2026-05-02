@@ -120,13 +120,17 @@ poc/             # throwaway proofs-of-concept
   (one signer) or `attestation` (N distinct signers) mode.
 - **Minimum trust level** per event (`unverified | authorized | forwarded
   | verified`) gates step completion against the verify result.
-- **Per-event magic link** (1.H.4): opaque 32-hex token, 30-day TTL,
-  file-backed under `data/magic_tokens/<token>.json`. Emailed at event
-  create. Bookmarkable.
-- **Self-serve session login** at `/manage`: enter email → 15-min
-  single-use magic link → 30-day HMAC-signed cookie. Shows a dashboard
-  of all events owned by that email. Secret from `GITDONE_SESSION_SECRET`
-  (generate with `openssl rand -hex 32`, persist per-deploy).
+- **Auth via `knowless`** (`app/src/auth.js`): one knowless instance
+  handles both modes. Mode A (do-the-thing-then-confirm) on event
+  creation — `auth.startLogin({ email, nextUrl: '/manage/event/:id',
+  bypassRateLimit: true })` sends a 15-min magic link that verifies
+  the email, opens a 30-day session, and lands on the dashboard.
+  The dashboard activates the event on first owner visit
+  (`event-store.activateEvent`, mutex-guarded). Mode B (sign-in-then-do)
+  at `/manage` for organisers returning to manage existing events.
+  Secret from `GITDONE_SESSION_SECRET` (64 hex, persist per-deploy);
+  boot rejects mismatch between `GITDONE_PUBLIC_URL` scheme and
+  `GITDONE_COOKIE_SECURE`.
 - **Preview-before-create** for workflow events: POST `/events` renders
   a preview with flow prose (`renderFlowProse`) + confirm/edit buttons.
   Nothing persists until `_action=confirm`.
