@@ -22,8 +22,11 @@ let port;
 before(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-web-events-'));
   process.env.GITDONE_DATA_DIR = tmp;
+  process.env.GITDONE_PUBLIC_URL = 'http://localhost:3001';
+  process.env.GITDONE_SESSION_SECRET = 'a'.repeat(64);
+  process.env.GITDONE_COOKIE_SECURE = '0';
   // flush any already-cached instances bound to the old dataDir
-  for (const m of ['../../src/config', '../../src/event-store', '../../bin/server']) {
+  for (const m of ['../../src/config', '../../src/event-store', '../../src/auth', '../../bin/server']) {
     delete require.cache[require.resolve(m)];
   }
   const { handle } = require('../../bin/server');
@@ -36,6 +39,9 @@ before(async () => {
 after(async () => {
   if (server) await new Promise((r) => server.close(r));
   if (tmp) await fs.rm(tmp, { recursive: true, force: true });
+  delete process.env.GITDONE_PUBLIC_URL;
+  delete process.env.GITDONE_SESSION_SECRET;
+  delete process.env.GITDONE_COOKIE_SECURE;
 });
 
 function post(path, form) {
@@ -81,7 +87,7 @@ function get(path) {
 test('GET /events/new renders the workflow form', async () => {
   const r = await get('/events/new');
   assert.equal(r.status, 200);
-  assert.match(r.body, /<h1>Create Event/);
+  assert.match(r.body, /create event/i);
   assert.match(r.body, /name="title"/);
   assert.match(r.body, /name="initiator"/);
   assert.match(r.body, /name="step_name"/);
@@ -109,7 +115,7 @@ test('POST /events creates a valid event and shows confirmation', async () => {
     step_depends_on: '',
   });
   assert.equal(r.status, 200);
-  assert.match(r.body, /Event created/);
+  assert.match(r.body, /Check dev@example\.com/);
   assert.match(r.body, /Integration test event/);
   const m = r.body.match(/ID: <code>([a-z0-9]{12})<\/code>/);
   assert.ok(m, 'event id should be rendered');

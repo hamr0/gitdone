@@ -97,22 +97,6 @@ async function sweepPendingActivation({ now = Date.now(), ttlHours = config.acti
     }
     deleted.push({ id, created_at: ev.created_at, initiator: ev.initiator });
   }
-  // Best-effort: also sweep activation_tokens whose event no longer
-  // exists OR whose expiry has passed. The consume path already deletes
-  // on use; this catches abandonment.
-  const tokensDir = path.join(config.dataDir, 'activation_tokens');
-  for (const file of await listDir(tokensDir)) {
-    if (!file.endsWith('.json')) continue;
-    const full = path.join(tokensDir, file);
-    let rec;
-    try { rec = JSON.parse(await fs.readFile(full, 'utf8')); }
-    catch { if (!dryRun) { try { await fs.unlink(full); } catch { /* ignore */ } } continue; }
-    const expired = rec.expires_at && new Date(rec.expires_at).getTime() < now;
-    const orphan = rec.event_id && !(await loadEvent(rec.event_id));
-    if (expired || orphan) {
-      if (!dryRun) { try { await fs.unlink(full); } catch { /* ignore */ } }
-    }
-  }
   return deleted;
 }
 

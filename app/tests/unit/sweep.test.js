@@ -15,7 +15,6 @@ let tmp;
 before(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-sweep-'));
   await fs.mkdir(path.join(tmp, 'events'));
-  await fs.mkdir(path.join(tmp, 'activation_tokens'));
   process.env.GITDONE_DATA_DIR = tmp;
   for (const m of ['../../src/config', '../../src/event-store', '../../src/sweep']) {
     delete require.cache[require.resolve(m)];

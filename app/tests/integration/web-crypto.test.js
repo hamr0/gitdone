@@ -23,10 +23,12 @@ before(async () => {
   process.env.GITDONE_DATA_DIR = tmp;
   process.env.GITDONE_SENDMAIL_BIN = fake;
   process.env.GITDONE_PUBLIC_URL = 'http://localhost:3001';
+  process.env.GITDONE_SESSION_SECRET = 'a'.repeat(64);
+  process.env.GITDONE_COOKIE_SECURE = '0';
   for (const m of [
     '../../src/config',
     '../../src/event-store',
-    '../../src/magic-token',
+    '../../src/auth',
     '../../src/outbound',
     '../../src/web/validation',
     '../../bin/server',
@@ -43,6 +45,8 @@ after(async () => {
   if (tmp) await fsp.rm(tmp, { recursive: true, force: true });
   delete process.env.GITDONE_SENDMAIL_BIN;
   delete process.env.GITDONE_PUBLIC_URL;
+  delete process.env.GITDONE_SESSION_SECRET;
+  delete process.env.GITDONE_COOKIE_SECURE;
 });
 
 function post(p, form) {
@@ -90,7 +94,7 @@ test('GET / renders the landing with two CTAs', async () => {
 test('GET /crypto/new renders the crypto form', async () => {
   const r = await get('/crypto/new');
   assert.equal(r.status, 200);
-  assert.match(r.body, /Create a signed record/);
+  assert.match(r.body, /create crypto/i);
   assert.match(r.body, /name="mode"/);
   assert.match(r.body, /name="title"/);
   assert.match(r.body, /name="initiator"/);
@@ -108,7 +112,7 @@ test('POST /crypto declaration mode creates an event with signer', async () => {
     signer: 'witness@example.com',
   });
   assert.equal(r.status, 200);
-  assert.match(r.body, /Declaration created/);
+  assert.match(r.body, /Check me@example\.com/);
   const m = r.body.match(/ID: <code>([a-z0-9]{12})<\/code>/);
   assert.ok(m, 'event id rendered');
   const ev = JSON.parse(await fsp.readFile(path.join(tmp, 'events', `${m[1]}.json`), 'utf8'));
@@ -131,7 +135,7 @@ test('POST /crypto attestation mode creates event with threshold + dedup', async
     allow_anonymous: 'on',
   });
   assert.equal(r.status, 200);
-  assert.match(r.body, /Attestation created/);
+  assert.match(r.body, /Check chair@example\.com/);
   const m = r.body.match(/ID: <code>([a-z0-9]{12})<\/code>/);
   const ev = JSON.parse(await fsp.readFile(path.join(tmp, 'events', `${m[1]}.json`), 'utf8'));
   assert.equal(ev.type, 'crypto');
@@ -178,13 +182,21 @@ test('POST /crypto unknown mode returns 422', async () => {
   assert.match(r.body, /mode/);
 });
 
-test('POST /crypto generates a magic token the same way as events', async () => {
+test('POST /crypto triggers a knowless magic link, no parallel token store', async () => {
   const r = await post('/crypto', {
     mode: 'attestation', title: 'with link', initiator: 'owner@example.com',
     threshold: '3', dedup: 'unique',
   });
   assert.equal(r.status, 200);
-  assert.match(r.body, /Check owner@example\.com to activate/);
-  const tokens = await fsp.readdir(path.join(tmp, 'magic_tokens'));
-  assert.ok(tokens.some((f) => /^[a-f0-9]{32}\.json$/.test(f)));
+  assert.match(r.body, /Check owner@example\.com/);
+  assert.doesNotMatch(r.body, /30-day management link/);
+  // Activation now flows through knowless; no gitdone-internal token stores.
+  await assert.rejects(
+    () => fsp.readdir(path.join(tmp, 'magic_tokens')),
+    { code: 'ENOENT' },
+  );
+  await assert.rejects(
+    () => fsp.readdir(path.join(tmp, 'activation_tokens')),
+    { code: 'ENOENT' },
+  );
 });

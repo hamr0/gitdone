@@ -153,7 +153,7 @@ v2 is a structural rebuild of the participant flow and a generalization of the e
 |---|---|---|
 | Initiator UI | Next.js web app | **Simplified** — vanilla `node:http` + tagged template literals, no client JS |
 | Participant UI | Next.js magic link form | **Removed** — email reply IS the interface |
-| Magic link tokens | Everyone, JWT 30-day | **Initiator only**, opaque 32-hex (30-day), `data/magic_tokens/{token}.json` (revocation by file delete; no statelessness needed on single host) |
+| Magic link tokens | Everyone, JWT 30-day | **Initiator only**, via `knowless` (Mode A) — one 15-min single-use magic link per event creation that simultaneously verifies the email, opens a 30-day session, and lands on the event dashboard. Sessions live in `{dataDir}/knowless.db`; sign out deletes the row |
 | SMTP send | Nodemailer | **Replaced** — `sendmail(1)` via Postfix pipe; opendkim milter signs at the MTA |
 | SMTP receive | None | **New** — Postfix on VPS → pipe to Node |
 | DKIM verification | None | **New** — `mailauth` library |
@@ -454,37 +454,47 @@ email states this explicitly so the soft semantics are visible to both
 sides.
 
 **On confirm, the initiator receives:**
-- Event ID
-- A single activation email containing both the 72-hour activation
-  link AND the 30-day management link.
+- Event ID, displayed inline on the confirmation page.
+- A single knowless magic-link email — 15-minute TTL, single-use.
+  Clicking it both verifies email ownership and opens a 30-day
+  session.
 - Nothing else: participants are NOT notified at this point.
 
 **Activation (email-ownership proof).** Events are created in a
 `pending_activation` state (`event.activated_at === null`). Until the
-initiator clicks their activation link, no participant invitations go
-out, and replies to any step's reply-to address commit for the audit
-trail but do not count toward completion. This closes the
-impersonation vector where anyone could type a victim's address as
-initiator and immediately blast real notifications to real
-participants.
+initiator clicks the magic link, no participant invitations go out,
+and replies to any step's reply-to address commit for the audit trail
+but do not count toward completion. This closes the impersonation
+vector where anyone could type a victim's address as initiator and
+immediately blast real notifications to real participants.
 
-- **Token shape:** 32-hex, 72-hour TTL, single-use (deleted on
-  consume). Stored under `{dataDir}/activation_tokens/{token}.json`;
-  carries the 30-day management token so one click both activates
-  and redirects the organiser into their dashboard.
-- **Route:** `GET /activate/:token` consumes, flips
-  `event.activated_at`, fires the deferred `notifyWorkflowParticipants`
-  / `notifyDeclarationSigner`, then 303-redirects to
-  `/manage/<mgmt_token>?activated=1`.
-- **Completion engine gate:** `shouldCountWorkflow /
-  Declaration / Attestation` short-circuit with
-  `reason: 'event not activated'` when `activated_at` is null.
-  Receive.js sends the replier a threaded "event isn't live yet"
-  auto-reply on that path.
-- **Fail-open for the organiser.** If the activation email fails
-  to send, the activation URL is rendered on the browser
-  confirmation page. The user who just filled the form is the only
-  one who should see it.
+- **Mechanism:** auth provided by `knowless` (MIT, in-house). The
+  POST /events / POST /crypto handler calls `auth.startLogin({ email:
+  initiator, nextUrl: '/manage/event/<id>', subjectOverride,
+  bodyOverride, bypassRateLimit: true })`. knowless sends one magic
+  link to the initiator. This is knowless's "Mode A — do the thing,
+  confirm by email" pattern (knowless GUIDE.md §"Two adoption modes").
+- **Activation runs server-side on first dashboard visit.** Clicking
+  the magic link 303s to `/manage/event/<id>`; that handler calls
+  `event-store.activateEvent(id)` (idempotent, mutex-guarded against
+  concurrent visits) and, on the transition from null → activated,
+  fires `notifyWorkflowParticipants` / `notifyDeclarationSigner`.
+  A "first-visit" flash confirms invitations were sent.
+- **Same-session shortcut.** If the requester is already signed in
+  as the initiator (current handle === `auth.deriveHandle(initiator)`),
+  POST /events / POST /crypto skips the email round-trip and 303s
+  straight to the dashboard.
+- **Completion engine gate:** `shouldCountWorkflow / Declaration /
+  Attestation` short-circuit with `reason: 'event not activated'`
+  when `activated_at` is null. Receive.js sends the replier a
+  threaded "event isn't live yet" auto-reply on that path.
+- **Concurrency.** `activateEvent` uses a per-event in-process Promise
+  mutex so N parallel dashboard visits to a pending event activate
+  exactly once and fire participant notifications exactly once.
+- **Fail-open for the organiser.** knowless's `startLogin` is silent
+  at every layer (FR-6). On SMTP failure during local dev, the magic
+  link prints to stderr (`devLogMagicLinks`); in prod, transport
+  failures are logged via knowless's per-event hook.
 
 **On activation, the deferred outbound fan-out fires:**
 - For workflow events: one notification email per eligible root step
@@ -494,28 +504,36 @@ participants.
 
 ### 6.2 Management
 
-Two self-serve paths. Both coexist.
+Single self-serve path: knowless-backed sessions. The initiator hub
+at `/manage` shows the sign-in form when no session exists, otherwise
+a dashboard listing every event/crypto record they've ever organized.
 
-**Path A — per-event magic link (emailed at creation).** Opaque
-32-hex token, 30-day TTL, bookmarkable. Clicking it lands on the
-dashboard for that single event. This is the link sent to the
-initiator on event create.
+**Sign-in flow.** GET `/manage` with no session → email form. POST
+`/manage` → knowless `auth.login` mints a 15-minute single-use magic
+link and emails it. GET `/manage/callback?t=...` → knowless verifies
+and sets a 30-day signed session cookie. POST `/manage/logout`
+clears it and redirects home.
 
-**Path B — magic-link self-sign-in at `/manage`.** Enter your email,
-receive a one-time link (15-minute TTL, single-use). Clicking it sets
-a signed 30-day session cookie and lands on a dashboard listing
-**every** event and crypto record you've ever organized. Each row
-has an "open" button that jumps into that event's per-event
-dashboard.
+The response to the email form is identical whether or not the
+address has events — no account-existence oracle (knowless's 12-step
+sham-work flow).
 
-Path B exists for initiators who lost the per-event link, switched
-devices, or organize many events. The response to "enter your email"
-is identical whether or not the address has events — no
-account-existence oracle.
+**Per-event dashboard at `/manage/event/<id>`.** Session-gated:
+unauthenticated visitors are bounced through `/manage?next=...`. The
+ownership check derives the handle of `event.initiator` and compares
+to the session handle (`auth.handleFromRequest`); foreign sessions get
+a 403. Each row in the hub links to this URL.
 
-**Session cookie:** HMAC-signed, self-contained (no server session
-store). Key from `GITDONE_SESSION_SECRET`. `HttpOnly; SameSite=Lax;
-Secure`. 30-day Max-Age. Sign-out clears it.
+The activation magic link from §6.1 is the same machinery — one
+click verifies the email, opens the session, AND lands on the
+dashboard, where the first-visit handler activates the event.
+
+**Session cookie:** HMAC-SHA256, signed by knowless with
+`GITDONE_SESSION_SECRET` (64 hex, persisted per-deploy). The session
+record lives in `{dataDir}/knowless.db` (single SQLite file managed
+by knowless). `HttpOnly; SameSite=Lax; Secure` (boot rejects mismatch
+between `cookieSecure` and `GITDONE_PUBLIC_URL` scheme). 30-day
+Max-Age. Sign-out deletes the session row.
 
 **Dashboard (per-event) shows:**
 - Progress — X of Y steps done; or for attestation, X of N distinct
@@ -572,11 +590,11 @@ the organiser.
 
 | State              | Dashboard visibility           | Replies count? | Transition in                     | Transition out                            |
 |--------------------|--------------------------------|----------------|-----------------------------------|-------------------------------------------|
-| `pending_activation` | amber pill, always visible    | no             | `POST /events` or `/crypto`       | click `/activate/:token` → `open`, OR 72h GC → deleted |
-| `open`             | default visible (blue pill)    | yes            | `/activate/:token` clicked        | all steps complete → `complete`; organiser close → `complete`; 45d idle → `archived` |
+| `pending_activation` | amber pill, always visible    | no             | `POST /events` or `/crypto`       | first owner visit to `/manage/event/:id` → `open`, OR 72h GC → deleted |
+| `open`             | default visible (blue pill)    | yes            | first owner dashboard visit       | all steps complete → `complete`; organiser close → `complete`; 45d idle → `archived` |
 | `completed`        | default visible (green pill)   | no             | every step's `status === 'complete'` | terminal — `completion.completed_at` is a git commit, not reversible |
 | `closed early`     | default visible (amber pill)   | no             | `close+` email / dashboard Close with steps still pending | terminal — also written as `completion.completed_at`; distinguished from `completed` by whether all steps were done at close time |
-| `archived`         | **hidden by default**; `?show=archived` toggle (grey pill) | no (still commit for audit trail) | 45d past reference clock, or future manual archive | `POST /manage/:token/unarchive` → `open` |
+| `archived`         | **hidden by default**; `?show=archived` toggle (grey pill) | no (still commit for audit trail) | 45d past reference clock, or future manual archive | `POST /manage/event/:id/unarchive` → `open` |
 
 **Reference clock.** The "how stale is this event?" measure is
 `max(deadline across pending steps)` when any pending step has a
@@ -589,9 +607,12 @@ the form was filled.
 
 1. **Pending-activation GC.** Delete events where
    `activated_at === null` and `age > GITDONE_ACTIVATION_TTL_HOURS`
-   (default 72). Orphaned activation tokens are swept in the same
-   pass. This removes impersonation-attempt residue — events created
-   with someone else's email that were never confirmed.
+   (default 72h). This removes impersonation-attempt residue —
+   events created with someone else's email where the magic link was
+   never clicked. Note that knowless's magic-link TTL (15 min) is
+   independent of this 72h event-level TTL: an unused link expires
+   first, and the user can request a fresh one from `/manage` until
+   the 72h GC reaps the event.
 2. **Overdue nudge.** For every active event with
    `(now − referenceClock) > GITDONE_OVERDUE_NUDGE_DAYS` (default 14)
    and no `nudged_overdue_at`, email the organiser once (*"N days
@@ -603,7 +624,7 @@ the form was filled.
    `(now − referenceClock) > GITDONE_ARCHIVE_DAYS` (default 45),
    set `archived_at` and `archive_reason: 'auto_stale'`, email the
    organiser with a reversal pointer. Reversible from the
-   dashboard via `POST /manage/:token/unarchive`.
+   dashboard via `POST /manage/event/:id/unarchive`.
 
 **Archive semantics.** An archived event is **not** complete — it's
 reversibly off-stage. Replies to its reply addresses still commit to
@@ -771,11 +792,11 @@ For low-stakes attestations (petitions, casual vouches), the default `authorized
 │                    VPS                        │
 │                                               │
 │  ┌─────────┐  ┌──────────────────────────┐   │
-│  │ Nginx   │  │ Node.js Express server   │   │
-│  │ (TLS)   │←→│  - /api/events (POST)    │   │
-│  └─────────┘  │  - /api/events/:id       │   │
-│       ↑       │  - /manage/:token        │   │
-│   HTTPS       │  - /v/:id (public view) │   │
+│  │ Nginx   │  │ vanilla node:http server │   │
+│  │ (TLS)   │←→│  - POST /events, /crypto │   │
+│  └─────────┘  │  - /manage (hub + auth)  │   │
+│       ↑       │  - /manage/event/:id     │   │
+│   HTTPS       │  - /events/:id (read-only)│   │
 │       │       └──────────────────────────┘   │
 │       │              ↓ file I/O               │
 │       │       ┌──────────────────────────┐   │

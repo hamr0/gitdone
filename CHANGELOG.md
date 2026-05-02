@@ -15,6 +15,53 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Auth — knowless Mode A integration; activation collapses into sign-in
+
+GitDone's email-verification machinery is now provided by `knowless`
+(MIT, the operator's own minimal magic-link library). The branch
+deletes ~730 lines of bespoke auth code by replacing two parallel
+systems — `app/src/activation-token.js` (72h activation tokens) and
+`app/src/magic-token.js` / `app/src/magic-session.js` (legacy 30d
+management URLs) — with one knowless flow.
+
+- **One email per event creation, not two.** The old activation
+  email + management-link email collapse into a single knowless
+  magic link. Clicking it (a) verifies the initiator's email, (b)
+  opens a 30-day session cookie, and (c) lands on the event's
+  dashboard. The dashboard's first-visit handler activates the
+  event server-side and fires participant notifications. Knowless's
+  GUIDE.md calls this "Mode A — do the thing, confirm by email";
+  see `docs/01-product/prd.md` §6.5.
+- **No `/activate/:token` route any more.** Old links from in-flight
+  pre-deploy emails 404; gracefully degraded since this branch
+  hasn't shipped yet.
+- **Self-serve dashboard at `/manage`.** Returns the session hub
+  for signed-in initiators, otherwise the sign-in form. Magic-link
+  callback is `/manage/callback`. Logout 303s back home. No more
+  per-event `/manage/:token` URLs — old bookmarks redirect to the
+  hub for graceful migration.
+- **`auth.startLogin` is called with `bypassRateLimit: true`**
+  (knowless AF-10) — gitdone is the trusted server-side caller.
+  Per-IP new-handle limiting belongs at gitdone's POST /events
+  layer, not at the magic-link send.
+- **Dashboard activation is concurrent-safe.** A per-event
+  in-process mutex in `event-store.activateEvent` guarantees that
+  N parallel dashboard visits to a pending event activate exactly
+  once and fire participant notifications exactly once
+  (regression test in `tests/integration/web-notifications.test.js`).
+- **Operator config:** `GITDONE_SESSION_SECRET` (64 hex chars) is
+  required; `GITDONE_PUBLIC_URL` and `GITDONE_COOKIE_SECURE` must
+  agree on scheme — boot fails loudly if `https` is paired with
+  `GITDONE_COOKIE_SECURE=0` (or vice versa). Production is already
+  provisioned per CLAUDE.md.
+- **UI/UX:** every sub-page now carries a `g/ <page>` header,
+  redundant `<h1>` titles dropped, sub-pages get a `← back` arrow
+  to the parent. Dashboard footer adds `← back · home · sign out`.
+- **Local dev:** `npm run dev` (in `app/`) starts the server with
+  a persisted dev session secret, dev-mode magic-link printing to
+  stderr, and a fake sendmail that captures emails to
+  `app/data-dev/mail/`.
+
 ### Operator stats — counters, daily log, weekly digest
 
 Privacy-safe aggregate counts of how gitdone is being used. Computed
