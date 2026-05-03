@@ -19,6 +19,26 @@ const crypto = require('node:crypto');
 
 const SENDMAIL_BIN = process.env.GITDONE_SENDMAIL_BIN || '/usr/sbin/sendmail';
 
+// Standard email signature delimiter (RFC 3676 §4.3): exactly "-- " on
+// its own line, then the signature body. Mail clients strip below this
+// when quoting. Pure ASCII so it's safe inside knowless's body
+// constraints (no CR, ASCII only, ≤2048 chars).
+const SIGNATURE = [
+  '-- ',
+  "gitdone -- we don't store email bodies or attachments; those go to",
+  'the organiser. We keep DKIM proof, a SHA-256 hash of each message,',
+  'and an OpenTimestamps anchor so the record is tamper-evident.',
+  'Feedback: feedback@git-done.com',
+].join('\n');
+
+// Append the standard signature with a blank line separator. Idempotent
+// so callers that already include it (e.g. via a body builder that
+// already appended) don't get a double sig.
+function withSignature(body) {
+  if (body.endsWith(SIGNATURE)) return body;
+  return `${body}\n\n${SIGNATURE}`;
+}
+
 function randomToken() {
   return crypto.randomBytes(8).toString('hex');
 }
@@ -46,10 +66,13 @@ function rfc5322Date(d = new Date()) {
 // Headers passed here are emitted verbatim. The caller should not
 // pre-encode subjects with RFC 2047 unless they contain non-ASCII;
 // for ASCII subjects pass them as-is.
-function buildRawMessage({ from, to, subject, body, inReplyTo, references, autoSubmitted, messageId, extraHeaders, domain, replyTo }) {
+function buildRawMessage({ from, to, subject, body, inReplyTo, references, autoSubmitted, messageId, extraHeaders, domain, replyTo, noSignature }) {
   if (!from || !to || !subject || body == null) {
     throw new Error('buildRawMessage: from, to, subject, body are required');
   }
+  const signedBody = (noSignature ? body : withSignature(body))
+    .replace(/\r\n/g, '\n')
+    .replace(/\n/g, '\r\n');
   const lines = [];
   lines.push(`From: ${from}`);
   lines.push(`To: ${to}`);
@@ -73,7 +96,7 @@ function buildRawMessage({ from, to, subject, body, inReplyTo, references, autoS
     }
   }
   lines.push(''); // header/body separator
-  lines.push(body);
+  lines.push(signedBody);
   // RFC-822 requires CRLF line endings.
   return lines.join('\r\n');
 }
@@ -128,4 +151,4 @@ function sendmail({ from, rawMessage, binary = SENDMAIL_BIN, to }) {
   });
 }
 
-module.exports = { sendmail, buildRawMessage, newMessageId, rfc5322Date };
+module.exports = { sendmail, buildRawMessage, newMessageId, rfc5322Date, SIGNATURE, withSignature };

@@ -21,3 +21,7 @@ abuse@git-done.com            avoidaccess@gmail.com
 abuse@mail.git-done.com       avoidaccess@gmail.com
 hostmaster@git-done.com       avoidaccess@gmail.com
 security@git-done.com         avoidaccess@gmail.com
+
+# User-feedback inbox — published in the standard outbound signature
+# (see SIGNATURE in app/src/outbound.js).
+feedback@git-done.com         avoidaccess@gmail.com

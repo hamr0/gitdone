@@ -52,7 +52,7 @@ const { validateWorkflowEvent, validateCryptoEvent, VALID_TRUST_LEVELS, VALID_CR
 const { createEvent } = require('../src/event-store');
 const { getAuth } = require('../src/auth');
 const { createEventFinder } = require('../src/web/handle-events');
-const { sendmail, buildRawMessage } = require('../src/outbound');
+const { sendmail, buildRawMessage, withSignature } = require('../src/outbound');
 const { notifyWorkflowParticipants, notifyDeclarationSigner } = require('../src/notifications');
 const devChannel = IS_DEV ? require('../src/web/dev-channel') : null;
 const designLab = IS_DEV ? require('../src/web/design-lab') : null;
@@ -660,7 +660,7 @@ function buildEventActivationBody(event) {
   const stepsList = event.steps
     .map((s, i) => `  ${i + 1}. ${asciiSafe(s.name)} - ${asciiSafe(s.participant)}`)
     .join('\n');
-  return ({ url }) => [
+  return ({ url }) => withSignature([
     `You created the event "${safeTitle}" on gitdone.`,
     ``,
     `Click the link below to sign in and activate. Activating sends`,
@@ -682,10 +682,7 @@ function buildEventActivationBody(event) {
     `  close+${event.id}@${config.domain}    close the event early`,
     ``,
     `Manage your events at: ${publicBaseUrl()}/manage`,
-    ``,
-    `Anyone can verify a proof offline with the gitdone-verify CLI.`,
-    `See https://github.com/hamr0/gitdone`,
-  ].join('\n');
+  ].join('\n'));
 }
 
 // Build the magic-link email body for a crypto event (declaration or
@@ -705,7 +702,7 @@ function buildCryptoActivationBody(event) {
         `Anonymous replies: ${event.allow_anonymous ? 'allowed' : 'not allowed'}`,
         `Share the reply address below however you like - social, email, QR.`,
       ];
-  return ({ url }) => [
+  return ({ url }) => withSignature([
     `You created the crypto event "${safeTitle}" on gitdone.`,
     ``,
     `Click the link below to sign in and activate. Activating makes the`,
@@ -726,10 +723,7 @@ function buildCryptoActivationBody(event) {
     `  close+${event.id}@${config.domain}    close early`,
     ``,
     `Manage your events at: ${publicBaseUrl()}/manage`,
-    ``,
-    `Proofs verify offline via gitdone-verify.`,
-    `See https://github.com/hamr0/gitdone`,
-  ].join('\n');
+  ].join('\n'));
 }
 
 // knowless caps subjects at 60 strictly-ASCII chars (no CR/LF). Strip

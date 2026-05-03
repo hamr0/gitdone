@@ -16,7 +16,7 @@
 const config = require('./config');
 const { createAuthMailer } = require('./auth-mailer');
 
-const FROM_ADDR = `noreply@${config.domain}`;
+const FROM_ADDR = `gitdone@${config.domain}`;
 const FROM_NAME = 'GitDone';
 
 let _authPromise = null;

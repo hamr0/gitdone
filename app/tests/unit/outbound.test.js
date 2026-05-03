@@ -39,8 +39,19 @@ test('buildRawMessage: emits required headers in CRLF', () => {
   assert.match(raw, /\r\nAuto-Submitted: auto-replied\r\n/);
   assert.match(raw, /\r\nMIME-Version: 1\.0\r\n/);
   assert.match(raw, /\r\nContent-Type: text\/plain; charset=utf-8\r\n/);
-  // Header/body separator and body at the end
+  // Header/body separator, body, then standard signature
+  assert.match(raw, /\r\n\r\nhello world\r\n\r\n-- \r\ngitdone -- /);
+  assert.match(raw, /Feedback: feedback@git-done\.com$/);
+});
+
+test('buildRawMessage: noSignature opt-out emits body verbatim', () => {
+  const { buildRawMessage } = require('../../src/outbound');
+  const raw = buildRawMessage({
+    from: 'a@x', to: 'b@x', subject: 's', body: 'hello world',
+    domain: 'x', noSignature: true,
+  });
   assert.match(raw, /\r\n\r\nhello world$/);
+  assert.doesNotMatch(raw, /-- \r\ngitdone --/);
 });
 
 test('buildRawMessage: optional threading headers', () => {
@@ -96,6 +107,7 @@ test('buildRawMessage: body containing a single "." is passed through', () => {
     from: 'a@x', to: 'b@x', subject: 's',
     body: 'line1\r\n.\r\nline3',
     domain: 'x',
+    noSignature: true,
   });
   assert.ok(raw.endsWith('line1\r\n.\r\nline3'));
 });
