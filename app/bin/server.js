@@ -680,17 +680,20 @@ router.post('/events', async (req, res) => {
     type: 'event',
     ...v.value,
   });
-  const dashboardPath = `/manage/event/${event.id}`;
+  const confirmPath = `/manage/event/${event.id}/confirmed?t=${event.activation_ack_token}`;
   const auth = await getAuth();
-  const handle = await currentHandle(req);
-  const sameSession = handle && auth.deriveHandle(event.initiator) === handle;
-  if (sameSession) {
-    res.writeHead(303, { location: dashboardPath });
-    return res.end();
-  }
+  // Always send the magic-link round-trip, even when the requester is
+  // already signed in as the initiator. The email artifact is part of
+  // the activation gate per PRD §6.1: every event creation produces
+  // its own email-ownership receipt before participants can be
+  // notified. Skipping it for "same session" turned the activation
+  // gate into something the same-tab dashboard could bypass. nextUrl
+  // routes through /confirmed so the click flips
+  // event.activation_link_clicked_at — without that flip the
+  // dashboard hides the Activate button.
   await auth.startLogin({
     email: event.initiator,
-    nextUrl: dashboardPath,
+    nextUrl: confirmPath,
     sourceIp: req.socket.remoteAddress || '',
     subjectOverride: activationSubject(event.title),
     bodyOverride: buildEventActivationBody(event),
@@ -861,20 +864,58 @@ function renderCheckYourInboxPage({ event, kind }) {
   const noun = kind === 'crypto'
     ? (event.mode === 'declaration' ? 'declaration' : 'attestation')
     : 'event';
+  const indexById = event.steps
+    ? new Map(event.steps.map((s, i) => [s.id, i + 1]))
+    : new Map();
+  const stepsBlock = (kind === 'event' && Array.isArray(event.steps) && event.steps.length)
+    ? html`
+        <h3 style="margin:1.2rem 0 0.4rem;font-size:0.95em;letter-spacing:0.06em;text-transform:uppercase;color:#8b949e">
+          ${String(event.steps.length)} step${event.steps.length === 1 ? '' : 's'} queued — will be invited on Activate
+        </h3>
+        <ol style="margin:0;padding-left:1.4rem;color:#c9d1d9;font-size:0.92em;line-height:1.55">
+          ${event.steps.map((s, i) => {
+            const tags = [];
+            if (s.deadline) tags.push(`deadline ${String(s.deadline).slice(0, 10)}`);
+            if (s.requires_attachment) tags.push('attachment required');
+            const deps = (s.depends_on || []).map((d) => indexById.get(d)).filter(Boolean).map((n) => `#${n}`);
+            if (deps.length) tags.push(`after ${deps.join(', ')}`);
+            return html`<li style="margin:0.18rem 0">
+              <strong>${s.name}</strong> · <code>${s.participant}</code>${tags.length
+                ? html` <span style="color:#6e7681;font-size:0.88em">· ${tags.join(' · ')}</span>`
+                : raw('')}
+            </li>`;
+          })}
+        </ol>`
+    : raw('');
   return html`
     <style>${raw(PREVIEW_CSS)}</style>
     <div class="pv">
       <p class="lede"><strong>${event.title}</strong> &middot; ID: <code>${event.id}</code></p>
       <div class="mg-flash" style="background:rgba(255,176,0,.08);border:1px solid #ffb000;color:#ffb000;padding:0.7rem 0.95rem;margin-top:1rem;font-size:0.95em;line-height:1.5">
         <strong>Check ${event.initiator}.</strong>
-        We sent a sign-in link. Click it to activate the ${noun}; until then,
+        We sent a sign-in link. Confirm via email — clicking the link is what
+        unlocks the Activate button. Until you click it, this page is all you'll see;
         ${kind === 'event'
           ? 'no participants are notified and no replies count.'
           : (event.mode === 'declaration'
               ? 'the signer has not been notified and the reply address is not live.'
               : 'the reply address is not live.')}
       </div>
-      <p style="margin-top:1.2rem"><a href="/">← home</a> &middot; <a href="/manage">your events</a></p>
+      <ol style="margin:1rem 0 0;padding-left:1.4rem;color:#c9d1d9;font-size:0.92em;line-height:1.6">
+        <li>Open your inbox at <code>${event.initiator}</code>.</li>
+        <li>Click the gitdone sign-in link (valid 15 minutes).</li>
+        <li>You'll land back here on the dashboard for this ${noun}.</li>
+        <li>Press <strong>Activate</strong> to ${kind === 'event'
+          ? 'send invitations to all named participants'
+          : (event.mode === 'declaration'
+              ? 'invite the signer'
+              : 'make the reply address live')}.</li>
+      </ol>
+      ${stepsBlock}
+      <p style="margin-top:1.2rem;color:#8b949e;font-size:0.88em">
+        If you don't sign in within 72 hours, the ${noun} is deleted automatically — no record kept.
+      </p>
+      <p style="margin-top:1rem"><a href="/">← home</a> &middot; <a href="/manage">your events</a></p>
     </div>
   `;
 }
@@ -1060,17 +1101,12 @@ router.post('/crypto', async (req, res) => {
   // is clicked. See POST /events for details on the knowless Mode A
   // pattern.
   const event = await createEvent(v.value);
-  const dashboardPath = `/manage/event/${event.id}`;
+  const confirmPath = `/manage/event/${event.id}/confirmed?t=${event.activation_ack_token}`;
   const auth = await getAuth();
-  const handle = await currentHandle(req);
-  const sameSession = handle && auth.deriveHandle(event.initiator) === handle;
-  if (sameSession) {
-    res.writeHead(303, { location: dashboardPath });
-    return res.end();
-  }
+  // No same-session shortcut — see POST /events for the rationale.
   await auth.startLogin({
     email: event.initiator,
-    nextUrl: dashboardPath,
+    nextUrl: confirmPath,
     sourceIp: req.socket.remoteAddress || '',
     subjectOverride: activationSubject(event.title),
     bodyOverride: buildCryptoActivationBody(event),
@@ -1456,6 +1492,21 @@ router.get('/manage/event/:id', async (req, res, params) => {
     res.writeHead(403); return res.end('forbidden');
   }
 
+  // Pending events that haven't had the activation magic-link clicked
+  // yet render the check-your-inbox view, NOT the live dashboard. This
+  // is the "behind the email magic link" gate: typing /manage/event/:id
+  // immediately after Confirm doesn't bypass the email round-trip even
+  // for a signed-in initiator. Once the magic link is clicked, the
+  // /confirmed route flips activation_link_clicked_at and we fall
+  // through to the normal dashboard render.
+  if (!event.activated_at && !event.activation_link_clicked_at && !event.archived_at) {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(layout({
+      title: 'check your inbox — gitdone',
+      body: renderCheckYourInboxPage({ event, kind: event.type === 'crypto' ? 'crypto' : 'event' }),
+    }));
+  }
+
   // Activation is opt-in: the dashboard renders a 'pending' state with a
   // confirm button, and POST /manage/event/:id/activate fires the
   // notifications. Visiting alone does nothing, so reviewing a pending
@@ -1605,6 +1656,33 @@ router.post('/manage/event/:id/edit', async (req, res, params) => {
   }
 });
 
+// Magic-link landing for activation: knowless 303s here after the
+// initiator clicks the sign-in link. We validate the per-event ack
+// token against event.activation_ack_token, flip
+// event.activation_link_clicked_at, and 303 the user onward to the
+// real dashboard. Without this flip, the dashboard hides the
+// Activate button — that's the gate that stops a pre-signed-in
+// initiator from skipping the email round-trip.
+router.get('/manage/event/:id/confirmed', async (req, res, params) => {
+  const handle = await currentHandle(req);
+  if (!handle) { res.writeHead(303, { location: '/manage' }); return res.end(); }
+  const auth = await getAuth();
+  const { loadEvent, confirmActivationLink } = require('../src/event-store');
+  const event = await loadEvent(params.id);
+  if (!event) { res.writeHead(404); return res.end('event not found'); }
+  if (auth.deriveHandle(event.initiator) !== handle) { res.writeHead(403); return res.end('forbidden'); }
+  const u = new URL(req.url || '/', 'http://localhost');
+  const token = u.searchParams.get('t') || '';
+  const result = await confirmActivationLink(params.id, token);
+  if (!result.ok) {
+    // Stale link / wrong token — bounce to the dashboard with a flash.
+    res.writeHead(303, { location: `/manage/event/${params.id}?confirm_error=${result.reason || 'unknown'}` });
+    return res.end();
+  }
+  res.writeHead(303, { location: `/manage/event/${params.id}` });
+  res.end();
+});
+
 // Confirm-and-activate a pending event. Mutex-guarded so concurrent
 // double-clicks (or two tabs) only activate once and notify each
 // participant exactly once. No-op (303 with neutral flash) if the event
@@ -1620,6 +1698,14 @@ router.post('/manage/event/:id/activate', async (req, res, params) => {
   const finalised = (event.completion && event.completion.status === 'complete') || !!event.archived_at;
   if (finalised || event.activated_at) {
     res.writeHead(303, { location: `/manage/event/${params.id}` });
+    return res.end();
+  }
+  // Activation gate: refuse without the magic-link click. Belt-and-
+  // braces with the dashboard hiding the Activate button — without
+  // this server-side check, a forged POST from a signed-in initiator
+  // would still bypass the email round-trip.
+  if (!event.activation_link_clicked_at) {
+    res.writeHead(303, { location: `/manage/event/${params.id}?activate_blocked=1` });
     return res.end();
   }
   const { event: activated, alreadyActive } = await activateEvent(params.id);

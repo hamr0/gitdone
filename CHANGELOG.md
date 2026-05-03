@@ -72,6 +72,42 @@ isn't a question anyone has to ask.
 
 The crypto activation email got the same wording lift.
 
+### Activation gate — dashboard sits behind the magic-link click
+
+The same-session shortcut (PRD §6.1) used to skip the email
+round-trip when the requester was already signed in as the initiator,
+303-ing them straight to the dashboard with the Activate button live.
+That turned the email-ownership receipt into something the same tab
+could bypass — pressing Confirm and immediately pressing Activate
+took zero email round-trips.
+
+Closed by:
+
+- **Removing the same-session shortcut.** POST `/events` and POST
+  `/crypto` always render the check-your-inbox page after creation,
+  regardless of session.
+- **Per-event ack token.** Every new event carries a
+  `activation_ack_token` (16 random bytes hex). knowless's
+  `nextUrl` for the activation magic-link is
+  `/manage/event/<id>/confirmed?t=<token>`. The new
+  `confirmActivationLink` function validates the token (constant-time
+  compare under the per-event mutex), flips
+  `event.activation_link_clicked_at`, and clears the token (single-use).
+- **Dashboard renders check-your-inbox until the click.** GET
+  `/manage/event/<id>` for a pending event with no
+  `activation_link_clicked_at` returns the inbox view (steps queued
+  + numbered flow + 72h expiry note), not the dashboard. Even a
+  signed-in initiator who types the URL directly sees this until the
+  email is confirmed.
+- **POST `/activate` refuses without the click.** Belt-and-braces with
+  the dashboard hiding the button — a forged POST from a signed-in
+  session 303s back with `?activate_blocked=1` and no participants
+  are notified.
+
+Activation tests now click `/confirmed?t=<token>` before posting
+`/activate`, which exercises the real flow rather than the prior
+shortcut.
+
 ### Pending dashboard — consolidated read-only create view; close = delete
 
 The pending-activation dashboard used to be a hybrid: a separate

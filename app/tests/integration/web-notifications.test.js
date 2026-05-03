@@ -131,6 +131,12 @@ async function activateAll() {
     if (!f.endsWith('.json')) continue;
     const ev = JSON.parse(await fsp.readFile(path.join(dir, f), 'utf8'));
     if (ev.activated_at) continue;
+    // Simulate the magic-link click first so /activate isn't gated by
+    // activation_link_clicked_at. The /confirmed route consumes the
+    // per-event ack token and stamps the timestamp.
+    if (!ev.activation_link_clicked_at && ev.activation_ack_token) {
+      await get(`/manage/event/${ev.id}/confirmed?t=${ev.activation_ack_token}`, mintCookie(ev.initiator));
+    }
     await post(`/manage/event/${ev.id}/activate`, {}, mintCookie(ev.initiator));
   }
 }
@@ -256,9 +262,12 @@ test('concurrent /activate POSTs activate exactly once', async () => {
     if (candidate.initiator === 'race@ex.com') { ev = candidate; break; }
   }
   assert.ok(ev, 'event was created');
+  const cookie = mintCookie('race@ex.com');
+  // Click the magic link first — /activate refuses without
+  // activation_link_clicked_at.
+  await get(`/manage/event/${ev.id}/confirmed?t=${ev.activation_ack_token}`, cookie);
   // Drop the magic-link capture so we only count post-activation sends.
   await clearCaptures();
-  const cookie = mintCookie('race@ex.com');
   // Fire ten concurrent POSTs to /activate for the same pending event.
   await Promise.all(Array.from({ length: 10 }, () => post(`/manage/event/${ev.id}/activate`, {}, cookie)));
   const captures = await fsp.readdir(capturesDir);

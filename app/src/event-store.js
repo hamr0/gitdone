@@ -88,6 +88,14 @@ async function createEvent(partialEvent) {
     // notified and replies start counting. Closes the impersonation
     // hole where anyone could create an event in someone else's name.
     activated_at: null,
+    // Per-event one-time ack token. The activation magic-link's
+    // nextUrl carries this token; clicking the link flips
+    // activation_link_clicked_at, which is the gate that lets the
+    // dashboard render the Activate button. Stops a pre-signed-in
+    // initiator from skipping the email round-trip just by typing
+    // /manage/event/<id> after pressing Confirm.
+    activation_ack_token: crypto.randomBytes(16).toString('hex'),
+    activation_link_clicked_at: null,
     ...partialEvent,
     id, // ensure generated id overrides any caller-supplied id field
   };
@@ -131,6 +139,45 @@ async function _serialize(eventId, work) {
     // have already chained itself behind us.
     if (_writeMutex.get(eventId) === p) _writeMutex.delete(eventId);
   }
+}
+
+// Validate a one-time activation-ack token and record the click. The
+// activation magic-link email's nextUrl carries this token; the
+// confirmed-link route on the server hits this function to flip
+// activation_link_clicked_at. Without that flip the dashboard refuses
+// to render the Activate button, so a pre-signed-in initiator who
+// typed /manage/event/<id> after Confirm doesn't bypass the email
+// round-trip.
+//
+// Returns { ok, alreadyClicked, event } on success, or { ok: false,
+// reason } on a token mismatch / missing event. The token is single-use:
+// once consumed, the field is cleared so a stolen URL can't replay.
+async function confirmActivationLink(eventId, token, { now = new Date().toISOString() } = {}) {
+  if (!token || typeof token !== 'string') return { ok: false, reason: 'missing_token' };
+  return _serialize(eventId, async () => {
+    const event = await loadEvent(eventId);
+    if (!event) return { ok: false, reason: 'not_found' };
+    // Idempotent: a refresh of the post-callback URL just renders the
+    // dashboard. Don't fail loud; just say "already clicked".
+    if (event.activation_link_clicked_at) {
+      return { ok: true, alreadyClicked: true, event };
+    }
+    if (!event.activation_ack_token) return { ok: false, reason: 'no_token_on_event' };
+    // Constant-time compare to thwart timing oracles. Token is 32 hex
+    // chars (16 random bytes); if lengths differ, fail without comparing.
+    const a = Buffer.from(event.activation_ack_token, 'utf8');
+    const b = Buffer.from(token, 'utf8');
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      return { ok: false, reason: 'token_mismatch' };
+    }
+    const next = { ...event, activation_link_clicked_at: now };
+    delete next.activation_ack_token; // single-use
+    const file = path.join(config.dataDir, 'events', `${eventId}.json`);
+    const tmp = file + '.tmp';
+    await fs.writeFile(tmp, JSON.stringify(next, null, 2) + '\n');
+    await fs.rename(tmp, file);
+    return { ok: true, alreadyClicked: false, event: next };
+  });
 }
 
 async function activateEvent(eventId, { now = new Date().toISOString() } = {}) {
@@ -334,6 +381,7 @@ module.exports = {
   senderMatchesStep,
   createEvent,
   activateEvent,
+  confirmActivationLink,
   editEvent,
   recordStepSendErrors,
   generateEventId,

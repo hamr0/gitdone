@@ -205,7 +205,7 @@ test('GET /manage/event/:id renders dashboard for signed-in owner', async () => 
   assert.match(view.body, /0 of 2 complete/);
 });
 
-test('GET /manage/event/:id (pending) renders the read-only create form', async () => {
+test('GET /manage/event/:id (pending, link clicked) renders the read-only create form', async () => {
   await post('/events', {
     title: 'pending preview', initiator: 'pendingowner@example.com',
     step_name: ['legal', 'design'],
@@ -215,6 +215,9 @@ test('GET /manage/event/:id (pending) renders the read-only create form', async 
   const ev = await latestEventFor('pendingowner@example.com');
   assert.ok(ev);
   const cookie = mintCookie('pendingowner@example.com');
+  // Magic-link click first, otherwise GET /manage/event/:id renders
+  // check-your-inbox instead of the dashboard.
+  await get(`/manage/event/${ev.id}/confirmed?t=${ev.activation_ack_token}`, cookie);
   const view = await get(`/manage/event/${ev.id}`, cookie);
   assert.equal(view.status, 200);
   // Read-only form, not the live steps table.
@@ -226,6 +229,49 @@ test('GET /manage/event/:id (pending) renders the read-only create form', async 
   assert.match(view.body, />Close event</);
   // Submit button hidden in viewOnly mode.
   assert.doesNotMatch(view.body, /class="vf-submit"/);
+});
+
+test('GET /manage/event/:id (pending, link not clicked) renders check-your-inbox', async () => {
+  await post('/events', {
+    title: 'inbox-gated', initiator: 'inboxgate@example.com',
+    step_name: ['a'],
+    step_participant: ['a@x.com'],
+    step_depends_on: [''],
+  });
+  const ev = await latestEventFor('inboxgate@example.com');
+  assert.ok(ev);
+  const cookie = mintCookie('inboxgate@example.com');
+  // No /confirmed click — even though we're signed in as the
+  // initiator, the dashboard refuses to show the Activate button until
+  // the magic link has been clicked.
+  const view = await get(`/manage/event/${ev.id}`, cookie);
+  assert.equal(view.status, 200);
+  assert.match(view.body, /Confirm via email/);
+  assert.match(view.body, /Click the gitdone sign-in link/);
+  assert.match(view.body, /1 step queued/);
+  // The check-your-inbox page mentions "press Activate" in the
+  // numbered flow, so we can't grep for the verb alone — instead
+  // assert there's no submit button to /activate.
+  assert.doesNotMatch(view.body, /class="mg-activate"/);
+});
+
+test('POST /manage/event/:id/activate refuses without the magic-link click', async () => {
+  await post('/events', {
+    title: 'gate-bypass-attempt', initiator: 'gatebypass@example.com',
+    step_name: ['a'],
+    step_participant: ['a@x.com'],
+    step_depends_on: [''],
+  });
+  const ev = await latestEventFor('gatebypass@example.com');
+  assert.ok(ev);
+  const cookie = mintCookie('gatebypass@example.com');
+  const r = await postEmpty(`/manage/event/${ev.id}/activate`, cookie);
+  // 303 to dashboard with the activate_blocked flag — no activation
+  // happened, no participants notified.
+  assert.equal(r.status, 303);
+  assert.match(r.headers.location, /activate_blocked=1/);
+  const after = JSON.parse(await fsp.readFile(path.join(tmp, 'events', `${ev.id}.json`), 'utf8'));
+  assert.equal(after.activated_at, null);
 });
 
 test('GET /manage/event/:id surfaces last_send_error as a delivery-failed row', async () => {
