@@ -1219,7 +1219,8 @@ async function renderSessionHub({ handle, auth, flash, showArchived = false }) {
   return html`
     <style>${raw(MANAGE_HUB_CSS)}</style>
     <div class="mh">
-      <p style="margin:0 0 1rem"><a href="/" style="color:#8b949e;font-size:0.88em">← back</a></p>
+      <p style="margin:0 0 0.4rem"><a href="/" style="color:#8b949e;font-size:0.88em">← back</a></p>
+      <p style="margin:0 0 1rem;color:#8b949e;font-size:0.9em">Every event and crypto you've organised. Open one to send reminders, view replies, or close it.</p>
       ${flash ? html`<div class="flash">${flash}</div>` : raw('')}
       ${countsStrip}
       ${rows}
