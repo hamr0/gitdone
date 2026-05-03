@@ -28,7 +28,7 @@ const SIGNATURE_FOOTER = [
   "gitdone -- we don't store email bodies or attachments; those go to",
   'the organiser. We keep DKIM proof, a SHA-256 hash of each message,',
   'and an OpenTimestamps anchor so the record is tamper-evident.',
-  'Feedback: feedback@git-done.com',
+  'feedback@git-done.com',
 ].join('\n');
 const SIGNATURE = `-- \n${SIGNATURE_FOOTER}`;
 

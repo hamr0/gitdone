@@ -258,12 +258,14 @@ const TRUST_LABELS = {
   unverified: 'unverified — accept any reply, no proof required',
 };
 
-function renderWorkflowForm({ values = {}, errors = [], event = null } = {}) {
-  // When `event` is supplied we're in edit mode: prefill from the event
-  // and apply per-row locks (completed steps frozen) plus form-level
-  // locks (title locked once activated, initiator/trust always locked
-  // because changing them would rewrite the meaning of recorded
-  // commits). When `event` is null we render the create form.
+function renderWorkflowForm({ values = {}, errors = [], event = null, viewOnly = false } = {}) {
+  // Three modes share this template:
+  //   - create  (event=null)               — fully editable; submit creates.
+  //   - edit    (event set, viewOnly=false) — locks per status; submit saves.
+  //   - view    (event set, viewOnly=true)  — everything disabled; no submit.
+  // The view mode lets us reuse the familiar create layout as the
+  // pending-activation dashboard so the organiser sees what they
+  // typed, in the same shape they typed it.
   const isEdit = !!event;
   const isActivated = isEdit && !!event.activated_at;
   if (isEdit) {
@@ -315,8 +317,8 @@ function renderWorkflowForm({ values = {}, errors = [], event = null } = {}) {
     // aspirational date, requires_attachment, details.
     const stepStatus = stepStatuses[i] || 'pending';
     const stepFrozen = isEdit && stepStatus === 'complete';
-    const lockStructural = isEdit; // name + depends_on
-    const lockEditableFields = stepFrozen;
+    const lockStructural = isEdit || viewOnly; // name + depends_on
+    const lockEditableFields = stepFrozen || viewOnly;
     const dis = (cond) => (cond ? raw('disabled') : raw(''));
     const rowOpacity = stepFrozen ? 'opacity:0.55;' : '';
     rows.push(html`
@@ -355,17 +357,19 @@ function renderWorkflowForm({ values = {}, errors = [], event = null } = {}) {
   const formAction = isEdit ? `/manage/event/${event.id}/edit` : '/events';
   const backHref = isEdit ? `/manage/event/${event.id}` : '/';
   const backLabel = isEdit ? '← back to dashboard' : '← back';
-  const lede = isEdit
-    ? `Edit open steps. Completed steps are frozen — their entry in the audit trail is permanent. Step name and dependencies are locked: changing them mid-flight would rewrite the meaning of replies already recorded.`
-    : 'An auditable multi-party workflow — ordered steps, parallel steps, or a DAG with explicit dependencies.';
+  const lede = viewOnly
+    ? 'Pending — review the details you entered. Press Activate above to send invitations, Edit to fix anything, or Cancel to delete.'
+    : (isEdit
+      ? `Edit open steps. Completed steps are frozen — their entry in the audit trail is permanent. Step name and dependencies are locked: changing them mid-flight would rewrite the meaning of replies already recorded.`
+      : 'An auditable multi-party workflow — ordered steps, parallel steps, or a DAG with explicit dependencies.');
   const submitLabel = isEdit ? 'Save changes' : 'Create event';
-  const titleLocked = isEdit && isActivated;
+  const titleLocked = (isEdit && isActivated) || viewOnly;
   return html`
-    <p style="margin:0 0 0.4rem"><a href="${backHref}" style="color:#8b949e;font-size:0.88em">${backLabel}</a></p>
+    ${viewOnly ? raw('') : html`<p style="margin:0 0 0.4rem"><a href="${backHref}" style="color:#8b949e;font-size:0.88em">${backLabel}</a></p>`}
     <p style="margin:0 0 1rem;color:#8b949e;font-size:0.9em">${lede}</p>
     ${errBlock}
     <style>${raw(WORKFLOW_FORM_CSS)}</style>
-    <form class="vf-form" method="POST" action="${formAction}" data-variant-root="F">
+    <form class="vf-form" method="${viewOnly ? raw('GET') : raw('POST')}" action="${formAction}" data-variant-root="F">
 
       <h2><span class="num">1</span>What + Who <span class="hint">${isEdit ? raw('event title and organiser (locked)') : raw('event title and who runs it')}</span></h2>
       <div class="vf-section">
@@ -405,12 +409,12 @@ function renderWorkflowForm({ values = {}, errors = [], event = null } = {}) {
           </thead>
           <tbody>${rows}</tbody>
         </table>
-        ${isEdit ? raw('') : html`<p class="vf-add-row">
+        ${(isEdit || viewOnly) ? raw('') : html`<p class="vf-add-row">
           <button type="submit" formaction="/events/new" formmethod="GET" name="_add_step" value="1">+ add step</button>
         </p>`}
       </div>
 
-      <button type="submit" class="vf-submit">${submitLabel}</button>
+      ${viewOnly ? raw('') : html`<button type="submit" class="vf-submit">${submitLabel}</button>`}
     </form>
     <script>${raw(`
       (function(){
@@ -754,7 +758,10 @@ function buildEventActivationBody(event) {
   }
   const stepsList = kept.join('\n');
 
-  return ({ url }) => withSignature([
+  // knowless appends bodyFooter after the override returns (with the
+  // -- signature delimiter), so we must NOT also call withSignature
+  // here — that double-signs the body.
+  return ({ url }) => ([
     `You created the event "${safeTitle}" on gitdone.`,
     ``,
     `Clicking the link below signs you in and opens the event dashboard.`,
@@ -798,7 +805,7 @@ function buildCryptoActivationBody(event) {
         `Anonymous replies: ${event.allow_anonymous ? 'allowed' : 'not allowed'}`,
         `Share the reply address below however you like - social, email, QR.`,
       ];
-  return ({ url }) => withSignature([
+  return ({ url }) => ([
     `You created the crypto event "${safeTitle}" on gitdone.`,
     ``,
     `Clicking the link below signs you in and opens the event dashboard.`,
@@ -1354,9 +1361,14 @@ router.get('/manage', async (req, res) => {
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   if (handle) {
     const auth = await getAuth();
+    const u = new URL(req.url || '/', 'http://localhost');
+    const cancelled = u.searchParams.get('cancelled');
+    const flash = cancelled
+      ? `Cancelled "${cancelled}". The event was deleted; nothing was sent.`
+      : null;
     res.end(layout({
       title: 'your events — gitdone',
-      body: await renderSessionHub({ handle, auth, showArchived: /[?&]show=archived\b/.test(req.url || '') }),
+      body: await renderSessionHub({ handle, auth, flash, showArchived: /[?&]show=archived\b/.test(req.url || '') }),
     }));
   } else {
     const u = new URL(req.url || '/', 'http://localhost');
@@ -1675,6 +1687,22 @@ router.post('/manage/event/:id/close', async (req, res, params) => {
   const event = await loadEvent(params.id);
   if (!event) { res.writeHead(404); return res.end('event not found'); }
   if (auth.deriveHandle(event.initiator) !== handle) { res.writeHead(403); return res.end('forbidden'); }
+  // Pending-activation events have no audit trail yet, so "close" here
+  // just deletes the event JSON — it never lived past the create step.
+  // No completion commit, no participant notifications (none were ever
+  // contacted). Behaves like the email-driven cancel that the 72h
+  // sweep would have done anyway.
+  if (!event.activated_at) {
+    const fs = require('node:fs/promises');
+    const path = require('node:path');
+    const config = require('../src/config');
+    try { await fs.unlink(path.join(config.dataDir, 'events', `${params.id}.json`)); }
+    catch (err) { if (err.code !== 'ENOENT') throw err; }
+    await fs.rm(path.join(config.dataDir, 'repos', params.id), { recursive: true, force: true })
+      .catch(() => {});
+    res.writeHead(303, { location: `/manage?cancelled=${encodeURIComponent(event.title || params.id)}` });
+    return res.end();
+  }
   const r = executeClose(event, { receivedAt: new Date().toISOString() });
   if (!r.wasAlreadyComplete) {
     await updateEventAtomic(params.id, () => r.newEvent);
@@ -1761,7 +1789,14 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
         ? html`<span class="mg-pill pending-activation">pending activation</span>`
         : html`<span class="mg-pill open">open</span>`));
   let bodyMiddle;
-  if (event.type === 'event') {
+  if (event.type === 'event' && pendingActivation) {
+    // Pending workflow events have no live state (no replies, no
+    // bounces, no completion). Render the same form layout the
+    // organiser used to create the event, in read-only mode — they
+    // recognise the shape, and the action row at the bottom carries
+    // Activate / Edit / Close event.
+    bodyMiddle = renderWorkflowForm({ event, viewOnly: true });
+  } else if (event.type === 'event') {
     const allSteps = event.steps || [];
     const done = allSteps.filter((s) => s.status === 'complete').length;
     const total = allSteps.length;
@@ -1909,13 +1944,10 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
     ${flash ? html`<div class="mg-flash">${flash}</div>` : raw('')}
     ${pendingActivation ? html`<div class="mg-pending-activation">
         <strong>Pending activation</strong>
-        Participants haven't been invited yet. Review the steps below, then click <strong>Activate</strong>
+        Participants haven't been invited yet. Review the details below, then click <strong>Activate</strong>
         to send invitations${event.type === 'crypto' && event.mode === 'attestation' ? raw(' and make the reply address live') : raw('')}.
-        Nothing leaves the server until you do.
-        <form method="POST" action="/manage/event/${eventId}/activate" style="margin:0.7rem 0 0"
-              onsubmit="return confirm('Activate now? This emails ${event.type === 'event' ? 'all named participants' : (event.mode === 'declaration' ? 'the signer' : 'no one — the reply address just goes live')} and cannot be undone.');">
-          <button type="submit" class="mg-activate" style="background:#3fb950;color:#0d1117;border:0;padding:0.5em 1.1em;font:inherit;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer">Activate</button>
-        </form>
+        Nothing leaves the server until you do. To delete this event without sending anything,
+        click <strong>Close event</strong>; or just ignore — it lapses on its own at 72h.
       </div>` : raw('')}
     ${archived ? html`<div class="mg-archived-banner">
         <strong>Archived${event.archive_reason === 'auto_stale' ? ' automatically' : ''} on <code>${String(event.archived_at).slice(0,10)}</code></strong>
@@ -1928,14 +1960,17 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
     ${bodyMiddle}
 
     <div class="mg-actions">
-      <form method="POST" action="/manage/event/${eventId}/remind" style="margin:0">
-        <button type="submit" class="mg-remind" ${complete || pendingActivation || archived ? raw('disabled') : ''}>Send reminders</button>
-      </form>
+      ${pendingActivation ? html`<form method="POST" action="/manage/event/${eventId}/activate" style="margin:0"
+            onsubmit="return confirm('Activate now? This emails ${event.type === 'event' ? 'all named participants' : (event.mode === 'declaration' ? 'the signer' : 'no one — the reply address just goes live')} and cannot be undone.');">
+        <button type="submit" class="mg-activate" style="background:#3fb950;color:#0d1117;border:0;padding:0.5em 1.1em;font:inherit;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer">Activate</button>
+      </form>` : html`<form method="POST" action="/manage/event/${eventId}/remind" style="margin:0">
+        <button type="submit" class="mg-remind" ${complete || archived ? raw('disabled') : ''}>Send reminders</button>
+      </form>`}
       ${event.type === 'event' ? html`<a href="/manage/event/${eventId}/edit" class="mg-edit-btn"
             style="display:inline-block;padding:0.5em 1.1em;background:transparent;border:1px solid #58a6ff;color:#58a6ff;text-decoration:none;font:inherit;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;${complete || archived ? 'opacity:0.4;pointer-events:none;' : ''}">Edit</a>` : raw('')}
       <form method="POST" action="/manage/event/${eventId}/close" style="margin:0"
-            onsubmit="return confirm('Close this event now? This writes a completion commit and cannot be undone.');">
-        <button type="submit" class="mg-close" ${complete || pendingActivation || archived ? raw('disabled') : ''}>Close event</button>
+            onsubmit="return confirm(${pendingActivation ? raw("'Close (delete) this event now? It hasn\\'t been activated, so deleting leaves no trace; participants are never contacted.'") : raw("'Close this event now? This writes a completion commit and cannot be undone.'")});">
+        <button type="submit" class="mg-close" ${complete || archived ? raw('disabled') : ''}>Close event</button>
       </form>
     </div>
 

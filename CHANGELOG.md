@@ -72,6 +72,50 @@ isn't a question anyone has to ask.
 
 The crypto activation email got the same wording lift.
 
+### Pending dashboard — consolidated read-only create view; close = delete
+
+The pending-activation dashboard used to be a hybrid: a separate
+"pending activation" banner, a live steps table that had nothing live
+to show, and an action row where Edit was the only enabled button.
+Now it's one consolidated view: the same workflow form the organiser
+filled in, rendered read-only via a new `viewOnly` mode in
+`renderWorkflowForm`. Action row carries Activate / Edit / Close
+event so the organiser can act without navigating.
+
+`Close event` now also works on pending events, where it deletes the
+event JSON and any per-event repo (the same operation the 72h sweep
+would do later). No completion commit, no participant notifications —
+nothing was ever sent. The active-event close path is unchanged
+(writes a "closed early" completion commit). Confirmation prompts
+distinguish the two cases.
+
+`/manage` shows a transient flash on the dashboard hub when an event
+was deleted: *Cancelled "<title>". The event was deleted; nothing was
+sent.*
+
+### Activation reminder — 24h before pending events lapse
+
+Pending events get deleted at 72h by `sweepPendingActivation`. They
+now get a one-shot reminder email 24h before that. The hourly sweep
+runs a new `findPendingActivationNudge` pass first (before the
+deletion pass so the event still exists), emails the organiser
+(`[gitdone] "<title>" — activate within Nh or it expires`), and stamps
+`event.nudged_pending_activation_at` so each event nudges exactly
+once. No-op for already-activated events.
+
+### Activation email body — single signature
+
+knowless appends the configured `bodyFooter` (with the standard `-- `
+delimiter) after a `bodyOverride` returns. The activation builders
+were also calling `withSignature(...)` themselves, producing two
+back-to-back signature blocks in every magic-link email. Fixed by
+dropping the second wrap; knowless's append is the only signature now.
+
+### Standard signature — drop redundant `Feedback:` label
+
+Footer line 4 was `Feedback: feedback@git-done.com`. The address
+already says it; lowercase `feedback@git-done.com` alone is enough.
+
 ### Identity alias — lowercase `gitdone` everywhere user-facing
 
 Per PRD §"Findings from Phase 1" point 25 ("identity aliases are

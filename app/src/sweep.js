@@ -100,6 +100,47 @@ async function sweepPendingActivation({ now = Date.now(), ttlHours = config.acti
   return deleted;
 }
 
+// Pass 1b: pending-activation reminder. Find events that have been
+// pending activation long enough to be in the "about to expire"
+// window (default: 24h before deletion) but haven't been reminded yet.
+// Idempotent via event.nudged_pending_activation_at — exactly one
+// reminder per event before it gets deleted.
+async function findPendingActivationNudge({
+  now = Date.now(),
+  ttlHours = config.activationTtlHours,
+  nudgeBeforeHours = 24,
+} = {}) {
+  const out = [];
+  const eventsDir = path.join(config.dataDir, 'events');
+  for (const file of await listDir(eventsDir)) {
+    if (!file.endsWith('.json')) continue;
+    const id = file.slice(0, -5);
+    const ev = await loadEvent(id);
+    if (!ev) continue;
+    if (ev.activated_at) continue;
+    if (ev.nudged_pending_activation_at) continue;
+    const createdMs = new Date(ev.created_at).getTime();
+    if (!Number.isFinite(createdMs)) continue;
+    const ageHours = (now - createdMs) / MS_PER_HOUR;
+    // Reminder window: between (ttl - nudgeBeforeHours) and ttl.
+    // Past ttl, the next sweep tick deletes the event — sending a
+    // reminder there is wasted work (and risks racing with the delete).
+    if (ageHours < ttlHours - nudgeBeforeHours) continue;
+    if (ageHours >= ttlHours) continue;
+    const hoursLeft = Math.max(0, Math.ceil(ttlHours - ageHours));
+    out.push({ event: ev, hoursLeft });
+  }
+  return out;
+}
+
+async function markPendingActivationNudged(eventId, { now = new Date().toISOString() } = {}) {
+  const ev = await loadEvent(eventId);
+  if (!ev) return null;
+  const next = { ...ev, nudged_pending_activation_at: now };
+  await atomicWriteEvent(eventId, next);
+  return next;
+}
+
 // Pass 2: overdue nudge. Returns the list of events that crossed the
 // threshold this tick. Caller (sweep.js binary) is responsible for
 // sending the emails — keeping the side effect outside the core
@@ -168,6 +209,8 @@ module.exports = {
   referenceClockMs,
   isActive,
   sweepPendingActivation,
+  findPendingActivationNudge,
+  markPendingActivationNudged,
   findNewlyOverdue,
   markNudged,
   archiveStale,

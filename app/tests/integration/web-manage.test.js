@@ -186,6 +186,12 @@ test('GET /manage/event/:id renders dashboard for signed-in owner', async () => 
   });
   const ev = await latestEventFor('owner@example.com');
   assert.ok(ev);
+  // Activate so the dashboard renders the live steps table (pending
+  // events render the read-only create form instead).
+  await fsp.writeFile(
+    path.join(tmp, 'events', `${ev.id}.json`),
+    JSON.stringify({ ...ev, activated_at: '2026-01-01T00:00:00Z' }),
+  );
   const cookie = mintCookie('owner@example.com');
   const view = await get(`/manage/event/${ev.id}`, cookie);
   assert.equal(view.status, 200);
@@ -198,6 +204,29 @@ test('GET /manage/event/:id renders dashboard for signed-in owner', async () => 
   assert.match(view.body, /0 of 2 complete/);
 });
 
+test('GET /manage/event/:id (pending) renders the read-only create form', async () => {
+  await post('/events', {
+    title: 'pending preview', initiator: 'pendingowner@example.com',
+    step_name: ['legal', 'design'],
+    step_participant: ['l@x.com', 'd@x.com'],
+    step_depends_on: ['', '1'],
+  });
+  const ev = await latestEventFor('pendingowner@example.com');
+  assert.ok(ev);
+  const cookie = mintCookie('pendingowner@example.com');
+  const view = await get(`/manage/event/${ev.id}`, cookie);
+  assert.equal(view.status, 200);
+  // Read-only form, not the live steps table.
+  assert.doesNotMatch(view.body, /<table class="mg-steps">/);
+  assert.match(view.body, /<table class="vf-steps-table">/);
+  // Action row carries Activate (pending only) plus Edit + Close event.
+  assert.match(view.body, />Activate</);
+  assert.match(view.body, />Edit</);
+  assert.match(view.body, />Close event</);
+  // Submit button hidden in viewOnly mode.
+  assert.doesNotMatch(view.body, /class="vf-submit"/);
+});
+
 test('GET /manage/event/:id surfaces last_send_error as a delivery-failed row', async () => {
   await post('/events', {
     title: 'send-fail surfaced', initiator: 'send-fail@example.com',
@@ -207,9 +236,12 @@ test('GET /manage/event/:id surfaces last_send_error as a delivery-failed row', 
   });
   const ev = await latestEventFor('send-fail@example.com');
   assert.ok(ev);
-  // Stamp a synthetic delivery failure directly via the public helper —
-  // simulates what notifyWorkflowParticipants would persist after a
-  // sendmail non-zero exit.
+  // Activate first — delivery-failed row renders on the live steps
+  // table, not on the pending-mode form.
+  await fsp.writeFile(
+    path.join(tmp, 'events', `${ev.id}.json`),
+    JSON.stringify({ ...ev, activated_at: '2026-01-01T00:00:00Z' }),
+  );
   const { recordStepSendErrors } = require('../../src/event-store');
   await recordStepSendErrors(ev.id, {
     [ev.steps[0].id]: { reason: 'no such address', code: 67, at: '2026-05-03T10:00:00Z' },
@@ -237,6 +269,13 @@ test('POST /manage/event/:id/close flips state and redirects with flash', async 
   });
   const ev = await latestEventFor('closer@example.com');
   assert.ok(ev);
+  // Activate first — close on a pending event deletes it (no audit
+  // trail to commit against). This test exercises the close-with-
+  // completion-commit path, so make the event activated.
+  await fsp.writeFile(
+    path.join(tmp, 'events', `${ev.id}.json`),
+    JSON.stringify({ ...ev, activated_at: '2026-01-01T00:00:00Z' }),
+  );
   const cookie = mintCookie('closer@example.com');
   const closeRes = await postEmpty(`/manage/event/${ev.id}/close`, cookie);
   assert.equal(closeRes.status, 303);
@@ -249,4 +288,21 @@ test('POST /manage/event/:id/close flips state and redirects with flash', async 
   const view = await get(`/manage/event/${ev.id}?closed=1`, cookie);
   assert.match(view.body, /Event closed\./);
   assert.match(view.body, /class="mg-pill complete"/);
+});
+
+test('POST /manage/event/:id/close on a pending event deletes it', async () => {
+  await post('/events', {
+    title: 'pendingclose', initiator: 'pclose@example.com',
+    step_name: 'x', step_participant: 'x@x.com',
+  });
+  const ev = await latestEventFor('pclose@example.com');
+  assert.ok(ev);
+  assert.equal(ev.activated_at, null);
+  const cookie = mintCookie('pclose@example.com');
+  const r = await postEmpty(`/manage/event/${ev.id}/close`, cookie);
+  assert.equal(r.status, 303);
+  assert.match(r.headers.location, /^\/manage\?cancelled=/);
+  // JSON gone.
+  const exists = await fsp.access(path.join(tmp, 'events', `${ev.id}.json`)).then(() => true, () => false);
+  assert.equal(exists, false);
 });

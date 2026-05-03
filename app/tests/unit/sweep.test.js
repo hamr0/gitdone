@@ -92,6 +92,54 @@ test('sweepPendingActivation deletes events older than TTL', async () => {
   assert.equal(await eventExists('alreadyactiv'), true);
 });
 
+test('findPendingActivationNudge picks events in last-24h-before-TTL window, skips already-nudged', async () => {
+  const { findPendingActivationNudge } = require('../../src/sweep');
+  const now = new Date('2026-06-04T00:00:00Z').getTime();
+  const HOUR = 60 * 60 * 1000;
+  // 60h old at "now": inside reminder window for ttl=72, nudgeBefore=24
+  await writeEvent('nudgedue', {
+    id: 'nudgedue', type: 'event', activated_at: null,
+    created_at: new Date(now - 60 * HOUR).toISOString(), initiator: 'a@b.com',
+  });
+  // 30h old: too fresh; outside reminder window
+  await writeEvent('nudgefresh', {
+    id: 'nudgefresh', type: 'event', activated_at: null,
+    created_at: new Date(now - 30 * HOUR).toISOString(), initiator: 'b@b.com',
+  });
+  // 60h old but already nudged: skipped
+  await writeEvent('nudgealready', {
+    id: 'nudgealready', type: 'event', activated_at: null,
+    created_at: new Date(now - 60 * HOUR).toISOString(), initiator: 'c@b.com',
+    nudged_pending_activation_at: '2026-06-03T00:00:00Z',
+  });
+  // 80h old: past TTL; cleanup will delete next tick, no point reminding
+  await writeEvent('nudgepastttl', {
+    id: 'nudgepastttl', type: 'event', activated_at: null,
+    created_at: new Date(now - 80 * HOUR).toISOString(), initiator: 'd@b.com',
+  });
+  // Active event: never picked
+  await writeEvent('nudgeactive', {
+    id: 'nudgeactive', type: 'event', activated_at: '2026-06-01T00:00:00Z',
+    created_at: '2026-06-01T00:00:00Z', initiator: 'e@b.com',
+  });
+  const picked = await findPendingActivationNudge({ now, ttlHours: 72, nudgeBeforeHours: 24 });
+  const ids = picked.map((p) => p.event.id);
+  assert.deepEqual(ids, ['nudgedue']);
+  assert.equal(picked[0].hoursLeft, 12);
+});
+
+test('markPendingActivationNudged stamps the timestamp', async () => {
+  const { markPendingActivationNudged } = require('../../src/sweep');
+  await writeEvent('tomark', {
+    id: 'tomark', type: 'event', activated_at: null,
+    created_at: '2026-01-01T00:00:00Z', initiator: 'a@b.com',
+  });
+  const next = await markPendingActivationNudged('tomark', { now: '2026-01-04T00:00:00Z' });
+  assert.equal(next.nudged_pending_activation_at, '2026-01-04T00:00:00Z');
+  const persisted = await readEvent('tomark');
+  assert.equal(persisted.nudged_pending_activation_at, '2026-01-04T00:00:00Z');
+});
+
 test('findNewlyOverdue picks events past threshold, skips already-nudged', async () => {
   const { findNewlyOverdue } = require('../../src/sweep');
   const now = new Date('2026-06-01T00:00:00Z').getTime();

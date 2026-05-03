@@ -21,6 +21,8 @@
 
 const {
   sweepPendingActivation,
+  findPendingActivationNudge,
+  markPendingActivationNudged,
   findNewlyOverdue,
   markNudged,
   archiveStale,
@@ -32,6 +34,21 @@ const dryRun = process.argv.includes('--dry-run');
 
 function publicBaseUrl() {
   return process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
+}
+
+function pendingActivationBody({ event, hoursLeft }) {
+  return [
+    `Heads up — your gitdone event "${event.title}" is still pending`,
+    `activation. If you don't activate it, it will be deleted in about`,
+    `${hoursLeft} hour${hoursLeft === 1 ? '' : 's'}, leaving no record.`,
+    ``,
+    `If you still want to send invitations:`,
+    `  ${publicBaseUrl()}/manage`,
+    `Sign in, open the event, and press Activate. Or click Cancel on`,
+    `the dashboard to delete it now. Or do nothing — it lapses on its own.`,
+    ``,
+    `Event ID: ${event.id}`,
+  ].join('\n');
 }
 
 function overdueBody({ event, daysOver }) {
@@ -95,7 +112,28 @@ async function main() {
   const t0 = Date.now();
   const report = { kind: 'sweep_tick', dry_run: dryRun, timestamp: new Date().toISOString() };
 
-  // 1. Pending-activation cleanup.
+  // 1a. Pending-activation reminder (24h before deletion). Runs BEFORE
+  // the cleanup pass so events still exist when we send the nudge —
+  // otherwise sweepPendingActivation would delete a stale event between
+  // its 71h-old reminder and the 72h check.
+  const pendingNudges = await findPendingActivationNudge();
+  const pendingNudgeResults = [];
+  for (const { event, hoursLeft } of pendingNudges) {
+    if (!event.initiator) continue;
+    if (!dryRun) await markPendingActivationNudged(event.id);
+    const res = dryRun
+      ? { ok: true, dry_run: true }
+      : await sendMail({
+          to: event.initiator,
+          subject: `[gitdone] "${event.title}" — activate within ${hoursLeft}h or it expires`,
+          body: pendingActivationBody({ event, hoursLeft }),
+          eventId: event.id,
+        });
+    pendingNudgeResults.push({ id: event.id, to: event.initiator, hours_left: hoursLeft, ok: res.ok });
+  }
+  report.pending_activation_nudges = pendingNudgeResults;
+
+  // 1b. Pending-activation cleanup (delete events past TTL).
   const deleted = await sweepPendingActivation({ dryRun });
   report.pending_activation_deleted = deleted.length;
   if (deleted.length) report.pending_activation_ids = deleted.map((d) => d.id);
