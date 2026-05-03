@@ -258,14 +258,44 @@ const TRUST_LABELS = {
   unverified: 'unverified — accept any reply, no proof required',
 };
 
-function renderWorkflowForm({ values = {}, errors = [] } = {}) {
+function renderWorkflowForm({ values = {}, errors = [], event = null } = {}) {
+  // When `event` is supplied we're in edit mode: prefill from the event
+  // and apply per-row locks (completed steps frozen) plus form-level
+  // locks (title locked once activated, initiator/trust always locked
+  // because changing them would rewrite the meaning of recorded
+  // commits). When `event` is null we render the create form.
+  const isEdit = !!event;
+  const isActivated = isEdit && !!event.activated_at;
+  if (isEdit) {
+    values = {
+      title: event.title,
+      initiator: event.initiator,
+      min_trust_level: event.min_trust_level,
+      step_name: (event.steps || []).map((s) => s.name || ''),
+      step_participant: (event.steps || []).map((s) => s.participant || ''),
+      step_deadline: (event.steps || []).map((s) => s.deadline || ''),
+      step_requires_attachment: (event.steps || []).map((s) => (s.requires_attachment ? 'on' : '')),
+      step_depends_on: (event.steps || []).map((s) => {
+        const ids = s.depends_on || [];
+        return ids.map((d) => {
+          const idx = (event.steps || []).findIndex((x) => x.id === d);
+          return idx >= 0 ? String(idx + 1) : d;
+        }).join(', ');
+      }),
+      step_details: (event.steps || []).map((s) => s.details || ''),
+      _step_id: (event.steps || []).map((s) => s.id),
+      _step_status: (event.steps || []).map((s) => s.status || 'pending'),
+    };
+  }
   const names = values.step_name || [];
   const participants = values.step_participant || [];
   const deadlines = values.step_deadline || [];
   const atts = values.step_requires_attachment || [];
   const depsArr = values.step_depends_on || [];
   const detailsArr = values.step_details || [];
-  const stepRows = Math.max(2, names.length || 2);
+  const stepIds = values._step_id || [];
+  const stepStatuses = values._step_status || [];
+  const stepRows = isEdit ? names.length : Math.max(2, names.length || 2);
   const selectedTrust = values.min_trust_level || 'verified';
   const trustOpts = VALID_TRUST_LEVELS.map((t) => html`
     <option value="${t}" ${selectedTrust === t ? raw('selected') : ''}>${TRUST_LABELS[t] || t}</option>
@@ -279,23 +309,34 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
     const dep = depsArr[i] || '';
     const det = detailsArr[i] || '';
     const detOpen = det.length > 0;
+    // Edit-mode locks: step name and depends_on always locked (changing
+    // them rewrites the meaning of recorded commits); completed steps
+    // freeze every field. Open steps stay editable: participant,
+    // aspirational date, requires_attachment, details.
+    const stepStatus = stepStatuses[i] || 'pending';
+    const stepFrozen = isEdit && stepStatus === 'complete';
+    const lockStructural = isEdit; // name + depends_on
+    const lockEditableFields = stepFrozen;
+    const dis = (cond) => (cond ? raw('disabled') : raw(''));
+    const rowOpacity = stepFrozen ? 'opacity:0.55;' : '';
     rows.push(html`
-      <tr>
-        <td class="col-num">${i + 1}</td>
+      <tr style="${raw(rowOpacity)}">
+        <td class="col-num">${i + 1}${stepFrozen ? html` <span title="completed — frozen" style="color:#3fb950">✓</span>` : raw('')}</td>
         <td class="col-name">
-          <input type="text" name="step_name" value="${n}" maxlength="200" placeholder="step name">
+          <input type="text" name="step_name" value="${n}" maxlength="200" placeholder="step name" ${dis(lockStructural)}>
+          ${isEdit && stepIds[i] && !stepFrozen ? html`<input type="hidden" name="step_id" value="${stepIds[i]}">` : raw('')}
         </td>
-        <td class="col-email"><input type="email" name="step_participant" value="${p}" placeholder="email@…"></td>
-        <td class="col-dl"><input type="date" name="step_deadline" value="${d ? d.slice(0, 10) : ''}"></td>
-        <td class="col-deps"><input type="text" name="step_depends_on" value="${dep}" placeholder="e.g. 1" title="step numbers this step waits for, comma-separated"></td>
-        <td class="col-att"><input type="checkbox" name="step_requires_attachment" value="on" ${a ? raw('checked') : ''} title="requires attachment"></td>
-        <td class="col-remove">${stepRows > 1 ? html`<button type="submit" class="vf-remove-step" formaction="/events/new" formmethod="GET" name="_remove_step" value="${String(i)}" title="remove this step" aria-label="remove step ${String(i + 1)}">×</button>` : raw('')}</td>
+        <td class="col-email"><input type="email" name="step_participant" value="${p}" placeholder="email@…" ${dis(lockEditableFields)}></td>
+        <td class="col-dl"><input type="date" name="step_deadline" value="${d ? d.slice(0, 10) : ''}" ${dis(lockEditableFields)}></td>
+        <td class="col-deps"><input type="text" name="step_depends_on" value="${dep}" placeholder="e.g. 1" title="${lockStructural ? raw('Locked in edit mode — changing dependencies mid-flight rewrites the meaning of recorded replies.') : raw('step numbers this step waits for, comma-separated')}" ${dis(lockStructural)}></td>
+        <td class="col-att"><input type="checkbox" name="step_requires_attachment" value="${isEdit ? stepIds[i] || 'on' : 'on'}" ${a ? raw('checked') : ''} title="requires attachment" ${dis(lockEditableFields)}></td>
+        <td class="col-remove">${(!isEdit && stepRows > 1) ? html`<button type="submit" class="vf-remove-step" formaction="/events/new" formmethod="GET" name="_remove_step" value="${String(i)}" title="remove this step" aria-label="remove step ${String(i + 1)}">×</button>` : raw('')}</td>
       </tr>
       <tr class="vf-details-row ${detOpen ? raw('has-content open') : ''}">
         <td colspan="7">
           <button type="button" class="vf-details-toggle" data-toggle-details title="long-form instructions for the participant (optional, up to 4096 chars)"></button>
           <div class="vf-details-wrap">
-            <textarea name="step_details" maxlength="4096" placeholder="Optional plain-text details for the participant. Example: 'Please review section 3.2 of the contract, focus on indemnification language. Reply with signed PDF or inline notes.' Shown in the invite email.">${det}</textarea>
+            <textarea name="step_details" maxlength="4096" placeholder="Optional plain-text details for the participant. Example: 'Please review section 3.2 of the contract, focus on indemnification language. Reply with signed PDF or inline notes.' Shown in the invite email." ${dis(lockEditableFields)}>${det}</textarea>
             <div class="vf-details-count" data-details-count>0 / 4096</div>
           </div>
         </td>
@@ -308,32 +349,43 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
         <ul>${errors.map((e) => html`<li>${e}</li>`)}</ul>
       </div>`
     : raw('');
+  // Header copy + form action differ between create and edit, but the
+  // form structure is identical so the organiser sees the same layout
+  // they used to create the event, with the locked rows visibly greyed.
+  const formAction = isEdit ? `/manage/event/${event.id}/edit` : '/events';
+  const backHref = isEdit ? `/manage/event/${event.id}` : '/';
+  const backLabel = isEdit ? '← back to dashboard' : '← back';
+  const lede = isEdit
+    ? `Edit open steps. Completed steps are frozen — their entry in the audit trail is permanent. Step name and dependencies are locked: changing them mid-flight would rewrite the meaning of replies already recorded.`
+    : 'An auditable multi-party workflow — ordered steps, parallel steps, or a DAG with explicit dependencies.';
+  const submitLabel = isEdit ? 'Save changes' : 'Create event';
+  const titleLocked = isEdit && isActivated;
   return html`
-    <p style="margin:0 0 0.4rem"><a href="/" style="color:#8b949e;font-size:0.88em">← back</a></p>
-    <p style="margin:0 0 1rem;color:#8b949e;font-size:0.9em">An auditable multi-party workflow — ordered steps, parallel steps, or a DAG with explicit dependencies.</p>
+    <p style="margin:0 0 0.4rem"><a href="${backHref}" style="color:#8b949e;font-size:0.88em">${backLabel}</a></p>
+    <p style="margin:0 0 1rem;color:#8b949e;font-size:0.9em">${lede}</p>
     ${errBlock}
     <style>${raw(WORKFLOW_FORM_CSS)}</style>
-    <form class="vf-form" method="POST" action="/events" data-variant-root="F">
+    <form class="vf-form" method="POST" action="${formAction}" data-variant-root="F">
 
-      <h2><span class="num">1</span>What + Who <span class="hint">event title and who runs it</span></h2>
+      <h2><span class="num">1</span>What + Who <span class="hint">${isEdit ? raw('event title and organiser (locked)') : raw('event title and who runs it')}</span></h2>
       <div class="vf-section">
         <div class="vf-row">
           <label>
-            <span>Title</span>
-            <input type="text" name="title" value="${values.title || ''}" required maxlength="200" placeholder="e.g. Q2 sign-off">
+            <span>Title${titleLocked ? raw(' <em style="color:#6e7681;text-transform:none;letter-spacing:0;font-size:0.85em">— locked, already in subjects</em>') : raw('')}</span>
+            <input type="text" name="title" value="${values.title || ''}" required maxlength="200" placeholder="e.g. Q2 sign-off" ${titleLocked ? raw('disabled') : raw('')}>
           </label>
           <label>
-            <span>Your email</span>
-            <input type="email" name="initiator" value="${values.initiator || ''}" required placeholder="you@example.com">
+            <span>${isEdit ? raw('Organiser') : raw('Your email')}</span>
+            <input type="email" name="initiator" value="${values.initiator || ''}" required placeholder="you@example.com" ${isEdit ? raw('disabled') : raw('')}>
           </label>
         </div>
       </div>
 
-      <h2><span class="num">2</span>Trust <span class="hint">how strict should reply verification be — higher = more proof, fewer accepted replies</span></h2>
+      <h2><span class="num">2</span>Trust <span class="hint">${isEdit ? raw('locked — changing this would rewrite the gating policy on existing replies') : raw('how strict should reply verification be — higher = more proof, fewer accepted replies')}</span></h2>
       <div class="vf-section">
         <label style="max-width:520px">
           <span>Minimum trust</span>
-          <select name="min_trust_level">${trustOpts}</select>
+          <select name="min_trust_level" ${isEdit ? raw('disabled') : raw('')}>${trustOpts}</select>
         </label>
       </div>
 
@@ -353,12 +405,12 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
           </thead>
           <tbody>${rows}</tbody>
         </table>
-        <p class="vf-add-row">
+        ${isEdit ? raw('') : html`<p class="vf-add-row">
           <button type="submit" formaction="/events/new" formmethod="GET" name="_add_step" value="1">+ add step</button>
-        </p>
+        </p>`}
       </div>
 
-      <button type="submit" class="vf-submit">Create event</button>
+      <button type="submit" class="vf-submit">${submitLabel}</button>
     </form>
     <script>${raw(`
       (function(){
@@ -1417,7 +1469,7 @@ router.get('/manage/event/:id/edit', async (req, res, params) => {
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
     title: `edit — ${event.title}`,
-    body: renderEditForm({ event, errors }),
+    body: renderWorkflowForm({ event, errors }),
   }));
 });
 
@@ -1646,83 +1698,6 @@ const MANAGE_CSS = `
 .mg-steps .mg-reject-at { color:#6e7681; font-family:inherit; }
 `;
 
-// Edit form for an active or pending workflow event. Completed steps
-// render read-only (their participant + reply are committed to the
-// audit trail; rewriting them would lie). Pending events allow the
-// title to be edited; active events lock the title.
-function renderEditForm({ event, errors = [] } = {}) {
-  const errBlock = errors.length
-    ? html`<div class="vf-errors"><strong>Couldn't save</strong><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>`
-    : raw('');
-  const allSteps = event.steps || [];
-  // Map step.id → "#N" so the dependency column reads in human terms.
-  const idxLabel = Object.fromEntries(allSteps.map((s, i) => [s.id, `#${i + 1}`]));
-  const renderDeps = (s) => {
-    const deps = (s.depends_on || []).map((d) => idxLabel[d] || d);
-    return deps.length ? `after ${deps.join(', ')}` : '—';
-  };
-  const stepRows = allSteps.map((s, i) => {
-    const frozen = s.status === 'complete';
-    const num = String(i + 1);
-    if (frozen) {
-      // Completed steps: no inputs at all — not even a hidden step_id —
-      // so the form's positional arrays only contain open-step entries.
-      // Read-only summary row preserves visual context.
-      return html`
-        <tr style="opacity:0.55">
-          <td>${num}</td>
-          <td>${s.name}</td>
-          <td><code>${s.participant}</code></td>
-          <td><code>${s.deadline ? s.deadline.slice(0, 10) : '—'}</code></td>
-          <td style="text-align:center">${s.requires_attachment ? raw('📎') : raw('—')}</td>
-          <td style="color:#8b949e;font-size:0.85em">${renderDeps(s)}</td>
-          <td style="color:#3fb950">✓ complete (frozen)</td>
-        </tr>`;
-    }
-    return html`
-      <tr>
-        <td>${num}</td>
-        <td>${s.name}<input type="hidden" name="step_id" value="${s.id}"></td>
-        <td><input type="email" name="step_participant" value="${s.participant || ''}" required></td>
-        <td><input type="date" name="step_deadline" value="${s.deadline ? s.deadline.slice(0, 10) : ''}"></td>
-        <td style="text-align:center"><input type="checkbox" name="step_requires_attachment" value="${s.id}" ${s.requires_attachment ? raw('checked') : ''}></td>
-        <td style="color:#8b949e;font-size:0.85em">${renderDeps(s)}</td>
-        <td style="color:#8b949e">○ pending</td>
-      </tr>
-      <tr>
-        <td></td>
-        <td colspan="6"><label style="display:block;color:#8b949e;font-size:0.78em;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.2rem">Details / brief for ${s.name} (shown in the participant's invitation)</label>
-          <textarea name="step_details" rows="2" style="width:100%;padding:0.4rem 0.55rem">${s.details || ''}</textarea></td>
-      </tr>`;
-  });
-  const titleField = event.activated_at
-    ? html`<p style="margin:0 0 0.6rem;color:#8b949e;font-size:0.88em">Title: <code>${event.title}</code> · locked (already in subject lines on participants' inboxes).</p>`
-    : html`<label style="display:block;margin:0 0 1rem">
-        <span style="display:block;font-size:0.78em;color:#8b949e;text-transform:uppercase;letter-spacing:0.08em">Title</span>
-        <input type="text" name="title" value="${event.title || ''}" required maxlength="200" style="width:100%;padding:0.5rem 0.6rem">
-      </label>`;
-  return html`
-    <p style="margin:0 0 0.4rem"><a href="/manage/event/${event.id}" style="color:#8b949e;font-size:0.88em">← back to dashboard</a></p>
-    <p style="margin:0 0 1rem;color:#8b949e;font-size:0.9em">Edit open steps. Completed steps are frozen — their entry in the audit trail is permanent. Changes write a new commit so the edit itself is tamper-evident.</p>
-    ${errBlock}
-    <style>${raw(WORKFLOW_FORM_CSS)}</style>
-    <form class="vf-form" method="POST" action="/manage/event/${event.id}/edit">
-      ${titleField}
-      <table class="vf-steps-table">
-        <thead><tr>
-          <th>#</th><th>Step</th><th>Participant</th><th>Aspirational date</th><th>📎</th><th>After</th><th>Status</th>
-        </tr></thead>
-        <tbody>${stepRows}</tbody>
-      </table>
-      <p style="margin-top:1rem;color:#8b949e;font-size:0.85em">If a participant email changes, the new address gets a fresh invitation. The old address gets nothing — replies from it will be rejected as sender-mismatch. Step name and dependencies (the <em>After</em> column) are deliberately not editable: changing them mid-flight rewrites the meaning of replies already in the audit trail.</p>
-      <div style="display:flex;gap:0.6rem;margin-top:1.2rem">
-        <button type="submit" style="padding:0.6em 1.4em;background:#3fb950;color:#0d1117;border:0;font:inherit;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer">Save changes</button>
-        <a href="/manage/event/${event.id}" style="padding:0.6em 1.4em;background:transparent;border:1px solid #30363d;color:#8b949e;text-decoration:none;font:inherit">Cancel</a>
-      </div>
-    </form>
-  `;
-}
-
 function renderManagementDashboard({ eventId, initiatorEmail, event, flash, stepAttempts = {} }) {
   const complete = event.completion && event.completion.status === 'complete';
   const pendingActivation = !event.activated_at && !complete;
@@ -1770,7 +1745,6 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
             <td>${String(i + 1)}</td>
             <td>
               <strong>${s.name}</strong>
-              ${s.details ? html` <button type="button" class="mg-details-toggle" data-step="${s.id}" aria-expanded="false" title="show details"></button>` : raw('')}
             </td>
             <td><code>${s.participant}</code></td>
             ${anyDeadlines ? html`<td>${s.deadline ? html`<code>${s.deadline.slice(0, 10)}</code>` : raw('—')}</td>` : raw('')}
@@ -1783,7 +1757,7 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
       if (s.details) {
         const colspan = 4 + (anyDeadlines ? 1 : 0) + (anyAtt ? 1 : 0);
         out.push(html`
-          <tr class="mg-details-row" data-step="${s.id}" hidden>
+          <tr class="mg-details-row" data-step="${s.id}">
             <td></td>
             <td colspan="${String(colspan)}"><div class="mg-details">${s.details}</div></td>
           </tr>
