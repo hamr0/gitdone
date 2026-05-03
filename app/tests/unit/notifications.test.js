@@ -6,7 +6,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { workflowStepBody, declarationSignerBody } = require('../../src/notifications');
+const { workflowStepBody, declarationSignerBody, renderOrganiserStepList } = require('../../src/notifications');
 
 test('workflowStepBody: names the step, position, reply-to, and organiser', () => {
   const body = workflowStepBody({
@@ -72,4 +72,33 @@ test('declarationSignerBody: names organiser, signer, reply-to', () => {
   assert.match(body, /event\+decl01@/);
   // Declaration reply-to does NOT have a -step suffix
   assert.doesNotMatch(body, /event\+decl01-/);
+});
+
+test('renderOrganiserStepList: marks active steps with ▸ and labels deps', () => {
+  const event = {
+    steps: [
+      { id: 'a', name: 'audio', participant: 'a@x.com', deadline: '2026-05-06', depends_on: [] },
+      { id: 'v', name: 'video', participant: 'v@x.com', deadline: '2026-05-07', depends_on: ['a'] },
+    ],
+  };
+  const out = renderOrganiserStepList(event, ['a']);
+  const lines = out.split('\n');
+  assert.match(lines[0], /▸ 1\. audio → a@x\.com/);
+  assert.match(lines[0], /deadline 2026-05-06/);
+  // Non-active step gets a leading space placeholder, no ▸.
+  assert.match(lines[1], /^    2\. video/);
+  assert.doesNotMatch(lines[1], /▸/);
+  assert.match(lines[1], /after #1/);
+});
+
+test('renderOrganiserStepList: completed status renders as DONE', () => {
+  const event = {
+    steps: [
+      { id: 'a', name: 'audio', participant: 'a@x.com', status: 'complete', depends_on: [] },
+      { id: 'v', name: 'video', participant: 'v@x.com', depends_on: ['a'] },
+    ],
+  };
+  const out = renderOrganiserStepList(event, ['v']);
+  assert.match(out, /1\. audio.*\[DONE\]/);
+  assert.match(out, /▸ 2\. video.*\[pending\]/);
 });

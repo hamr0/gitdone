@@ -24,7 +24,7 @@ const { sendmail, buildRawMessage } = require('../src/outbound');
 const { forwardToOwner } = require('../src/forward');
 const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
 const { applyReply, updateEventAtomic } = require('../src/completion');
-const { notifyWorkflowParticipants, notifyEventCompletion } = require('../src/notifications');
+const { notifyWorkflowParticipants, notifyEventCompletion, notifyOrganiserOfStepProgress } = require('../src/notifications');
 const { authenticateInitiatorCommand, statsBody, executeRemind, executeClose } = require('../src/email-commands');
 const { extractDsn } = require('../src/dsn');
 const logger = require('../src/logger');
@@ -658,6 +658,14 @@ async function main() {
             results,
           };
         }
+        // Tell the organiser a step completed and which participant(s)
+        // are now active. Best-effort; skipped only if there's nothing
+        // newly active AND nothing left in flight (covered by the
+        // event-completion email path above).
+        notifyOrganiserOfStepProgress(nextEvent, {
+          completedStepId: applied.completedStep,
+          newlyActiveSteps: newlyEligible,
+        }).catch((err) => process.stderr.write(`progress-notify: ${err.message || err}\n`));
       }
     } catch (err) {
       completion = { error: err.message || String(err) };

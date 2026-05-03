@@ -1789,13 +1789,18 @@ router.post('/manage/event/:id/activate', async (req, res, params) => {
   const { event: activated, alreadyActive } = await activateEvent(params.id);
   event = activated;
   if (!alreadyActive) {
-    const { notifyWorkflowParticipants, notifyDeclarationSigner } = require('../src/notifications');
+    const { notifyWorkflowParticipants, notifyDeclarationSigner, notifyOrganiserOfActivation } = require('../src/notifications');
     try {
       if (event.type === 'event') {
         const results = await notifyWorkflowParticipants(event);
         for (const r of results) {
           if (!r.ok) process.stderr.write(`activate-notify: failed ${r.to}: ${r.reason || r.code}\n`);
         }
+        // Confirm to the organiser what just went out, with a per-step
+        // marker showing who participants are currently waiting on.
+        // Best-effort: a send failure here doesn't undo the activation.
+        notifyOrganiserOfActivation(event, { sendResults: results })
+          .catch((err) => process.stderr.write(`activate-organiser-notify: ${err.message || err}\n`));
       } else if (event.type === 'crypto' && event.mode === 'declaration') {
         const results = await notifyDeclarationSigner(event);
         for (const r of results) {
@@ -1914,7 +1919,8 @@ const MANAGE_CSS = `
 .mg-archived-banner { background:rgba(110,118,129,0.06); border:1px solid #30363d; border-left:3px solid #6e7681; color:#8b949e; padding:0.7rem 0.95rem; margin:0 0 1rem; font-size:0.92em; line-height:1.5; }
 .mg-archived-banner strong { color:#c9d1d9; display:block; margin-bottom:0.25rem; }
 .mg-pending-activation { background:rgba(255,176,0,0.06); border:1px solid #ffb000; border-left-width:3px; color:#ffb000; padding:0.7rem 0.95rem; margin:0 0 1rem; font-size:0.92em; line-height:1.5; }
-.mg-pending-activation strong { color:#ffb000; display:block; margin-bottom:0.25rem; }
+.mg-pending-activation strong { color:#ffb000; }
+.mg-pending-activation .title { color:#ffb000; font-weight:700; display:block; margin-bottom:0.25rem; }
 .mg-actions { display:flex; gap:0.7rem; margin:1rem 0; }
 .mg-actions button { padding:0.55rem 1.2rem; border-radius:0; cursor:pointer; font:inherit; font-size:0.85em; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; }
 .mg-remind { background:#0d1117; color:#3fb950; border:1px solid #3fb950; }
@@ -2107,7 +2113,7 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
     <p class="mg-meta">Signed in as <code>${initiatorEmail}</code> · Event <code>${event.id}</code> · ${pill}</p>
     ${flash ? html`<div class="mg-flash">${flash}</div>` : raw('')}
     ${pendingActivation ? html`<div class="mg-pending-activation">
-        <strong>Pending activation</strong>
+        <span class="title">Pending activation</span>
         Participants haven't been invited yet. Review the details below, then click <strong>Activate</strong>
         to send invitations${event.type === 'crypto' && event.mode === 'attestation' ? raw(' and make the reply address live') : raw('')}.
         Nothing leaves the server until you do. To delete this event without sending anything,

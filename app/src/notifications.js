@@ -258,6 +258,101 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
   return Promise.all(jobs);
 }
 
+// Render the workflow's step list as plain-text lines, with a "▸"
+// marker next to every step the organiser is currently waiting on
+// (i.e. unblocked + not yet complete). Shared by activation and
+// per-step-transition emails so the visual cue stays consistent.
+function renderOrganiserStepList(event, activeStepIds) {
+  const active = new Set(activeStepIds || []);
+  return event.steps.map((s, i) => {
+    const marker = active.has(s.id) ? '▸' : ' ';
+    const status = s.status === 'complete' ? 'DONE' : (s.status || 'pending');
+    const tail = [];
+    if (s.depends_on && s.depends_on.length) {
+      const after = s.depends_on.map((id) => {
+        const idx = event.steps.findIndex((x) => x.id === id);
+        return idx >= 0 ? `#${idx + 1}` : id;
+      }).join(', ');
+      tail.push(`after ${after}`);
+    }
+    if (s.deadline) tail.push(`deadline ${String(s.deadline).slice(0, 10)}`);
+    if (s.requires_attachment) tail.push('attachment required');
+    const tailStr = tail.length ? `  (${tail.join(', ')})` : '';
+    return `  ${marker} ${i + 1}. ${s.name} → ${s.participant}  [${status}]${tailStr}`;
+  }).join('\n');
+}
+
+// Email the organiser when a pending event is activated. Confirms what
+// just left the server, lists every step, and marks (▸) the steps
+// participants are waiting on right now — i.e. the "roots" of the DAG.
+async function notifyOrganiserOfActivation(event, { sendResults = [], publicBaseUrl } = {}) {
+  if (!event || event.type !== 'event' || !event.initiator) return null;
+  const roots = event.steps.filter((s) => !s.depends_on || s.depends_on.length === 0);
+  const activeIds = roots.map((s) => s.id);
+  const baseUrl = publicBaseUrl || process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
+  const deliveryLines = sendResults.length
+    ? sendResults.map((r) => `  ${r.ok ? 'sent  ' : 'FAILED'} → ${r.to}${r.ok ? '' : `  (${r.reason || r.code || 'unknown error'})`}`).join('\n')
+    : '';
+  const body = [
+    `Your event is now active. Invitations have been sent to the participants`,
+    `whose steps are unblocked (▸ in the list below). Downstream participants`,
+    `will be invited automatically as their dependencies complete.`,
+    ``,
+    `Event: ${event.title}`,
+    `Activated: ${event.activated_at || new Date().toISOString()}`,
+    ``,
+    `Steps (▸ = waiting on this person now):`,
+    renderOrganiserStepList(event, activeIds),
+    ``,
+    deliveryLines ? `Delivery:` : '',
+    deliveryLines,
+    deliveryLines ? `` : '',
+    `If a participant's address bounces you'll get a separate "invitation`,
+    `bounced" email and the dashboard will show "delivery failed" on that step.`,
+    ``,
+    `Manage: ${baseUrl}/manage/event/${event.id}`,
+  ].filter((l) => l !== '').join('\n');
+  return sendOne({
+    to: event.initiator,
+    subject: `[gitdone] "${event.title}" — activated, ${activeIds.length} invitation${activeIds.length === 1 ? '' : 's'} sent`,
+    body,
+    event,
+  });
+}
+
+// Email the organiser when a step completes and one or more downstream
+// steps become the new active set. Keeps the organiser in the loop
+// without forcing them to poll the dashboard.
+async function notifyOrganiserOfStepProgress(event, { completedStepId, newlyActiveSteps = [], publicBaseUrl } = {}) {
+  if (!event || event.type !== 'event' || !event.initiator) return null;
+  const completedIdx = event.steps.findIndex((s) => s.id === completedStepId);
+  const completed = completedIdx >= 0 ? event.steps[completedIdx] : null;
+  if (!completed) return null;
+  const activeIds = newlyActiveSteps.map((s) => s.id);
+  const baseUrl = publicBaseUrl || process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
+  const newlyActiveLabel = newlyActiveSteps.length === 0
+    ? 'No new steps unblocked yet (still waiting on other dependencies).'
+    : `Now waiting on: ${newlyActiveSteps.map((s) => `#${event.steps.indexOf(s) + 1} ${s.name} (${s.participant})`).join(', ')}.`;
+  const body = [
+    `Step #${completedIdx + 1} "${completed.name}" was just completed by ${completed.participant}.`,
+    ``,
+    newlyActiveLabel,
+    ``,
+    `Event: ${event.title}`,
+    ``,
+    `Steps (▸ = waiting on this person now):`,
+    renderOrganiserStepList(event, activeIds),
+    ``,
+    `Manage: ${baseUrl}/manage/event/${event.id}`,
+  ].join('\n');
+  return sendOne({
+    to: event.initiator,
+    subject: `[gitdone] "${event.title}" — step ${completedIdx + 1} done${newlyActiveSteps.length ? `, step${newlyActiveSteps.length === 1 ? '' : 's'} ${newlyActiveSteps.map((s) => `#${event.steps.indexOf(s) + 1}`).join(', ')} now active` : ''}`,
+    body,
+    event,
+  });
+}
+
 async function notifyDeclarationSigner(event) {
   if (!event || event.type !== 'crypto' || event.mode !== 'declaration' || !event.signer) {
     return [];
@@ -276,6 +371,9 @@ module.exports = {
   notifyWorkflowParticipants,
   notifyDeclarationSigner,
   notifyEventCompletion,
+  notifyOrganiserOfActivation,
+  notifyOrganiserOfStepProgress,
   workflowStepBody,
   declarationSignerBody,
+  renderOrganiserStepList,
 };
