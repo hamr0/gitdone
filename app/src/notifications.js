@@ -22,6 +22,18 @@ function stepReplyAddr(event, stepId) {
   return `event+${event.id}-${stepId}@${config.domain}`;
 }
 
+// "2026-05-12" or "2026-05-12T12:00:00Z" → "Saturday, 2026-05-12".
+// Date-only strings come from the <input type=date> in the form;
+// older events may carry full ISO timestamps. Both render in UTC so
+// the weekday matches the calendar date the organiser picked.
+function formatAspirationalDate(deadline) {
+  const dateOnly = String(deadline).slice(0, 10);
+  const d = new Date(`${dateOnly}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return String(deadline);
+  const weekday = d.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+  return `${weekday}, ${dateOnly}`;
+}
+
 function cryptoReplyAddr(event) {
   return `event+${event.id}@${config.domain}`;
 }
@@ -41,14 +53,8 @@ function workflowStepBody({ event, step, stepIndex, totalSteps }) {
     `Your step: ${step.name} (step ${stepIndex + 1} of ${totalSteps})`,
     `Organiser: ${event.initiator}`,
   ];
-  if (step.deadline) {
-    lines.push(
-      `Deadline: ${step.deadline}`,
-      `  (soft — replies after this date are still counted, but the organiser`,
-      `  will be notified if your step is overdue.)`,
-    );
-  }
-  if (step.requires_attachment) lines.push(`Required: include an attachment with your reply.`);
+  if (step.requires_attachment) lines.push(`Attachment: required`);
+  if (step.deadline) lines.push(`Aspirational date: ${formatAspirationalDate(step.deadline)}`);
   if (step.details) {
     lines.push(
       ``,

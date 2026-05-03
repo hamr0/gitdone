@@ -20,22 +20,39 @@ test('workflowStepBody: names the step, position, reply-to, and organiser', () =
   assert.match(body, /Organiser: boss@ex\.com/);
   assert.match(body, /Reply from legal@ex\.com to:/);
   assert.match(body, /event\+abc123xyz000-legal@/);
-  assert.doesNotMatch(body, /Required: include an attachment/);
-  assert.doesNotMatch(body, /Deadline:/);
+  assert.doesNotMatch(body, /Attachment:/);
+  assert.doesNotMatch(body, /Aspirational date:/);
 });
 
-test('workflowStepBody: includes deadline + attachment hint when set', () => {
+test('workflowStepBody: surfaces attachment + aspirational date in metadata block', () => {
   const body = workflowStepBody({
     event: { id: 'e1', title: 't', initiator: 'o@x.com' },
     step: {
       id: 's', name: 'Sign', participant: 'p@x.com',
-      deadline: '2026-05-01T12:00:00.000Z', requires_attachment: true,
+      deadline: '2026-05-12', requires_attachment: true,
     },
     stepIndex: 0,
     totalSteps: 1,
   });
-  assert.match(body, /Deadline: 2026-05-01T12:00:00\.000Z/);
-  assert.match(body, /Required: include an attachment/);
+  assert.match(body, /Attachment: required/);
+  assert.match(body, /Aspirational date: Tuesday, 2026-05-12/);
+  // Both fields render before the reply-to block so the participant
+  // sees them above the fold.
+  assert.ok(body.indexOf('Attachment: required') < body.indexOf('Reply from'));
+  assert.ok(body.indexOf('Aspirational date:') < body.indexOf('Reply from'));
+});
+
+test('workflowStepBody: aspirational date accepts full ISO timestamp (legacy data)', () => {
+  const body = workflowStepBody({
+    event: { id: 'e1', title: 't', initiator: 'o@x.com' },
+    step: {
+      id: 's', name: 'Sign', participant: 'p@x.com',
+      deadline: '2026-05-12T12:00:00.000Z',
+    },
+    stepIndex: 0,
+    totalSteps: 1,
+  });
+  assert.match(body, /Aspirational date: Tuesday, 2026-05-12/);
 });
 
 test('declarationSignerBody: names organiser, signer, reply-to', () => {

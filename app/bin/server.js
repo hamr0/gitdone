@@ -309,7 +309,8 @@ function renderWorkflowForm({ values = {}, errors = [] } = {}) {
       </div>`
     : raw('');
   return html`
-    <p style="margin:0 0 1rem"><a href="/" style="color:#8b949e;font-size:0.88em">← back</a></p>
+    <p style="margin:0 0 0.4rem"><a href="/" style="color:#8b949e;font-size:0.88em">← back</a></p>
+    <p style="margin:0 0 1rem;color:#8b949e;font-size:0.9em">An auditable multi-party workflow — ordered steps, parallel steps, or a DAG with explicit dependencies.</p>
     ${errBlock}
     <style>${raw(WORKFLOW_FORM_CSS)}</style>
     <form class="vf-form" method="POST" action="/events" data-variant-root="F">
