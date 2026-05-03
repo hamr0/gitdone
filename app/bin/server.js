@@ -1655,10 +1655,19 @@ function renderEditForm({ event, errors = [] } = {}) {
     ? html`<div class="vf-errors"><strong>Couldn't save</strong><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>`
     : raw('');
   const allSteps = event.steps || [];
+  // Map step.id → "#N" so the dependency column reads in human terms.
+  const idxLabel = Object.fromEntries(allSteps.map((s, i) => [s.id, `#${i + 1}`]));
+  const renderDeps = (s) => {
+    const deps = (s.depends_on || []).map((d) => idxLabel[d] || d);
+    return deps.length ? `after ${deps.join(', ')}` : '—';
+  };
   const stepRows = allSteps.map((s, i) => {
     const frozen = s.status === 'complete';
     const num = String(i + 1);
     if (frozen) {
+      // Completed steps: no inputs at all — not even a hidden step_id —
+      // so the form's positional arrays only contain open-step entries.
+      // Read-only summary row preserves visual context.
       return html`
         <tr style="opacity:0.55">
           <td>${num}</td>
@@ -1666,8 +1675,8 @@ function renderEditForm({ event, errors = [] } = {}) {
           <td><code>${s.participant}</code></td>
           <td><code>${s.deadline ? s.deadline.slice(0, 10) : '—'}</code></td>
           <td style="text-align:center">${s.requires_attachment ? raw('📎') : raw('—')}</td>
+          <td style="color:#8b949e;font-size:0.85em">${renderDeps(s)}</td>
           <td style="color:#3fb950">✓ complete (frozen)</td>
-          <input type="hidden" name="step_id" value="${s.id}">
         </tr>`;
     }
     return html`
@@ -1677,11 +1686,12 @@ function renderEditForm({ event, errors = [] } = {}) {
         <td><input type="email" name="step_participant" value="${s.participant || ''}" required></td>
         <td><input type="date" name="step_deadline" value="${s.deadline ? s.deadline.slice(0, 10) : ''}"></td>
         <td style="text-align:center"><input type="checkbox" name="step_requires_attachment" value="${s.id}" ${s.requires_attachment ? raw('checked') : ''}></td>
+        <td style="color:#8b949e;font-size:0.85em">${renderDeps(s)}</td>
         <td style="color:#8b949e">○ pending</td>
       </tr>
       <tr>
         <td></td>
-        <td colspan="5"><label style="display:block;color:#8b949e;font-size:0.78em;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.2rem">Details (optional)</label>
+        <td colspan="6"><label style="display:block;color:#8b949e;font-size:0.78em;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.2rem">Details / brief for ${s.name} (shown in the participant's invitation)</label>
           <textarea name="step_details" rows="2" style="width:100%;padding:0.4rem 0.55rem">${s.details || ''}</textarea></td>
       </tr>`;
   });
@@ -1700,11 +1710,11 @@ function renderEditForm({ event, errors = [] } = {}) {
       ${titleField}
       <table class="vf-steps-table">
         <thead><tr>
-          <th>#</th><th>Step</th><th>Participant</th><th>Aspirational date</th><th>📎</th><th>Status</th>
+          <th>#</th><th>Step</th><th>Participant</th><th>Aspirational date</th><th>📎</th><th>After</th><th>Status</th>
         </tr></thead>
         <tbody>${stepRows}</tbody>
       </table>
-      <p style="margin-top:1rem;color:#8b949e;font-size:0.85em">If a participant email changes, the new address gets a fresh invitation. The old address gets nothing — replies from it will be rejected as sender-mismatch.</p>
+      <p style="margin-top:1rem;color:#8b949e;font-size:0.85em">If a participant email changes, the new address gets a fresh invitation. The old address gets nothing — replies from it will be rejected as sender-mismatch. Step name and dependencies (the <em>After</em> column) are deliberately not editable: changing them mid-flight rewrites the meaning of replies already in the audit trail.</p>
       <div style="display:flex;gap:0.6rem;margin-top:1.2rem">
         <button type="submit" style="padding:0.6em 1.4em;background:#3fb950;color:#0d1117;border:0;font:inherit;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer">Save changes</button>
         <a href="/manage/event/${event.id}" style="padding:0.6em 1.4em;background:transparent;border:1px solid #30363d;color:#8b949e;text-decoration:none;font:inherit">Cancel</a>
