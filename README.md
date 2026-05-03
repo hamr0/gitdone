@@ -135,9 +135,12 @@ a permanent commit, and that's a human decision.
 
 ## The fine print
 
-- gitdone never stores attachments — they're forwarded to the
-  organizer and hashed into the record. The hash lives forever; the
-  attachment lives in your inbox.
+- gitdone never stores email bodies or attachments — both are
+  forwarded to the organizer; only their SHA-256 hashes go into the
+  record. The hash lives forever; the content lives in the
+  organizer's inbox.
+- Feedback, security reports, anything else: **feedback@git-done.com**
+  (forwarded to a real human).
 - Email addresses in the record are hashed with a per-event salt, not
   stored in plaintext. Anyone with the original email can confirm a
   match; no one can scrape the repository for a contact list.

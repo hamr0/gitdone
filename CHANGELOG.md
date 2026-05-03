@@ -15,6 +15,64 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Outbound email — unified `From`, standard signature, `feedback@` inbox
+
+Every outbound message now has the same sender identity and a single,
+truthful signature describing what gitdone does and does not store.
+
+- **`From: gitdone@git-done.com` everywhere.** Knowless magic-link
+  emails switch from `noreply@` and the operator-alert pipeline
+  switches from `alerts@`. Notifications, sweep nudges, weekly
+  digest, and completion emails were already on `gitdone@`.
+  Per-event reply-routing addresses (`event+id-step@`,
+  `verify+id@`, etc.) are unchanged — they're routing tags, not
+  identity.
+- **Standard signature on every gitdone-composed body.** Plain
+  ASCII, RFC 3676 `-- ` delimiter, four lines:
+  *"gitdone — we don't store email bodies or attachments; those
+  go to the organiser. We keep DKIM proof, a SHA-256 hash of each
+  message, and an OpenTimestamps anchor so the record is
+  tamper-evident. Feedback: feedback@git-done.com"*.
+  Wired via `outbound.js` `withSignature()` (auto-applied in
+  `buildRawMessage`, `noSignature: true` opt-out for forwarded
+  participant mail), via explicit wrap on the two activation
+  builders in `server.js`, and via knowless's `bodyFooter` config
+  for the Mode B sign-in email.
+- **New alias `feedback@git-done.com` → operator inbox.** Tracked
+  in `ops/postfix/virtual` and live in production. Published in
+  the signature so recipients have a discoverable channel.
+- Phrasing audit: the signature deliberately says **SHA-256** and
+  **DKIM proof**, not "HMAC". gitdone uses unkeyed SHA-256 for
+  content hashes and DKIM for sender-side signatures; calling that
+  "HMAC-protected" would be inaccurate.
+
+### Participant email body — surface attachment + aspirational date
+
+Workflow-step invitations now render `Attachment: required` and
+`Aspirational date: <weekday>, <YYYY-MM-DD>` in the metadata block
+above the reply-to line, so participants see both before the fold.
+Drops the verbose soft-deadline disclaimer; the friendlier wording
+("aspirational") carries the meaning. Date renders in UTC so the
+weekday matches the calendar date the organiser picked.
+
+### UI — page-intro consistency
+
+`/events/new` and `/manage` now carry the same "← back" + one-line
+description pattern as `/crypto/new`. First-time visitors see a
+statement of what the page is for before any form or list.
+
+### Deployment runbook — pre-flight + Node-major upgrade
+
+Codifies the lessons from the 1.H.6 ship: `app/package.json` had a
+`file:` dependency that only resolved on the maintainer laptop,
+`package-lock.json` was repo-wide gitignored, and the new dep
+required a Node major (≥22.5 for `node:sqlite`) the VPS hadn't been
+upgraded to. `docs/04-process/deployment.md` §11.1 adds three
+pre-flight checks (no non-registry deps, lockfile is tracked,
+`engines.node` ≤ VPS node major); §11.4 documents the AlmaLinux
+module-stream switch with the NodeSource-conflict workaround.
+Production was migrated Node 20 → 22.22.2 during this cycle.
+
 ### Auth — knowless Mode A integration; activation collapses into sign-in
 
 GitDone's email-verification machinery is now provided by `knowless`

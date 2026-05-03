@@ -571,7 +571,7 @@ Per the moat (§0.1.4 — "invisible beats correct"), the initiator's day-to-day
 
 **Initiator authentication via DKIM:** when an inbound message is DKIM-verified and its envelope sender matches `event.initiator`, that's cryptographic proof that the initiator authorised the command. As strong as (and often stronger than) a magic link — DKIM can't be spoofed, magic links can be forwarded.
 
-**Every outbound email from GitDone includes a footer** pointing to `verify+{id}@` and `stats+{id}@` for the event. Zero-friction discoverability.
+**Every outbound email from GitDone carries a standard signature** (RFC 3676 `-- ` delimiter, four ASCII lines): the no-storage claim, the integrity primitives we actually use (DKIM verification, SHA-256 hash, OpenTimestamps anchor), and `feedback@git-done.com` as the user-feedback channel. Magic-link activation bodies additionally publish the per-event command addresses (`stats+{id}@`, `remind+{id}@`, `close+{id}@`) so the initiator discovers the email-driven control surface in the first message they receive.
 
 **Two UX paths for `verify+{id}@`:**
 
