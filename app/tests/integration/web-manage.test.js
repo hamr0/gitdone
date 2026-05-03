@@ -130,8 +130,9 @@ test('POST /events sends a knowless magic link to the initiator', async () => {
   const submitted = fs.readFileSync(bossCapture, 'utf8');
   // Subject matches the unified [gitdone] "<title>" - <verb> shape every
   // other outbound message uses, so mail clients group all gitdone mail
-  // under a single sender alias.
-  assert.match(submitted, /^Subject: \[gitdone\] "Manage me" - activate$/m);
+  // under a single sender alias. The verb states the deadline so the
+  // organiser sees "act within 72h" without opening the email.
+  assert.match(submitted, /^Subject: \[gitdone\] "Manage me" - activate within \d+h$/m);
   // Magic link is on /manage/callback, not on a gitdone-internal /activate path.
   assert.doesNotMatch(submitted, /\/activate\//);
   assert.match(submitted, /\/manage\/callback\?t=/);

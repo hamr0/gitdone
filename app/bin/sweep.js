@@ -125,7 +125,7 @@ async function main() {
       ? { ok: true, dry_run: true }
       : await sendMail({
           to: event.initiator,
-          subject: `[gitdone] "${event.title}" — activate within ${hoursLeft}h or it expires`,
+          subject: `[gitdone] "${event.title}" - activate within ${hoursLeft}h or it expires`,
           body: pendingActivationBody({ event, hoursLeft }),
           eventId: event.id,
         });

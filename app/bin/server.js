@@ -842,7 +842,7 @@ function activationSubject(title) {
   // ASCII-only because knowless's validateSubject (60-char cap, no
   // CR/LF, ASCII-only) gates this string before sending.
   const prefix = '[gitdone] "';
-  const suffix = '" - activate';
+  const suffix = `" - activate within ${config.activationTtlHours}h`;
   const room = 60 - prefix.length - suffix.length;
   const ascii = String(title).replace(/[\r\n]/g, ' ').replace(/[^\x20-\x7e]/g, '');
   const safe = ascii.trim() || 'event';
