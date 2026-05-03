@@ -277,6 +277,39 @@ test('POST /events: organiser email with no MX is rejected with form error', asy
   }
 });
 
+test('POST /events: participant email with no MX is rejected with form error', async () => {
+  delete process.env.GITDONE_SKIP_MX_CHECK;
+  try {
+    const r = await post('/events', {
+      title: 'p-mxcheck', initiator: 'org@example.com',
+      step_name: 'a', step_participant: 'someone@gmaicom.invalid',
+    });
+    assert.equal(r.status, 422);
+    assert.match(r.body, /participant email &quot;someone@gmaicom\.invalid&quot;/);
+    assert.match(r.body, /domain does not resolve|no MX record/);
+    const ev = await latestEventFor('org@example.com');
+    assert.equal(ev, null);
+  } finally {
+    process.env.GITDONE_SKIP_MX_CHECK = '1';
+  }
+});
+
+test('POST /events: per-participant errors list every bad participant', async () => {
+  delete process.env.GITDONE_SKIP_MX_CHECK;
+  try {
+    const r = await post('/events', {
+      title: 'multi-bad', initiator: 'org2@example.com',
+      step_name: ['a', 'b'],
+      step_participant: ['x@bad1.invalid', 'y@bad2.invalid'],
+    });
+    assert.equal(r.status, 422);
+    assert.match(r.body, /participant email &quot;x@bad1\.invalid&quot;/);
+    assert.match(r.body, /participant email &quot;y@bad2\.invalid&quot;/);
+  } finally {
+    process.env.GITDONE_SKIP_MX_CHECK = '1';
+  }
+});
+
 test('GET /events preview boldens the organiser email', async () => {
   // First POST without _action=confirm renders the preview.
   const data = querystring.stringify({

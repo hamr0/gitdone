@@ -601,6 +601,30 @@ async function checkInitiatorMx(email) {
   }
 }
 
+// Same MX pre-flight, applied to every workflow participant. Returns
+// an array of { email, reason } for the addresses that fail; empty
+// when all participants are reachable. Caller surfaces the failures
+// in the form so the user fixes them at preview time instead of
+// waiting for a DSN bounce that may never arrive.
+async function checkParticipantsMx(steps) {
+  const failures = [];
+  // De-dupe addresses so the same participant across multiple steps
+  // only triggers one DNS lookup. Preserve first-seen order so
+  // failure order matches the form rows.
+  const seen = new Map();
+  for (let i = 0; i < steps.length; i++) {
+    const addr = String(steps[i].participant || '').trim();
+    if (!addr) continue;
+    const key = addr.toLowerCase();
+    if (!seen.has(key)) seen.set(key, addr);
+  }
+  for (const addr of seen.values()) {
+    const r = await checkInitiatorMx(addr);
+    if (!r.ok) failures.push({ email: addr, reason: r.reason });
+  }
+  return failures;
+}
+
 function renderPreview({ validated, rawBody }) {
   const { title, initiator, min_trust_level, steps } = validated;
   // Order steps by execution level so the list reads top-down in run order.
@@ -729,14 +753,19 @@ router.post('/events', async (req, res) => {
   // domain has no MX (or A/AAAA fallback) we re-render the form with
   // an inline error.
   const mxCheck = await checkInitiatorMx(v.value.initiator);
-  if (!mxCheck.ok) {
+  const participantFailures = await checkParticipantsMx(v.value.steps || []);
+  if (!mxCheck.ok || participantFailures.length) {
+    const errors = [];
+    if (!mxCheck.ok) {
+      errors.push(`organiser email "${v.value.initiator}" — ${mxCheck.reason}. Did you mean a different domain?`);
+    }
+    for (const f of participantFailures) {
+      errors.push(`participant email "${f.email}" — ${f.reason}. Did you mean a different domain?`);
+    }
     res.writeHead(422, { 'content-type': 'text/html; charset=utf-8' });
     return res.end(layout({
       title: 'fix errors — gitdone',
-      body: renderWorkflowForm({
-        values: body,
-        errors: [`organiser email "${v.value.initiator}" — ${mxCheck.reason}. Did you mean a different domain?`],
-      }),
+      body: renderWorkflowForm({ values: body, errors }),
     }));
   }
   // Confirmed — persist event in pending-activation state, then trigger
