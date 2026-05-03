@@ -407,6 +407,78 @@ async function commitCompletion(eventId, event, completionCtx) {
   };
 }
 
+// Append an audit-trail commit recording an organiser-driven edit
+// (participant change, deadline change, etc.) on an activated event.
+// One commit per edit submission, with multiple `changes` entries for
+// edits that touch several fields at once.
+//
+// Plaintext discipline: participant changes are stored as before/after
+// salted hashes (using the event's existing salt), matching §0.1.10.
+// Other field changes (deadline, requires_attachment, details, title)
+// are non-PII and stored plaintext.
+//
+// Replay against the ledger: a verifier walking commits can reconstruct
+// the live participant list at any historical instant by applying edit
+// commits forward from event creation.
+async function appendEditCommit(eventId, editCtx, event) {
+  if (!EVENT_ID_RE.test(eventId)) throw new Error(`invalid eventId: ${eventId}`);
+  const { root } = await initRepoIfNeeded(eventId, event);
+  const seq = await nextSequence(root);
+  const rel = path.join('commits', `commit-${padSeq(seq)}.json`);
+  const abs = path.join(root, rel);
+
+  const salt = event.salt;
+  const changes = (editCtx.changes || []).map((c) => {
+    if (c.field === 'participant') {
+      return {
+        step_id: c.step_id,
+        field: 'participant',
+        from_hash: saltedSenderHash(c.from, salt),
+        to_hash: saltedSenderHash(c.to, salt),
+      };
+    }
+    return c;
+  });
+
+  const metadata = {
+    schema_version: 1,
+    sequence: seq,
+    kind: 'event_edit',
+    event_id: eventId,
+    edited_at: editCtx.edited_at,
+    organiser_handle: editCtx.organiser_handle || null,
+    changes,
+    ots_proof_file: null,
+  };
+
+  const expectedProofRel = path.join('ots_proofs', `commit-${padSeq(seq)}.ots`);
+  metadata.ots_proof_file = expectedProofRel;
+  await fs.writeFile(abs, JSON.stringify(metadata, null, 2) + '\n');
+
+  const stampRes = await stampFile(abs);
+  const filesToAdd = [rel];
+  if (stampRes.proof_path) {
+    const targetAbs = path.join(root, expectedProofRel);
+    await fs.rename(stampRes.proof_path, targetAbs);
+    filesToAdd.push(expectedProofRel);
+  } else {
+    metadata.ots_proof_file = null;
+    metadata.ots_archive = { error: stampRes.error || 'ots stamp failed' };
+    await fs.writeFile(abs, JSON.stringify(metadata, null, 2) + '\n');
+  }
+
+  const git = simpleGit(root);
+  await git.add(filesToAdd);
+  const commitRes = await git.commit(`edit: ${changes.length} change${changes.length === 1 ? '' : 's'} on ${eventId}`);
+  return {
+    sequence: seq,
+    sha: commitRes.commit || null,
+    file: rel,
+    ots_proof_file: metadata.ots_proof_file,
+    repo_path: root,
+  };
+}
+
 // Public random salt for a new event. 32 bytes of entropy, hex-encoded.
 // Used by buildCommitMetadata to salt sender_hash so the same address
 // hashes differently across events (prevents bulk correlation).
@@ -418,6 +490,7 @@ module.exports = {
   initRepoIfNeeded,
   nextSequence,
   commitReply,
+  appendEditCommit,
   buildCommitMetadata,
   saltedSenderHash,
   saltedMessageIdHash,

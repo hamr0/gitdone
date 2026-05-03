@@ -112,17 +112,29 @@ async function createEvent(partialEvent) {
 // across workers, this guard would need to move to filesystem-level
 // (O_EXCL on a sentinel) — but the in-process serialisation is correct
 // for the current deployment shape.
-const _activatingNow = new Map();
-async function activateEvent(eventId, { now = new Date().toISOString() } = {}) {
-  const inflight = _activatingNow.get(eventId);
-  if (inflight) {
-    // Someone else is mid-transition. Wait for their write, then report
-    // alreadyActive=true so this caller's gated side effects (e.g. the
-    // dashboard's notify-once block) don't fire a second time.
-    const result = await inflight;
-    return { event: result.event, alreadyActive: true };
+// Per-event write mutex. Both activateEvent and editEvent serialize
+// through this map so an edit can't race with a first-visit activation
+// (and vice versa). Each entry is a Promise of the in-flight write.
+// Callers always reload from disk after the mutex unlocks; the in-flight
+// Promise's result shape is op-specific and not relied on here.
+const _writeMutex = new Map();
+async function _serialize(eventId, work) {
+  const prev = _writeMutex.get(eventId);
+  const p = (async () => {
+    if (prev) { try { await prev; } catch { /* ignore prior failure */ } }
+    return work();
+  })();
+  _writeMutex.set(eventId, p);
+  try { return await p; }
+  finally {
+    // Only clear if we're still the latest entry — a follow-up call may
+    // have already chained itself behind us.
+    if (_writeMutex.get(eventId) === p) _writeMutex.delete(eventId);
   }
-  const work = (async () => {
+}
+
+async function activateEvent(eventId, { now = new Date().toISOString() } = {}) {
+  return _serialize(eventId, async () => {
     const event = await loadEvent(eventId);
     if (!event) throw new Error(`activateEvent: event ${eventId} not found`);
     if (event.activated_at) return { event, alreadyActive: true };
@@ -132,10 +144,142 @@ async function activateEvent(eventId, { now = new Date().toISOString() } = {}) {
     await fs.writeFile(tmp, JSON.stringify(next, null, 2) + '\n');
     await fs.rename(tmp, file);
     return { event: next, alreadyActive: false };
-  })();
-  _activatingNow.set(eventId, work);
-  try { return await work; }
-  finally { _activatingNow.delete(eventId); }
+  });
+}
+
+const ALLOWED_STEP_FIELDS = ['participant', 'deadline', 'requires_attachment', 'details'];
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Apply a partial patch to an event, returning { next, changes }. Patch
+// shape:
+//   { title?: string, steps?: [{ id, participant?, deadline?,
+//     requires_attachment?, details? }, ...] }
+//
+// Validation:
+//   - Only steps with status !== 'complete' are editable. Editing a
+//     completed step throws EVENT_STEP_FROZEN — the audit-trail commit
+//     for a completed step records what its participant was at the time
+//     they replied; rewriting it post-hoc would lie.
+//   - Step ids in the patch must exist on the event.
+//   - participant: must be a valid email shape (basic).
+//   - deadline: 'YYYY-MM-DD' or empty string (clears the deadline).
+//   - requires_attachment: coerced to boolean.
+//   - details: string (no length cap here; the form already caps).
+//   - title: any non-empty string.
+//
+// Returns the new event object and an array of `change` records:
+//   [{ step_id, field, from, to }, ...]
+// step_id is null for event-level changes (title).
+function _applyEditPatch(event, patch) {
+  if (!patch || typeof patch !== 'object') {
+    throw Object.assign(new Error('editEvent: patch object required'), { code: 'BAD_PATCH' });
+  }
+  const changes = [];
+  const next = { ...event, steps: Array.isArray(event.steps) ? event.steps.map((s) => ({ ...s })) : event.steps };
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'title')) {
+    const newTitle = String(patch.title || '').trim();
+    if (!newTitle) {
+      throw Object.assign(new Error('editEvent: title cannot be empty'), { code: 'BAD_TITLE' });
+    }
+    if (newTitle !== event.title) {
+      changes.push({ step_id: null, field: 'title', from: event.title, to: newTitle });
+      next.title = newTitle;
+    }
+  }
+
+  if (Array.isArray(patch.steps)) {
+    for (const sp of patch.steps) {
+      if (!sp || !sp.id) continue;
+      const idx = next.steps.findIndex((s) => s.id === sp.id);
+      if (idx < 0) {
+        throw Object.assign(new Error(`editEvent: step ${sp.id} not found`), { code: 'STEP_NOT_FOUND' });
+      }
+      const cur = next.steps[idx];
+      if (cur.status === 'complete') {
+        throw Object.assign(new Error(`editEvent: step ${sp.id} is complete and cannot be edited`), { code: 'EVENT_STEP_FROZEN' });
+      }
+      const merged = { ...cur };
+      for (const f of ALLOWED_STEP_FIELDS) {
+        if (!Object.prototype.hasOwnProperty.call(sp, f)) continue;
+        let value = sp[f];
+        if (f === 'participant') {
+          value = String(value || '').trim();
+          if (!EMAIL_RE.test(value)) {
+            throw Object.assign(new Error(`editEvent: invalid email for step ${sp.id}`), { code: 'BAD_EMAIL' });
+          }
+        } else if (f === 'deadline') {
+          value = value == null ? '' : String(value).trim();
+          if (value && !DATE_RE.test(value)) {
+            throw Object.assign(new Error(`editEvent: deadline must be YYYY-MM-DD on step ${sp.id}`), { code: 'BAD_DEADLINE' });
+          }
+          // Normalise empty to undefined to keep the JSON terse.
+          if (!value) value = undefined;
+        } else if (f === 'requires_attachment') {
+          value = !!value;
+        } else if (f === 'details') {
+          value = value == null ? '' : String(value);
+          if (!value) value = undefined;
+        }
+        const before = cur[f];
+        if (before !== value) {
+          changes.push({ step_id: sp.id, field: f, from: before == null ? null : before, to: value == null ? null : value });
+          if (value === undefined) delete merged[f];
+          else merged[f] = value;
+        }
+      }
+      next.steps[idx] = merged;
+    }
+  }
+
+  return { next, changes };
+}
+
+// Patch an event in place. For activated events, also writes an audit
+// commit to the per-event git repo so the change is tamper-evident in
+// the same way replies are. For pending events (no repo yet), the edit
+// is a plain event.json mutation — there's no history to amend.
+//
+// Throws on:
+//   - finalised events (completed or archived)
+//   - patches that touch a completed step (EVENT_STEP_FROZEN)
+//   - invalid field values (BAD_EMAIL, BAD_DEADLINE, BAD_TITLE)
+//
+// Returns { event, prev, changes, commitSequence }. commitSequence is
+// the audit-trail commit number (null for pending-event edits).
+async function editEvent(eventId, patch, { now = new Date().toISOString(), organiserHandle = null } = {}) {
+  return _serialize(eventId, async () => {
+    const event = await loadEvent(eventId);
+    if (!event) throw Object.assign(new Error(`editEvent: ${eventId} not found`), { code: 'NOT_FOUND' });
+    if (event.completion && event.completion.status === 'complete') {
+      throw Object.assign(new Error('editEvent: event is complete'), { code: 'EVENT_COMPLETE' });
+    }
+    if (event.archived_at) {
+      throw Object.assign(new Error('editEvent: event is archived'), { code: 'EVENT_ARCHIVED' });
+    }
+    const { next, changes } = _applyEditPatch(event, patch);
+    if (changes.length === 0) {
+      return { event, prev: event, changes: [], commitSequence: null };
+    }
+    const file = path.join(config.dataDir, 'events', `${eventId}.json`);
+    const tmp = file + '.tmp';
+    await fs.writeFile(tmp, JSON.stringify(next, null, 2) + '\n');
+    await fs.rename(tmp, file);
+
+    let commitSequence = null;
+    if (event.activated_at) {
+      const { appendEditCommit } = require('./gitrepo');
+      const result = await appendEditCommit(eventId, {
+        edited_at: now,
+        organiser_handle: organiserHandle,
+        changes,
+      }, next);
+      commitSequence = result.sequence;
+    }
+
+    return { event: next, prev: event, changes, commitSequence };
+  });
 }
 
 module.exports = {
@@ -144,6 +288,7 @@ module.exports = {
   senderMatchesStep,
   createEvent,
   activateEvent,
+  editEvent,
   generateEventId,
   generateEventSalt,
 };

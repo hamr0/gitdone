@@ -1332,7 +1332,9 @@ router.get('/manage/event/:id', async (req, res, params) => {
         ? 'Event closed.'
         : (req.url.includes('?unarchived=1'))
           ? 'Event un-archived — replies will count again.'
-          : null;
+          : (req.url.includes('?edited=1'))
+            ? 'Changes saved. Any participants whose email changed received a fresh invitation.'
+            : null;
   let stepAttempts = {};
   if (event.type === 'event') {
     const { listCommits } = require('../src/gitrepo');
@@ -1350,6 +1352,117 @@ router.get('/manage/event/:id', async (req, res, params) => {
     title: `manage — ${event.title}`,
     body: renderManagementDashboard({ eventId: params.id, initiatorEmail: event.initiator, event, flash, stepAttempts }),
   }));
+});
+
+// Edit form for a workflow event. Steps with status='complete' are
+// rendered read-only — the audit trail records what their participant
+// was at the time they replied; rewriting that post-hoc would lie.
+// Pending events allow editing the title; activated events keep the
+// title locked (it's been emailed to participants and would silently
+// rewrite the subject of future inbound notifications). Crypto events
+// are not editable today (declaration's signer change and attestation's
+// threshold change are both rare; covered by close + recreate).
+router.get('/manage/event/:id/edit', async (req, res, params) => {
+  const handle = await currentHandle(req);
+  if (!handle) {
+    res.writeHead(303, { location: `/manage?next=${encodeURIComponent('/manage/event/' + params.id + '/edit')}` });
+    return res.end();
+  }
+  const auth = await getAuth();
+  const { loadEvent } = require('../src/event-store');
+  const event = await loadEvent(params.id);
+  if (!event) { res.writeHead(404); return res.end('event not found'); }
+  if (auth.deriveHandle(event.initiator) !== handle) { res.writeHead(403); return res.end('forbidden'); }
+  if (event.type !== 'event') {
+    res.writeHead(303, { location: `/manage/event/${params.id}` });
+    return res.end();
+  }
+  const finalised = (event.completion && event.completion.status === 'complete') || !!event.archived_at;
+  if (finalised) {
+    res.writeHead(303, { location: `/manage/event/${params.id}` });
+    return res.end();
+  }
+  const errors = [];
+  const search = new URL(req.url || '/', 'http://localhost').searchParams;
+  if (search.get('err') === 'bad_email') errors.push('A participant email is invalid.');
+  if (search.get('err') === 'bad_deadline') errors.push('A deadline must be YYYY-MM-DD or empty.');
+  if (search.get('err') === 'frozen') errors.push('Cannot edit a step that is already complete.');
+  if (search.get('err') === 'bad_title') errors.push('Title cannot be empty.');
+  if (search.get('err') === 'unknown') errors.push('Could not save changes — try again or close and recreate.');
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+  res.end(layout({
+    title: `edit — ${event.title}`,
+    body: renderEditForm({ event, errors }),
+  }));
+});
+
+router.post('/manage/event/:id/edit', async (req, res, params) => {
+  const handle = await currentHandle(req);
+  if (!handle) { res.writeHead(303, { location: '/manage' }); return res.end(); }
+  const auth = await getAuth();
+  const { loadEvent, editEvent } = require('../src/event-store');
+  const event = await loadEvent(params.id);
+  if (!event) { res.writeHead(404); return res.end('event not found'); }
+  if (auth.deriveHandle(event.initiator) !== handle) { res.writeHead(403); return res.end('forbidden'); }
+  if (event.type !== 'event') { res.writeHead(400); return res.end('only workflow events are editable'); }
+
+  let body;
+  try { body = await parseBody(req); }
+  catch { res.writeHead(400); return res.end('bad request'); }
+
+  // Form arrays line up by index. Build the patch by zipping.
+  const ids = [].concat(body.step_id || []);
+  const participants = [].concat(body.step_participant || []);
+  const deadlines = [].concat(body.step_deadline || []);
+  const reqAtts = new Set(body._attached_step_ids ? [].concat(body._attached_step_ids) : []);
+  const detailsArr = [].concat(body.step_details || []);
+  // requires_attachment checkboxes only POST when checked, and they POST
+  // their step id as the value — collected as `step_requires_attachment`.
+  const checkedAtt = new Set([].concat(body.step_requires_attachment || []));
+  const stepsPatch = ids.map((id, i) => ({
+    id: String(id || ''),
+    participant: participants[i] != null ? String(participants[i]) : undefined,
+    deadline: deadlines[i] != null ? String(deadlines[i]) : undefined,
+    details: detailsArr[i] != null ? String(detailsArr[i]) : undefined,
+    requires_attachment: checkedAtt.has(String(id)),
+  })).filter((s) => s.id);
+
+  const patch = { steps: stepsPatch };
+  if (!event.activated_at && body.title != null) patch.title = String(body.title);
+
+  try {
+    const result = await editEvent(params.id, patch, { organiserHandle: handle });
+    // Re-notify any step whose participant changed. New address only —
+    // old address gets nothing (their reply will fail sender_match now).
+    const participantChanges = (result.changes || []).filter((c) => c.field === 'participant');
+    if (participantChanges.length && event.activated_at) {
+      const { notifyWorkflowParticipants } = require('../src/notifications');
+      const reNotifySteps = participantChanges
+        .map((c) => result.event.steps.find((s) => s.id === c.step_id))
+        .filter((s) => s && s.status !== 'complete');
+      if (reNotifySteps.length) {
+        try {
+          const sendResults = await notifyWorkflowParticipants(result.event, { stepsOverride: reNotifySteps });
+          for (const r of sendResults) {
+            if (!r.ok) process.stderr.write(`edit-renotify: failed ${r.to}: ${r.reason || r.code}\n`);
+          }
+        } catch (err) {
+          process.stderr.write(`edit-renotify: ${err.message || err}\n`);
+        }
+      }
+    }
+    res.writeHead(303, { location: `/manage/event/${params.id}?edited=1` });
+    return res.end();
+  } catch (err) {
+    const code = err && err.code ? err.code : 'unknown';
+    const errParam = code === 'BAD_EMAIL' ? 'bad_email'
+      : code === 'BAD_DEADLINE' ? 'bad_deadline'
+      : code === 'EVENT_STEP_FROZEN' ? 'frozen'
+      : code === 'BAD_TITLE' ? 'bad_title'
+      : 'unknown';
+    res.writeHead(303, { location: `/manage/event/${params.id}/edit?err=${errParam}` });
+    return res.end();
+  }
 });
 
 // Confirm-and-activate a pending event. Mutex-guarded so concurrent
@@ -1507,6 +1620,73 @@ const MANAGE_CSS = `
 .mg-steps .mg-reject code { background:#161b22; color:#c9d1d9; padding:0.05em 0.3em; }
 .mg-steps .mg-reject-at { color:#6e7681; font-family:inherit; }
 `;
+
+// Edit form for an active or pending workflow event. Completed steps
+// render read-only (their participant + reply are committed to the
+// audit trail; rewriting them would lie). Pending events allow the
+// title to be edited; active events lock the title.
+function renderEditForm({ event, errors = [] } = {}) {
+  const errBlock = errors.length
+    ? html`<div class="vf-errors"><strong>Couldn't save</strong><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>`
+    : raw('');
+  const allSteps = event.steps || [];
+  const stepRows = allSteps.map((s, i) => {
+    const frozen = s.status === 'complete';
+    const num = String(i + 1);
+    if (frozen) {
+      return html`
+        <tr style="opacity:0.55">
+          <td>${num}</td>
+          <td>${s.name}</td>
+          <td><code>${s.participant}</code></td>
+          <td><code>${s.deadline ? s.deadline.slice(0, 10) : '—'}</code></td>
+          <td style="text-align:center">${s.requires_attachment ? raw('📎') : raw('—')}</td>
+          <td style="color:#3fb950">✓ complete (frozen)</td>
+          <input type="hidden" name="step_id" value="${s.id}">
+        </tr>`;
+    }
+    return html`
+      <tr>
+        <td>${num}</td>
+        <td>${s.name}<input type="hidden" name="step_id" value="${s.id}"></td>
+        <td><input type="email" name="step_participant" value="${s.participant || ''}" required></td>
+        <td><input type="date" name="step_deadline" value="${s.deadline ? s.deadline.slice(0, 10) : ''}"></td>
+        <td style="text-align:center"><input type="checkbox" name="step_requires_attachment" value="${s.id}" ${s.requires_attachment ? raw('checked') : ''}></td>
+        <td style="color:#8b949e">○ pending</td>
+      </tr>
+      <tr>
+        <td></td>
+        <td colspan="5"><label style="display:block;color:#8b949e;font-size:0.78em;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.2rem">Details (optional)</label>
+          <textarea name="step_details" rows="2" style="width:100%;padding:0.4rem 0.55rem">${s.details || ''}</textarea></td>
+      </tr>`;
+  });
+  const titleField = event.activated_at
+    ? html`<p style="margin:0 0 0.6rem;color:#8b949e;font-size:0.88em">Title: <code>${event.title}</code> · locked (already in subject lines on participants' inboxes).</p>`
+    : html`<label style="display:block;margin:0 0 1rem">
+        <span style="display:block;font-size:0.78em;color:#8b949e;text-transform:uppercase;letter-spacing:0.08em">Title</span>
+        <input type="text" name="title" value="${event.title || ''}" required maxlength="200" style="width:100%;padding:0.5rem 0.6rem">
+      </label>`;
+  return html`
+    <p style="margin:0 0 0.4rem"><a href="/manage/event/${event.id}" style="color:#8b949e;font-size:0.88em">← back to dashboard</a></p>
+    <p style="margin:0 0 1rem;color:#8b949e;font-size:0.9em">Edit open steps. Completed steps are frozen — their entry in the audit trail is permanent. Changes write a new commit so the edit itself is tamper-evident.</p>
+    ${errBlock}
+    <style>${raw(WORKFLOW_FORM_CSS)}</style>
+    <form class="vf-form" method="POST" action="/manage/event/${event.id}/edit">
+      ${titleField}
+      <table class="vf-steps-table">
+        <thead><tr>
+          <th>#</th><th>Step</th><th>Participant</th><th>Aspirational date</th><th>📎</th><th>Status</th>
+        </tr></thead>
+        <tbody>${stepRows}</tbody>
+      </table>
+      <p style="margin-top:1rem;color:#8b949e;font-size:0.85em">If a participant email changes, the new address gets a fresh invitation. The old address gets nothing — replies from it will be rejected as sender-mismatch.</p>
+      <div style="display:flex;gap:0.6rem;margin-top:1.2rem">
+        <button type="submit" style="padding:0.6em 1.4em;background:#3fb950;color:#0d1117;border:0;font:inherit;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer">Save changes</button>
+        <a href="/manage/event/${event.id}" style="padding:0.6em 1.4em;background:transparent;border:1px solid #30363d;color:#8b949e;text-decoration:none;font:inherit">Cancel</a>
+      </div>
+    </form>
+  `;
+}
 
 function renderManagementDashboard({ eventId, initiatorEmail, event, flash, stepAttempts = {} }) {
   const complete = event.completion && event.completion.status === 'complete';
@@ -1676,6 +1856,8 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
       <form method="POST" action="/manage/event/${eventId}/remind" style="margin:0">
         <button type="submit" class="mg-remind" ${complete || pendingActivation || archived ? raw('disabled') : ''}>Send reminders</button>
       </form>
+      ${event.type === 'event' ? html`<a href="/manage/event/${eventId}/edit" class="mg-edit-btn"
+            style="display:inline-block;padding:0.5em 1.1em;background:transparent;border:1px solid #58a6ff;color:#58a6ff;text-decoration:none;font:inherit;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;${complete || archived ? 'opacity:0.4;pointer-events:none;' : ''}">Edit</a>` : raw('')}
       <form method="POST" action="/manage/event/${eventId}/close" style="margin:0"
             onsubmit="return confirm('Close this event now? This writes a completion commit and cannot be undone.');">
         <button type="submit" class="mg-close" ${complete || pendingActivation || archived ? raw('disabled') : ''}>Close event</button>
