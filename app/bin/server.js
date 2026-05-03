@@ -663,10 +663,11 @@ function buildEventActivationBody(event) {
   return ({ url }) => withSignature([
     `You created the event "${safeTitle}" on gitdone.`,
     ``,
-    `Click the link below to sign in and activate. Activating sends`,
-    `invitations to all named participants. Until you click, no one is`,
-    `contacted and no replies count. The link is valid for 15 minutes;`,
-    `if it expires, request a new one at ${publicBaseUrl()}/manage.`,
+    `Click the link below to sign in. You'll then see a one-click`,
+    `confirmation to activate the event and notify participants.`,
+    `Until you confirm, no one is contacted and no replies count.`,
+    `The sign-in link is valid for 15 minutes; if it expires, request`,
+    `a new one at ${publicBaseUrl()}/manage.`,
     ``,
     url,
     ``,
@@ -705,10 +706,11 @@ function buildCryptoActivationBody(event) {
   return ({ url }) => withSignature([
     `You created the crypto event "${safeTitle}" on gitdone.`,
     ``,
-    `Click the link below to sign in and activate. Activating makes the`,
-    `reply address live${event.mode === 'declaration' ? ' and notifies the signer' : ''}. Until you click, no replies count.`,
-    `The link is valid for 15 minutes; if it expires, request a new one`,
-    `at ${publicBaseUrl()}/manage.`,
+    `Click the link below to sign in. You'll then see a one-click`,
+    `confirmation to activate. Activation makes the reply address`,
+    `live${event.mode === 'declaration' ? ' and notifies the signer' : ''}. Until you confirm, no replies count.`,
+    `The sign-in link is valid for 15 minutes; if it expires, request`,
+    `a new one at ${publicBaseUrl()}/manage.`,
     ``,
     url,
     ``,
@@ -1307,45 +1309,18 @@ router.get('/manage/event/:id', async (req, res, params) => {
     return res.end();
   }
   const auth = await getAuth();
-  const { loadEvent, activateEvent } = require('../src/event-store');
+  const { loadEvent } = require('../src/event-store');
   let event = await loadEvent(params.id);
   if (!event) { res.writeHead(404); return res.end('event not found'); }
   if (auth.deriveHandle(event.initiator) !== handle) {
     res.writeHead(403); return res.end('forbidden');
   }
 
-  // Auto-activate on first owner visit, but only for live, never-activated
-  // events. Skipping closed/archived events keeps a "view a closed event"
-  // visit from re-firing participant notifications.
-  let justActivated = false;
-  const finalised = (event.completion && event.completion.status === 'complete') || !!event.archived_at;
-  if (!event.activated_at && !finalised) {
-    const { event: activated, alreadyActive } = await activateEvent(params.id);
-    event = activated;
-    if (!alreadyActive) {
-      justActivated = true;
-      const { notifyWorkflowParticipants, notifyDeclarationSigner } = require('../src/notifications');
-      try {
-        if (event.type === 'event') {
-          const results = await notifyWorkflowParticipants(event);
-          for (const r of results) {
-            if (!r.ok) process.stderr.write(`activate-notify: failed ${r.to}: ${r.reason || r.code}\n`);
-          }
-        } else if (event.type === 'crypto' && event.mode === 'declaration') {
-          const results = await notifyDeclarationSigner(event);
-          for (const r of results) {
-            if (!r.ok) process.stderr.write(`activate-notify: failed ${r.to}: ${r.reason || r.code}\n`);
-          }
-        }
-        // Attestation events have no per-recipient invite — organiser
-        // shares the reply address themselves.
-      } catch (err) {
-        process.stderr.write(`activate-notify: ${err.message || err}\n`);
-      }
-    }
-  }
-
-  const flash = justActivated
+  // Activation is opt-in: the dashboard renders a 'pending' state with a
+  // confirm button, and POST /manage/event/:id/activate fires the
+  // notifications. Visiting alone does nothing, so reviewing a pending
+  // event before committing to it is safe.
+  const flash = (req.url.includes('?activated=1'))
     ? (event.type === 'event'
         ? 'Event activated — invitations have been sent to all participants.'
         : (event.mode === 'declaration'
@@ -1375,6 +1350,49 @@ router.get('/manage/event/:id', async (req, res, params) => {
     title: `manage — ${event.title}`,
     body: renderManagementDashboard({ eventId: params.id, initiatorEmail: event.initiator, event, flash, stepAttempts }),
   }));
+});
+
+// Confirm-and-activate a pending event. Mutex-guarded so concurrent
+// double-clicks (or two tabs) only activate once and notify each
+// participant exactly once. No-op (303 with neutral flash) if the event
+// is already active, finalised, or archived.
+router.post('/manage/event/:id/activate', async (req, res, params) => {
+  const handle = await currentHandle(req);
+  if (!handle) { res.writeHead(303, { location: '/manage' }); return res.end(); }
+  const auth = await getAuth();
+  const { loadEvent, activateEvent } = require('../src/event-store');
+  let event = await loadEvent(params.id);
+  if (!event) { res.writeHead(404); return res.end('event not found'); }
+  if (auth.deriveHandle(event.initiator) !== handle) { res.writeHead(403); return res.end('forbidden'); }
+  const finalised = (event.completion && event.completion.status === 'complete') || !!event.archived_at;
+  if (finalised || event.activated_at) {
+    res.writeHead(303, { location: `/manage/event/${params.id}` });
+    return res.end();
+  }
+  const { event: activated, alreadyActive } = await activateEvent(params.id);
+  event = activated;
+  if (!alreadyActive) {
+    const { notifyWorkflowParticipants, notifyDeclarationSigner } = require('../src/notifications');
+    try {
+      if (event.type === 'event') {
+        const results = await notifyWorkflowParticipants(event);
+        for (const r of results) {
+          if (!r.ok) process.stderr.write(`activate-notify: failed ${r.to}: ${r.reason || r.code}\n`);
+        }
+      } else if (event.type === 'crypto' && event.mode === 'declaration') {
+        const results = await notifyDeclarationSigner(event);
+        for (const r of results) {
+          if (!r.ok) process.stderr.write(`activate-notify: failed ${r.to}: ${r.reason || r.code}\n`);
+        }
+      }
+      // Attestation: no per-recipient invite — organiser shares the
+      // reply address themselves.
+    } catch (err) {
+      process.stderr.write(`activate-notify: ${err.message || err}\n`);
+    }
+  }
+  res.writeHead(303, { location: `/manage/event/${params.id}?activated=1` });
+  res.end();
 });
 
 router.post('/manage/event/:id/remind', async (req, res, params) => {
@@ -1636,10 +1654,13 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
     ${flash ? html`<div class="mg-flash">${flash}</div>` : raw('')}
     ${pendingActivation ? html`<div class="mg-pending-activation">
         <strong>Pending activation</strong>
-        We sent an activation link to <code>${event.initiator}</code> when this event was created.
-        Participants haven't been invited yet — click the link in that email (valid 72 hours from creation)
-        to send invitations. Until then, replies to the reply addresses below are accepted for the audit trail
-        but don't count toward completion.
+        Participants haven't been invited yet. Review the steps below, then click <strong>Activate</strong>
+        to send invitations${event.type === 'crypto' && event.mode === 'attestation' ? raw(' and make the reply address live') : raw('')}.
+        Nothing leaves the server until you do.
+        <form method="POST" action="/manage/event/${eventId}/activate" style="margin:0.7rem 0 0"
+              onsubmit="return confirm('Activate now? This emails ${event.type === 'event' ? 'all named participants' : (event.mode === 'declaration' ? 'the signer' : 'no one — the reply address just goes live')} and cannot be undone.');">
+          <button type="submit" class="mg-activate" style="background:#3fb950;color:#0d1117;border:0;padding:0.5em 1.1em;font:inherit;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer">Activate</button>
+        </form>
       </div>` : raw('')}
     ${archived ? html`<div class="mg-archived-banner">
         <strong>Archived${event.archive_reason === 'auto_stale' ? ' automatically' : ''} on <code>${String(event.archived_at).slice(0,10)}</code></strong>

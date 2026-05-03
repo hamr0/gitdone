@@ -76,16 +76,18 @@ after(async () => {
   delete process.env.GITDONE_COOKIE_SECURE;
 });
 
-function post(p, form) {
+function post(p, form, cookie) {
   if (p === '/events' && !form._action) form = { ...form, _action: 'confirm' };
   const data = querystring.stringify(form);
+  const headers = {
+    'content-type': 'application/x-www-form-urlencoded',
+    'content-length': Buffer.byteLength(data),
+  };
+  if (cookie) headers.cookie = cookie;
   return new Promise((resolve, reject) => {
     const req = http.request({
       host: '127.0.0.1', port, path: p, method: 'POST',
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
-        'content-length': Buffer.byteLength(data),
-      },
+      headers,
     }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
@@ -106,10 +108,9 @@ async function clearCaptures() {
 }
 
 // Events are created in pending-activation state; the initiator activates
-// by visiting /manage/event/:id while signed in (Mode A flow — the magic
-// link establishes the session, the dashboard visit fires the
-// participant notifications). Tests simulate this by minting the cookie
-// directly and GETing the dashboard.
+// by clicking the Activate button on the dashboard, which POSTs to
+// /manage/event/:id/activate. Tests simulate this by minting the cookie
+// directly and POSTing to the activate endpoint.
 function get(p, cookie) {
   return new Promise((resolve, reject) => {
     const opts = { host: '127.0.0.1', port, path: p };
@@ -130,7 +131,7 @@ async function activateAll() {
     if (!f.endsWith('.json')) continue;
     const ev = JSON.parse(await fsp.readFile(path.join(dir, f), 'utf8'));
     if (ev.activated_at) continue;
-    await get(`/manage/event/${ev.id}`, mintCookie(ev.initiator));
+    await post(`/manage/event/${ev.id}/activate`, {}, mintCookie(ev.initiator));
   }
 }
 
@@ -231,11 +232,12 @@ test('attestation does NOT notify anyone besides the initiator', async () => {
   assert.deepEqual(recipients, ['chair@ex.com']);
 });
 
-// Regression: two concurrent dashboard visits to a pending event must
-// activate it once and notify each step participant exactly once.
-// Without the per-event mutex in event-store.activateEvent, both
-// requests would observe `!activated_at` and both would fire.
-test('concurrent first-visit dashboard requests activate exactly once', async () => {
+// Regression: two concurrent POSTs to /activate (e.g. double-click on
+// the Activate button, or two tabs racing) must activate the event once
+// and notify each step participant exactly once. Without the per-event
+// mutex in event-store.activateEvent, both requests would observe
+// `!activated_at` and both would fire.
+test('concurrent /activate POSTs activate exactly once', async () => {
   await clearCaptures();
   const r = await post('/events', {
     title: 'Race',
@@ -257,8 +259,8 @@ test('concurrent first-visit dashboard requests activate exactly once', async ()
   // Drop the magic-link capture so we only count post-activation sends.
   await clearCaptures();
   const cookie = mintCookie('race@ex.com');
-  // Fire ten concurrent dashboard GETs for the same pending event.
-  await Promise.all(Array.from({ length: 10 }, () => get(`/manage/event/${ev.id}`, cookie)));
+  // Fire ten concurrent POSTs to /activate for the same pending event.
+  await Promise.all(Array.from({ length: 10 }, () => post(`/manage/event/${ev.id}/activate`, {}, cookie)));
   const captures = await fsp.readdir(capturesDir);
   const stepCaptures = captures.filter((f) => f.startsWith('race-participant_at_ex.com.') && f.endsWith('.eml'));
   assert.equal(stepCaptures.length, 1, `expected exactly one notification, got ${stepCaptures.length} (all: ${captures.join(', ')})`);
