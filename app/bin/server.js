@@ -1776,6 +1776,21 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
           </tr>
         `);
       }
+      if (s.status !== 'complete' && s.last_send_error) {
+        const colspan = 4 + (anyDeadlines ? 1 : 0) + (anyAtt ? 1 : 0);
+        const err = s.last_send_error;
+        const detail = err.reason || (err.code != null ? `sendmail exit ${err.code}` : 'unknown error');
+        out.push(html`
+          <tr class="mg-reject-row">
+            <td></td>
+            <td colspan="${String(colspan)}">
+              <div class="mg-reject">
+                ⚠ delivery failed · <strong>${detail}</strong> · invitation never sent · <span class="mg-reject-at">${err.at ? err.at.slice(0, 16).replace('T', ' ') : ''}</span>
+              </div>
+            </td>
+          </tr>
+        `);
+      }
       return out;
     });
     bodyMiddle = html`

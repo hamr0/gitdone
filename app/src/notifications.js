@@ -99,7 +99,7 @@ function declarationSignerBody({ event }) {
 
 // --- senders ---
 
-async function sendOne({ to, subject, body, event, replyTo }) {
+async function sendOne({ to, subject, body, event, replyTo, stepId }) {
   const from = gitdoneFrom();
   const rawMessage = buildRawMessage({
     from,
@@ -112,7 +112,7 @@ async function sendOne({ to, subject, body, event, replyTo }) {
     extraHeaders: { 'X-GitDone-Event': event.id },
   });
   const result = await sendmail({ from, rawMessage, to: [to] });
-  return { to, ok: result.ok, reason: result.reason, code: result.code };
+  return { to, ok: result.ok, reason: result.reason, code: result.code, step_id: stepId };
 }
 
 // Returns [{to, ok, reason?}] — caller logs per-recipient. Sends in
@@ -136,9 +136,31 @@ async function notifyWorkflowParticipants(event, { stepsOverride } = {}) {
       body: workflowStepBody({ event, step, stepIndex: idx, totalSteps: total }),
       event,
       replyTo: stepReplyAddr(event, step.id),
+      stepId: step.id,
     });
   });
-  return Promise.all(jobs);
+  const results = await Promise.all(jobs);
+  // Persist a per-step delivery flag so the dashboard can warn the
+  // organiser when sendmail rejects synchronously (bad address, MTA
+  // misconfig, etc.). Successes clear any prior flag — a retry that
+  // works should erase the warning. Best-effort: a persistence failure
+  // doesn't change the send outcome we return to the caller.
+  const errorsByStepId = {};
+  for (const r of results) {
+    if (!r.step_id) continue;
+    errorsByStepId[r.step_id] = r.ok
+      ? null
+      : { reason: r.reason || null, code: r.code == null ? null : r.code, at: new Date().toISOString() };
+  }
+  if (Object.keys(errorsByStepId).length) {
+    try {
+      const { recordStepSendErrors } = require('./event-store');
+      await recordStepSendErrors(event.id, errorsByStepId);
+    } catch (err) {
+      process.stderr.write(`notify-record-error: ${err.message || err}\n`);
+    }
+  }
+  return results;
 }
 
 // Email everyone who contributed to an event + the initiator when the

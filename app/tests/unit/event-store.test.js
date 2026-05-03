@@ -202,3 +202,49 @@ test('editEvent: activated event writes an audit commit; participant change is h
   const dlChange = editCommit.changes.find((c) => c.field === 'deadline');
   assert.equal(dlChange.to, '2026-07-01');
 });
+
+// --- recordStepSendErrors (Phase B: surface synchronous send failures) ---
+
+test('recordStepSendErrors: persists per-step error and clears on null', async () => {
+  const { createEvent, loadEvent, recordStepSendErrors } = require('../../src/event-store');
+  const ev = await createEvent({
+    type: 'event', title: 'send-err', initiator: 'org@ex.com',
+    steps: [
+      { id: 'a', name: 'one', participant: 'a@ex.com', status: 'pending' },
+      { id: 'b', name: 'two', participant: 'b@ex.com', status: 'pending' },
+    ],
+  });
+  await recordStepSendErrors(ev.id, {
+    a: { reason: 'no such address', code: 67, at: '2026-05-03T10:00:00Z' },
+  });
+  const after1 = await loadEvent(ev.id);
+  assert.deepEqual(after1.steps[0].last_send_error, {
+    reason: 'no such address', code: 67, at: '2026-05-03T10:00:00Z',
+  });
+  assert.equal(after1.steps[1].last_send_error, undefined);
+
+  // Clearing with null removes the field rather than leaving a stub.
+  await recordStepSendErrors(ev.id, { a: null });
+  const after2 = await loadEvent(ev.id);
+  assert.equal(after2.steps[0].last_send_error, undefined);
+  assert.equal(Object.prototype.hasOwnProperty.call(after2.steps[0], 'last_send_error'), false);
+});
+
+test('recordStepSendErrors: leaves untouched steps alone, ignores unknown step ids', async () => {
+  const { createEvent, loadEvent, recordStepSendErrors } = require('../../src/event-store');
+  const ev = await createEvent({
+    type: 'event', title: 'send-err-2', initiator: 'org@ex.com',
+    steps: [
+      { id: 'a', name: 'one', participant: 'a@ex.com', status: 'pending' },
+      { id: 'b', name: 'two', participant: 'b@ex.com', status: 'pending', last_send_error: { reason: 'old', code: null, at: 'x' } },
+    ],
+  });
+  await recordStepSendErrors(ev.id, {
+    a: { reason: 'fresh fail', code: null, at: '2026-05-03T11:00:00Z' },
+    bogus: { reason: 'should be ignored', code: null, at: 'y' },
+  });
+  const after = await loadEvent(ev.id);
+  assert.equal(after.steps[0].last_send_error.reason, 'fresh fail');
+  // Step b was not in the map → its prior error stays.
+  assert.equal(after.steps[1].last_send_error.reason, 'old');
+});

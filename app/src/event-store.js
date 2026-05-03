@@ -282,6 +282,52 @@ async function editEvent(eventId, patch, { now = new Date().toISOString(), organ
   });
 }
 
+// Persist per-step send-error flags after an outbound notification batch.
+// `errorsByStepId` is { [stepId]: { reason, code, at } | null }; null clears
+// any previous error (e.g. a retry succeeded). Steps absent from the map
+// are left untouched. Serialised through the same per-event mutex as
+// activate/edit so a concurrent edit can't lose this write.
+//
+// Returns the updated event, or null if the event no longer exists. Never
+// throws on a missing step id — outbound notifications and the event JSON
+// are decoupled and a step might have been removed between the send and
+// the persist (rare, but possible if a future code path allows step
+// deletion).
+async function recordStepSendErrors(eventId, errorsByStepId) {
+  if (!errorsByStepId || typeof errorsByStepId !== 'object') return null;
+  const ids = Object.keys(errorsByStepId);
+  if (ids.length === 0) return null;
+  return _serialize(eventId, async () => {
+    const event = await loadEvent(eventId);
+    if (!event || !Array.isArray(event.steps)) return null;
+    let dirty = false;
+    const nextSteps = event.steps.map((s) => {
+      if (!s || !Object.prototype.hasOwnProperty.call(errorsByStepId, s.id)) return s;
+      const err = errorsByStepId[s.id];
+      const cur = s.last_send_error;
+      if (err == null) {
+        if (cur == null) return s;
+        const { last_send_error, ...rest } = s;
+        dirty = true;
+        return rest;
+      }
+      // Shallow equality is enough — the field is set by us and only us.
+      if (cur && cur.reason === err.reason && cur.code === err.code && cur.at === err.at) {
+        return s;
+      }
+      dirty = true;
+      return { ...s, last_send_error: err };
+    });
+    if (!dirty) return event;
+    const next = { ...event, steps: nextSteps };
+    const file = path.join(config.dataDir, 'events', `${eventId}.json`);
+    const tmp = file + '.tmp';
+    await fs.writeFile(tmp, JSON.stringify(next, null, 2) + '\n');
+    await fs.rename(tmp, file);
+    return next;
+  });
+}
+
 module.exports = {
   loadEvent,
   findStep,
@@ -289,6 +335,7 @@ module.exports = {
   createEvent,
   activateEvent,
   editEvent,
+  recordStepSendErrors,
   generateEventId,
   generateEventSalt,
 };

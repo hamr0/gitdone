@@ -175,6 +175,30 @@ test('GET /manage/event/:id renders dashboard for signed-in owner', async () => 
   assert.match(view.body, /0 of 2 complete/);
 });
 
+test('GET /manage/event/:id surfaces last_send_error as a delivery-failed row', async () => {
+  await post('/events', {
+    title: 'send-fail surfaced', initiator: 'send-fail@example.com',
+    step_name: ['legal'],
+    step_participant: ['l@x.com'],
+    step_depends_on: [''],
+  });
+  const ev = await latestEventFor('send-fail@example.com');
+  assert.ok(ev);
+  // Stamp a synthetic delivery failure directly via the public helper —
+  // simulates what notifyWorkflowParticipants would persist after a
+  // sendmail non-zero exit.
+  const { recordStepSendErrors } = require('../../src/event-store');
+  await recordStepSendErrors(ev.id, {
+    [ev.steps[0].id]: { reason: 'no such address', code: 67, at: '2026-05-03T10:00:00Z' },
+  });
+  const cookie = mintCookie('send-fail@example.com');
+  const view = await get(`/manage/event/${ev.id}`, cookie);
+  assert.equal(view.status, 200);
+  assert.match(view.body, /delivery failed/);
+  assert.match(view.body, /no such address/);
+  assert.match(view.body, /invitation never sent/);
+});
+
 test('GET /manage/event/:id returns 403 for wrong owner', async () => {
   const ev = await latestEventFor('owner@example.com');
   assert.ok(ev);
