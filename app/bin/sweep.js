@@ -110,7 +110,13 @@ async function main() {
       ? { ok: true, dry_run: true }
       : await sendMail({
           to: event.initiator,
-          subject: `[gitdone] "${event.title}" — overdue, ${daysOver} days past deadline`,
+          subject: (() => {
+            const steps = Array.isArray(event.steps) ? event.steps : [];
+            const tag = event.type === 'event' && steps.length
+              ? ` [${steps.filter((s) => s.status === 'complete').length}/${steps.length}]`
+              : '';
+            return `[gitdone] "${event.title}" — overdue, ${daysOver} days past deadline${tag}`;
+          })(),
           body: overdueBody({ event, daysOver }),
           eventId: event.id,
         });

@@ -532,10 +532,16 @@ async function main() {
       const fromAddr = `event+${tag.eventId}-${tag.stepId}@${config.domain}`;
       const step = completion.decision.step || (event.steps || []).find((s) => s.id === tag.stepId);
       const stepName = step ? step.name : tag.stepId;
+      // [N/M] tag for workflow events lets the organiser see at a glance
+      // which step is being acknowledged ('Accepted — wedding — video [2/5]').
+      const stepIdx = (event.steps || []).findIndex((s) => s.id === tag.stepId);
+      const stepCounter = stepIdx >= 0 && (event.steps || []).length
+        ? ` [${stepIdx + 1}/${event.steps.length}]`
+        : '';
       let subject;
       let body;
       if (accepted) {
-        subject = `[gitdone] Accepted — ${event.title} — ${stepName}`;
+        subject = `[gitdone] Accepted — ${event.title} — ${stepName}${stepCounter}`;
         const tail = completion.completed_event
           ? `All steps are now complete; the event is marked completed. Thank you.`
           : `Thank you — nothing else is needed from you on this step.`;
@@ -549,7 +555,7 @@ async function main() {
           `Organiser: ${event.initiator}`,
         ].join('\n');
       } else if (reason === 'missing_attachment') {
-        subject = `[gitdone] Attachment required — ${event.title} — ${stepName}`;
+        subject = `[gitdone] Attachment required — ${event.title} — ${stepName}${stepCounter}`;
         body = [
           `Thanks — we received your reply for "${stepName}" on event "${event.title}".`,
           ``,

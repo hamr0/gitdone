@@ -132,7 +132,7 @@ async function notifyWorkflowParticipants(event, { stepsOverride } = {}) {
     const idx = event.steps.indexOf(step);
     return sendOne({
       to: step.participant,
-      subject: `[gitdone] ${event.title} — ${step.name} — your step`,
+      subject: `[gitdone] ${event.title} — ${step.name} [${idx + 1}/${total}] — your step`,
       body: workflowStepBody({ event, step, stepIndex: idx, totalSteps: total }),
       event,
       replyTo: stepReplyAddr(event, step.id),
@@ -217,9 +217,18 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
         `  Organised by ${event.initiator}`,
       ].join('\n');
     }
+    // Workflow events get a [done/total] tag so the organiser sees at
+    // a glance whether everything ran ([5/5] = full completion) or
+    // closed early with pending work ([3/5]). Crypto events have no
+    // step counter.
+    let counterTag = '';
+    if (event.type === 'event' && Array.isArray(event.steps) && event.steps.length) {
+      const done = event.steps.filter((s) => s.status === 'complete').length;
+      counterTag = ` [${done}/${event.steps.length}]`;
+    }
     return sendOne({
       to,
-      subject: `[gitdone] "${event.title}" — ${subjectVerb}`,
+      subject: `[gitdone] "${event.title}" — ${subjectVerb}${counterTag}`,
       body,
       event,
     });
