@@ -72,6 +72,35 @@ isn't a question anyone has to ask.
 
 The crypto activation email got the same wording lift.
 
+### Organiser email — pre-flight + in-form bolden + DSN cleanup
+
+`EMAIL_RE` only checked syntax; typos like `you@gmaicom` (missing
+`.com`) sailed through, the activation magic-link bounced silently,
+the user got nothing, and the pending event sat for 72h before
+auto-deletion. Three layers now close the silent-failure gap:
+
+- **Pre-flight MX check** in POST `/events` and POST `/crypto`.
+  `dns.resolveMx(domain)` runs after validation — falls through to
+  an A/AAAA fallback per RFC 5321 §5.1, fail-soft on transient
+  resolver errors. If the domain has nothing (no MX, no A record),
+  re-renders the form with an inline error: *"organiser email
+  'you@gmaicom' — domain does not resolve. Did you mean a different
+  domain?"*. Catches every typo where the TLD or domain itself is
+  fictional. Skipped in tests via `GITDONE_SKIP_MX_CHECK=1`.
+- **Bold preview email + double-check hint.** The preview-before-
+  confirm page now renders the organiser email in amber on dark
+  with `font-weight:600` and a "double-check this; the activation
+  link goes here" hint beside it. Catches the typo eyeball-class
+  (real domain, wrong username) before the user presses Confirm.
+- **DSN-driven cleanup of bounced initiators.** The Phase D bounce
+  handler now does a second pass: any failed DSN recipient that
+  doesn't match an `event+id-step@` tag is matched against pending
+  events' initiator addresses. If found, the pending event is
+  deleted on the spot — the activation link can never reach the
+  user, no recovery is possible in Mode A, no point letting the
+  corpse sit until 72h. Activated events keep their record (audit
+  trail is permanent regardless of the initiator address state).
+
 ### Activation gate — dashboard sits behind the magic-link click
 
 The same-session shortcut (PRD §6.1) used to skip the email

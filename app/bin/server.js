@@ -548,6 +548,59 @@ const TRUST_LABEL_SHORT = {
   unverified: 'unverified (any reply)',
 };
 
+// Pre-flight MX-record lookup on the initiator. Catches the
+// no-such-domain case ("avoidaccess@gmaicom") that EMAIL_RE accepts —
+// silently letting it through means the activation magic-link bounces
+// hours later, the user never gets it, and there's no recovery channel
+// since Mode A has no session yet.
+//
+// Misses the within-real-domain typo case ("avoidaccess@gmaiil.com" —
+// real MX); the Phase D DSN handler picks that up by deleting the
+// pending event when the bounce arrives. Both layers together close
+// the silent-failure gap.
+//
+// Fail-soft on non-typo DNS errors: if the resolver itself blows up
+// (timeout, SERVFAIL), accept the address and let the bounce path do
+// its work. Better to occasionally over-accept than to block a
+// legitimate user because a recursive resolver hiccuped.
+async function checkInitiatorMx(email) {
+  // Tests shouldn't depend on the network or on external DNS reality.
+  // The opt-out env var lets the integration suite skip MX while still
+  // exercising it in the dedicated MX-check test.
+  if (process.env.GITDONE_SKIP_MX_CHECK === '1') return { ok: true, soft: true };
+  const at = String(email || '').lastIndexOf('@');
+  if (at < 0) return { ok: false, reason: 'invalid' };
+  const domain = email.slice(at + 1).toLowerCase();
+  const dns = require('node:dns').promises;
+  try {
+    const records = await dns.resolveMx(domain);
+    if (!records || records.length === 0) {
+      // RFC 5321 §5.1 — when no MX exists, the A/AAAA record of the
+      // domain is the implicit MX. Check that fallback so domains
+      // hosted directly off A records (rare but valid) still pass.
+      try {
+        const a = await dns.resolve(domain);
+        if (a && a.length) return { ok: true };
+      } catch { /* fall through to invalid */ }
+      return { ok: false, reason: 'no MX record' };
+    }
+    return { ok: true };
+  } catch (err) {
+    const code = err && err.code;
+    if (code === 'ENOTFOUND' || code === 'ENODATA') {
+      // Try A/AAAA fallback before giving up.
+      try {
+        const a = await require('node:dns').promises.resolve(domain);
+        if (a && a.length) return { ok: true };
+      } catch { /* genuine no-such-domain */ }
+      return { ok: false, reason: 'domain does not resolve' };
+    }
+    // Soft-fail on transient DNS issues so we don't block legitimate
+    // users when the resolver is grumpy.
+    return { ok: true, soft: true };
+  }
+}
+
 function renderPreview({ validated, rawBody }) {
   const { title, initiator, min_trust_level, steps } = validated;
   // Order steps by execution level so the list reads top-down in run order.
@@ -591,7 +644,7 @@ function renderPreview({ validated, rawBody }) {
       <h2>Event</h2>
       <dl class="kv">
         <dt>Title</dt><dd><strong>${title}</strong></dd>
-        <dt>Organizer</dt><dd><code>${initiator}</code></dd>
+        <dt>Organizer</dt><dd><code style="background:#161b22;color:#ffb000;padding:0.15em 0.45em;font-size:1.05em;font-weight:600">${initiator}</code> <span style="color:#8b949e;font-size:0.86em">— double-check this; the activation link goes here</span></dd>
         <dt>Min trust</dt><dd>${TRUST_LABEL_SHORT[min_trust_level] || min_trust_level}</dd>
       </dl>
 
@@ -670,12 +723,25 @@ router.post('/events', async (req, res) => {
     }));
   }
 
+  // Pre-flight MX check on the organiser email. EMAIL_RE accepts
+  // syntax-only typos like "you@gmaicom"; sending an activation link
+  // there bounces silently and the user has no recovery path. If the
+  // domain has no MX (or A/AAAA fallback) we re-render the form with
+  // an inline error.
+  const mxCheck = await checkInitiatorMx(v.value.initiator);
+  if (!mxCheck.ok) {
+    res.writeHead(422, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(layout({
+      title: 'fix errors — gitdone',
+      body: renderWorkflowForm({
+        values: body,
+        errors: [`organiser email "${v.value.initiator}" — ${mxCheck.reason}. Did you mean a different domain?`],
+      }),
+    }));
+  }
   // Confirmed — persist event in pending-activation state, then trigger
   // knowless Mode A. The magic link both verifies email ownership AND
-  // opens a session whose nextUrl lands on the event dashboard. The
-  // dashboard route does the actual activate-and-notify on first arrival
-  // (see GET /manage/event/:id). If the requester is already signed in
-  // as the initiator, skip the email round-trip.
+  // opens a session whose nextUrl lands on the event dashboard.
   const event = await createEvent({
     type: 'event',
     ...v.value,
@@ -1094,6 +1160,18 @@ router.post('/crypto', async (req, res) => {
     return res.end(layout({
       title: 'fix errors — gitdone',
       body: renderCryptoForm({ values: body, errors: v.errors }),
+    }));
+  }
+  // Pre-flight MX check on the organiser email — see POST /events.
+  const mxCheck = await checkInitiatorMx(v.value.initiator);
+  if (!mxCheck.ok) {
+    res.writeHead(422, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(layout({
+      title: 'fix errors — gitdone',
+      body: renderCryptoForm({
+        values: body,
+        errors: [`organiser email "${v.value.initiator}" — ${mxCheck.reason}. Did you mean a different domain?`],
+      }),
     }));
   }
   // Same pending-activation gate as workflow events: no signer invite

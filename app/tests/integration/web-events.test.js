@@ -23,6 +23,7 @@ before(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-web-events-'));
   process.env.GITDONE_DATA_DIR = tmp;
   process.env.GITDONE_PUBLIC_URL = 'http://localhost:3001';
+  process.env.GITDONE_SKIP_MX_CHECK = '1';
   process.env.GITDONE_SESSION_SECRET = 'a'.repeat(64);
   process.env.GITDONE_COOKIE_SECURE = '0';
   // flush any already-cached instances bound to the old dataDir

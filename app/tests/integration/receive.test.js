@@ -445,6 +445,77 @@ exit 0
   }
 });
 
+// Phase D follow-up — when the activation magic-link bounces back as a
+// DSN, the pending event is unrecoverable (no session, no other channel
+// to reach the user). Delete it on the spot rather than letting it sit
+// for 72h.
+test('integration: DSN whose Original-Recipient matches a pending initiator deletes the event', async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-dsn-init-'));
+  try {
+    await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
+    // Pending event whose initiator address bounced.
+    await fs.writeFile(path.join(tmp, 'events', 'pendev01.json'), JSON.stringify({
+      id: 'pendev01', type: 'event', salt: 'salt-pendev01',
+      title: 'pending-bouncer', initiator: 'typo@gmaicom.invalid',
+      activated_at: null, created_at: '2026-05-03T00:00:00Z',
+      steps: [{ id: 'sa', name: 'a', participant: 'p@example.com', status: 'pending', depends_on: [] }],
+    }));
+    // Activated event with the same initiator should NOT be touched.
+    await fs.writeFile(path.join(tmp, 'events', 'actev02.json'), JSON.stringify({
+      id: 'actev02', type: 'event', salt: 'salt-actev02',
+      title: 'active-keep', initiator: 'typo@gmaicom.invalid',
+      activated_at: '2026-05-01T00:00:00Z', created_at: '2026-05-01T00:00:00Z',
+      steps: [{ id: 'sa', name: 'a', participant: 'p@example.com', status: 'pending', depends_on: [] }],
+    }));
+
+    const dsn = Buffer.from([
+      'From: MAILER-DAEMON@mta.example.com',
+      'To: gitdone@git-done.com',
+      'Subject: Undelivered Mail Returned to Sender',
+      'MIME-Version: 1.0',
+      'Content-Type: multipart/report; report-type=delivery-status; boundary="QQ"',
+      '',
+      '--QQ',
+      'Content-Type: text/plain',
+      '',
+      'human readable',
+      '',
+      '--QQ',
+      'Content-Type: message/delivery-status',
+      '',
+      'Reporting-MTA: dns; mta.example.com',
+      '',
+      'Original-Recipient: rfc822;typo@gmaicom.invalid',
+      'Final-Recipient: rfc822;typo@gmaicom.invalid',
+      'Action: failed',
+      'Status: 5.1.2',
+      'Diagnostic-Code: smtp; 550 5.1.2 host gmaicom.invalid not found',
+      '',
+      '--QQ--',
+      '',
+    ].join('\r\n'));
+
+    const { code, stdout } = await runReceive(
+      dsn, ['198.51.100.1', 'mta.example.com', '', 'gitdone@git-done.com'],
+      { GITDONE_DATA_DIR: tmp }
+    );
+    assert.equal(code, 0);
+    const out = JSON.parse(stdout.trim());
+    assert.equal(out.kind, 'dsn');
+    assert.equal(out.initiator_bounces_deleted.length, 1);
+    assert.equal(out.initiator_bounces_deleted[0].id, 'pendev01');
+    // Pending event gone, active event untouched.
+    const pendingExists = await fs.access(path.join(tmp, 'events', 'pendev01.json'))
+      .then(() => true, () => false);
+    assert.equal(pendingExists, false);
+    const activeExists = await fs.access(path.join(tmp, 'events', 'actev02.json'))
+      .then(() => true, () => false);
+    assert.equal(activeExists, true);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
 test('integration: DSN with no matching event tag still emits dsn log, persists nothing', async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-dsn-orphan-'));
   try {

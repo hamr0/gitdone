@@ -37,6 +37,7 @@ exit 0
   process.env.GITDONE_DATA_DIR = tmp;
   process.env.GITDONE_SENDMAIL_BIN = fake;
   process.env.GITDONE_PUBLIC_URL = 'http://localhost:3001';
+  process.env.GITDONE_SKIP_MX_CHECK = '1';
   process.env.GITDONE_SESSION_SECRET = TEST_SECRET;
   process.env.GITDONE_COOKIE_SECURE = '0';
   for (const m of [
@@ -253,6 +254,58 @@ test('GET /manage/event/:id (pending, link not clicked) renders check-your-inbox
   // numbered flow, so we can't grep for the verb alone — instead
   // assert there's no submit button to /activate.
   assert.doesNotMatch(view.body, /class="mg-activate"/);
+});
+
+test('POST /events: organiser email with no MX is rejected with form error', async () => {
+  // The rest of this file runs with GITDONE_SKIP_MX_CHECK=1 to keep
+  // tests offline; flip it off here so the actual MX path runs.
+  // .invalid is an RFC 2606 reserved TLD that never resolves in DNS.
+  delete process.env.GITDONE_SKIP_MX_CHECK;
+  try {
+    const r = await post('/events', {
+      title: 'mxcheck', initiator: 'someone@gmaicom.invalid',
+      step_name: 'a', step_participant: 'a@x.com',
+    });
+    assert.equal(r.status, 422);
+    assert.match(r.body, /organiser email/);
+    assert.match(r.body, /domain does not resolve|no MX record/);
+    // No event got created.
+    const ev = await latestEventFor('someone@gmaicom.invalid');
+    assert.equal(ev, null);
+  } finally {
+    process.env.GITDONE_SKIP_MX_CHECK = '1';
+  }
+});
+
+test('GET /events preview boldens the organiser email', async () => {
+  // First POST without _action=confirm renders the preview.
+  const data = querystring.stringify({
+    title: 'preview-bolden', initiator: 'pv@example.com',
+    step_name: 'a', step_participant: 'a@x.com',
+  });
+  const headers = {
+    'content-type': 'application/x-www-form-urlencoded',
+    'content-length': Buffer.byteLength(data),
+  };
+  const r = await new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1', port, path: '/events', method: 'POST', headers,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({
+        status: res.statusCode,
+        body: Buffer.concat(chunks).toString('utf8'),
+      }));
+    });
+    req.on('error', reject);
+    req.write(data);
+    req.end();
+  });
+  assert.equal(r.status, 200);
+  // Email rendered with emphasis + the "double-check" hint.
+  assert.match(r.body, /pv@example\.com/);
+  assert.match(r.body, /double-check this/);
 });
 
 test('POST /manage/event/:id/activate refuses without the magic-link click', async () => {

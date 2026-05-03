@@ -48,6 +48,7 @@ exit 0
   process.env.GITDONE_DATA_DIR = tmp;
   process.env.GITDONE_SENDMAIL_BIN = fake;
   process.env.GITDONE_PUBLIC_URL = 'http://localhost:3001';
+  process.env.GITDONE_SKIP_MX_CHECK = '1';
   process.env.GITDONE_SESSION_SECRET = TEST_SECRET;
   process.env.GITDONE_COOKIE_SECURE = '0';
   for (const m of [
