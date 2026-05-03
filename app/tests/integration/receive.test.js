@@ -354,3 +354,133 @@ test('integration: attachment hash is deterministic', async () => {
   assert.equal(out2.attachments.length, 1);
   assert.equal(out1.attachments[0].sha256, out2.attachments[0].sha256, 'attachment hash should be deterministic');
 });
+
+// Phase D — DSN bounce parsing. A multipart/report posted into the
+// pipe should bypass the system-sender prefilter, persist
+// last_send_error on the bounced step, and email the organiser.
+test('integration: DSN bounce → step.last_send_error persisted + organiser alerted', async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-dsn-'));
+  const captureDir = path.join(tmp, 'captures');
+  try {
+    await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
+    await fs.mkdir(captureDir, { recursive: true });
+    await fs.writeFile(path.join(tmp, 'events', 'bounce01.json'), JSON.stringify({
+      id: 'bounce01', type: 'event', salt: 'salt-bounce01',
+      title: 'Bounce demo', initiator: 'org@example.com',
+      activated_at: '2026-05-01T00:00:00Z',
+      steps: [
+        { id: 'sa', name: 'Approval', participant: 'nobody@external.example', status: 'pending', depends_on: [] },
+        { id: 'sb', name: 'Sign', participant: 'sb@example.com', status: 'pending', depends_on: [] },
+      ],
+    }));
+
+    const fake = path.join(tmp, 'fake-sendmail.sh');
+    await fs.writeFile(fake,
+      `#!/bin/sh
+out=$(mktemp "${captureDir}/msg.XXXXXX.eml")
+cat > "$out"
+exit 0
+`, { mode: 0o755 });
+
+    const dsn = Buffer.from([
+      'From: MAILER-DAEMON@mta.example.com',
+      'To: gitdone@git-done.com',
+      'Subject: Undelivered Mail Returned to Sender',
+      'MIME-Version: 1.0',
+      'Content-Type: multipart/report; report-type=delivery-status; boundary="ZZZ"',
+      '',
+      '--ZZZ',
+      'Content-Type: text/plain',
+      '',
+      'Your message could not be delivered.',
+      '',
+      '--ZZZ',
+      'Content-Type: message/delivery-status',
+      '',
+      'Reporting-MTA: dns; mta.example.com',
+      '',
+      'Original-Recipient: rfc822;event+bounce01-sa@git-done.com',
+      'Final-Recipient: rfc822;nobody@external.example',
+      'Action: failed',
+      'Status: 5.1.1',
+      'Diagnostic-Code: smtp; 550 5.1.1 user unknown',
+      '',
+      '--ZZZ--',
+      '',
+    ].join('\r\n'));
+
+    const { code, stdout, stderr } = await runReceive(
+      dsn,
+      ['198.51.100.1', 'mta.example.com', '', 'gitdone@git-done.com'],
+      { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake }
+    );
+    assert.equal(code, 0, `non-zero exit. stderr: ${stderr}`);
+    const out = JSON.parse(stdout.trim());
+    assert.equal(out.kind, 'dsn');
+    assert.equal(out.failed_recipients.length, 1);
+    assert.equal(out.failed_recipients[0].original, 'event+bounce01-sa@git-done.com');
+    assert.equal(out.persisted[0].event_id, 'bounce01');
+    assert.deepEqual(out.persisted[0].steps, ['sa']);
+
+    // Step now has last_send_error.
+    const ev = JSON.parse(await fs.readFile(path.join(tmp, 'events', 'bounce01.json'), 'utf8'));
+    const sa = ev.steps.find((s) => s.id === 'sa');
+    assert.equal(sa.last_send_error.reason, 'bounced');
+    assert.equal(sa.last_send_error.code, '5.1.1');
+    assert.match(sa.last_send_error.diagnostic, /user unknown/);
+    // Untouched step has no flag.
+    const sb = ev.steps.find((s) => s.id === 'sb');
+    assert.equal(sb.last_send_error, undefined);
+
+    // Organiser alert was emitted.
+    const captures = await fs.readdir(captureDir);
+    assert.equal(captures.length, 1, `expected one alert, got ${captures.length}`);
+    const alert = await fs.readFile(path.join(captureDir, captures[0]), 'utf8');
+    assert.match(alert, /To: org@example\.com/);
+    assert.match(alert, /invitation bounced/);
+    assert.match(alert, /Approval/);
+    assert.match(alert, /5\.1\.1/);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('integration: DSN with no matching event tag still emits dsn log, persists nothing', async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-dsn-orphan-'));
+  try {
+    await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
+    const dsn = Buffer.from([
+      'From: MAILER-DAEMON@mta.example.com',
+      'To: gitdone@git-done.com',
+      'MIME-Version: 1.0',
+      'Content-Type: multipart/report; report-type=delivery-status; boundary="bb"',
+      '',
+      '--bb',
+      'Content-Type: text/plain',
+      '',
+      'human readable',
+      '',
+      '--bb',
+      'Content-Type: message/delivery-status',
+      '',
+      'Reporting-MTA: dns; mta.example.com',
+      '',
+      'Original-Recipient: rfc822;random@stranger.example',
+      'Action: failed',
+      'Status: 5.1.1',
+      '',
+      '--bb--',
+      '',
+    ].join('\r\n'));
+    const { code, stdout } = await runReceive(
+      dsn, ['198.51.100.1', 'mta.example.com', '', 'gitdone@git-done.com'],
+      { GITDONE_DATA_DIR: tmp }
+    );
+    assert.equal(code, 0);
+    const out = JSON.parse(stdout.trim());
+    assert.equal(out.kind, 'dsn');
+    assert.equal(out.persisted.length, 0);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});

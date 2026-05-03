@@ -16,7 +16,7 @@ const { parseEnvelope } = require('../src/envelope');
 const { preFilter, extractHeaderBlock } = require('../src/prefilter');
 const { classifyTrust } = require('../src/classifier');
 const { parseEventTag, parseAddress, parseVerifyTag, parseReverifyTag, parseInitiatorCommand } = require('../src/router');
-const { loadEvent, findStep, senderMatchesStep } = require('../src/event-store');
+const { loadEvent, findStep, senderMatchesStep, recordStepSendErrors } = require('../src/event-store');
 const { commitReply, commitCompletion, saltedSenderHash } = require('../src/gitrepo');
 const { fetchDkimKey, pickSignatureToArchive } = require('../src/dkim-archive');
 const { buildVerificationReport, formatVerifyReportBody } = require('../src/verify');
@@ -26,6 +26,7 @@ const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } =
 const { applyReply, updateEventAtomic } = require('../src/completion');
 const { notifyWorkflowParticipants, notifyEventCompletion } = require('../src/notifications');
 const { authenticateInitiatorCommand, statsBody, executeRemind, executeClose } = require('../src/email-commands');
+const { extractDsn } = require('../src/dsn');
 const logger = require('../src/logger');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -91,6 +92,117 @@ async function main() {
   const from = (parsed.from && parsed.from.value && parsed.from.value[0]) || {};
   const headerBlock = extractHeaderBlock(raw, config.maxHeaderBytes);
   const filter = preFilter(headerBlock, from.address);
+
+  // Phase D — RFC 3464 bounce handling. Postfix forwards bounces from
+  // downstream MTAs back to the envelope sender, which for our outbound
+  // notifications is gitdone@<domain>; the catch-all pipe drops them
+  // into this script. We detect by Content-Type before the prefilter
+  // rejects on system-sender (mailer-daemon), parse the
+  // delivery-status part, and persist a per-step last_send_error so the
+  // organiser sees a "delivery failed" row on the dashboard.
+  //
+  // Trust model: anyone can fabricate a DSN body. The blast radius is
+  // an attacker who knows an event+step tag triggering a misleading
+  // alert that the organiser then verifies and clears via Edit. Worth
+  // the cost — the alternative is silent failures on real bounces.
+  const dsn = extractDsn(parsed, raw);
+  if (dsn) {
+    const receivedAtDsn = new Date().toISOString();
+    const failed = (dsn.recipients || []).filter((r) => r.action === 'failed');
+    const perEvent = new Map(); // eventId → { errors: {stepId: {...}}, recipients: [...] }
+    for (const r of failed) {
+      const tagDsn = parseEventTag(r.originalRecipient || '');
+      if (!tagDsn || !tagDsn.stepId) continue;
+      let bucket = perEvent.get(tagDsn.eventId);
+      if (!bucket) {
+        bucket = { errors: {}, recipients: [] };
+        perEvent.set(tagDsn.eventId, bucket);
+      }
+      bucket.errors[tagDsn.stepId] = {
+        reason: 'bounced',
+        code: r.status || null,
+        diagnostic: r.diagnostic || null,
+        final_recipient: r.finalRecipient || null,
+        at: receivedAtDsn,
+      };
+      bucket.recipients.push({ stepId: tagDsn.stepId, ...r });
+    }
+
+    const persisted = [];
+    for (const [eventId, bucket] of perEvent) {
+      let alertEvent = null;
+      try {
+        alertEvent = await recordStepSendErrors(eventId, bucket.errors);
+      } catch (err) {
+        persisted.push({ event_id: eventId, error: err.message || String(err) });
+        continue;
+      }
+      persisted.push({ event_id: eventId, steps: Object.keys(bucket.errors), persisted: !!alertEvent });
+      // Email the organiser so they see the bounce out-of-band, not just
+      // on the dashboard. Best-effort — a send failure here doesn't undo
+      // the persist.
+      if (alertEvent && alertEvent.initiator) {
+        const lines = [
+          `One or more invitations for your event bounced and were not delivered.`,
+          ``,
+          `Event: ${alertEvent.title}`,
+          `Event ID: ${eventId}`,
+          ``,
+          `Bounced steps:`,
+        ];
+        for (const r of bucket.recipients) {
+          const step = (alertEvent.steps || []).find((s) => s.id === r.stepId);
+          const name = step ? step.name : r.stepId;
+          const addr = step ? step.participant : (r.finalRecipient || '?');
+          lines.push(`  - ${name} → <${addr}>`);
+          if (r.status) lines.push(`      status: ${r.status}`);
+          if (r.diagnostic) lines.push(`      diagnostic: ${r.diagnostic}`);
+        }
+        lines.push(
+          ``,
+          `Open the dashboard to fix the address(es) — once edited, the`,
+          `participant gets a fresh invitation:`,
+          `  ${process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`}/manage/event/${eventId}`,
+        );
+        const body = lines.join('\n');
+        const fromAddr = `gitdone@${config.domain}`;
+        try {
+          const rawMessage = buildRawMessage({
+            from: fromAddr,
+            to: alertEvent.initiator,
+            subject: `[gitdone] "${alertEvent.title}" — invitation bounced`,
+            body,
+            domain: config.domain,
+            autoSubmitted: 'auto-generated',
+            extraHeaders: { 'X-GitDone-Event': eventId },
+          });
+          await sendmail({ from: fromAddr, rawMessage, to: [alertEvent.initiator] });
+        } catch (err) {
+          process.stderr.write(`dsn-alert: ${err.message || err}\n`);
+        }
+      }
+    }
+
+    logger.emit({
+      kind: 'dsn',
+      accepted: true,
+      received_at: receivedAtDsn,
+      envelope: {
+        client_ip: envelope.clientIp,
+        client_helo: envelope.clientHelo,
+        sender: envelope.sender,
+        recipient: envelope.recipient,
+      },
+      reporting_mta: (dsn.reporting && dsn.reporting['reporting-mta']) || null,
+      failed_recipients: failed.map((r) => ({
+        original: r.originalRecipient,
+        final: r.finalRecipient,
+        status: r.status,
+      })),
+      persisted,
+    });
+    return;
+  }
 
   // 1.L.1: verify+{id}@ — short-circuit before event routing / commit flow.
   // Public verification endpoint: anyone can forward a raw .eml or attachment
