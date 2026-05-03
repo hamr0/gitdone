@@ -115,9 +115,18 @@ the organizer decides. **Nothing is ever auto-closed.** Closing writes
 a permanent commit, and that's a human decision.
 
 - **Pending activation.** Participants are not notified until you
-  click the activation link we email you (valid 72 hours). If you
-  never click, the event is **deleted** at 72h — no trace, no
-  stranger you claimed to be hears from us.
+  click the sign-in link we email you (valid 15 minutes) and press
+  **Activate** on the dashboard. The email previews each step
+  (deadline, dependencies, brief) so you can decide before signing
+  in; signing in just opens the dashboard, nothing leaves the server
+  until you press Activate. If the link expires, request a fresh one
+  at `/manage`. If you never sign in and activate, the event is
+  **deleted** at 72h — no trace, no stranger you claimed to be hears
+  from us.
+- **Delivery problems are visible.** If an invitation bounces or our
+  MTA refuses it, the dashboard shows a `⚠ delivery failed` row under
+  the affected step, and you get an email pointing back at it. Use
+  Edit to fix the address; the next send clears the warning.
 - **Open.** Steps complete as replies come in. Late replies still
   count — deadlines are aspirational, not gates.
 - **Day 14 past deadline → nudge.** One email to you: *"remind,

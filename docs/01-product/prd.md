@@ -474,12 +474,16 @@ immediately blast real notifications to real participants.
   bodyOverride, bypassRateLimit: true })`. knowless sends one magic
   link to the initiator. This is knowless's "Mode A — do the thing,
   confirm by email" pattern (knowless GUIDE.md §"Two adoption modes").
-- **Activation runs server-side on first dashboard visit.** Clicking
-  the magic link 303s to `/manage/event/<id>`; that handler calls
-  `event-store.activateEvent(id)` (idempotent, mutex-guarded against
-  concurrent visits) and, on the transition from null → activated,
-  fires `notifyWorkflowParticipants` / `notifyDeclarationSigner`.
-  A "first-visit" flash confirms invitations were sent.
+- **Activation is opt-in via a dashboard button.** Clicking the magic
+  link 303s to `/manage/event/<id>`; the dashboard renders a pending
+  banner with an `Activate` button. POST `/manage/event/<id>/activate`
+  calls `event-store.activateEvent(id)` (idempotent, mutex-guarded
+  against double-clicks / two-tab races) and, on the transition from
+  null → activated, fires `notifyWorkflowParticipants` /
+  `notifyDeclarationSigner`. The activation magic-link email itself
+  previews each step's deadline / dependencies / one-line brief so
+  the organiser can decide whether to activate before signing in;
+  signing in just opens the dashboard for review.
 - **Same-session shortcut.** If the requester is already signed in
   as the initiator (current handle === `auth.deriveHandle(initiator)`),
   POST /events / POST /crypto skips the email round-trip and 303s

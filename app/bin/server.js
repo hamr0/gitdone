@@ -425,7 +425,9 @@ function renderWorkflowForm({ values = {}, errors = [], event = null } = {}) {
           var dl  = row.querySelector('input[name="step_deadline"]');
           if (!dep || !dl) return;
           var hasDep = dep.value.trim().length > 0;
-          dl.style.opacity = hasDep ? '0.55' : '1';
+          // Tooltip-only hint. We used to dim the field to opacity 0.55,
+          // but that read as "disabled" — confusing when the field is
+          // very much editable. The tooltip alone carries the meaning.
           dl.title = hasDep
             ? 'Optional — step already waits for its dependencies. Set only if you need a wall-clock cap.'
             : '';
@@ -709,24 +711,65 @@ router.post('/events', async (req, res) => {
 function buildEventActivationBody(event) {
   const safeTitle = asciiSafe(event.title);
   const safeInitiator = asciiSafe(event.initiator);
-  const stepsList = event.steps
-    .map((s, i) => `  ${i + 1}. ${asciiSafe(s.name)} - ${asciiSafe(s.participant)}`)
-    .join('\n');
+  // Map step ids to their 1-based index so depends_on can be rendered
+  // as "after #2" instead of an opaque internal id.
+  const indexById = new Map(event.steps.map((s, i) => [s.id, i + 1]));
+  // Per-step block: name + email on the first line, an inline tag list
+  // (deadline / attachment / depends-on) on the second, and a one-line
+  // truncated details preview on the third when present. Line two and
+  // three are skipped if they would be empty so steps with no metadata
+  // stay tight.
+  const stepBlocks = event.steps.map((s, i) => {
+    const tags = [];
+    if (s.deadline) tags.push(`deadline ${asciiSafe(String(s.deadline).slice(0, 10))}`);
+    if (s.requires_attachment) tags.push('attachment required');
+    const deps = (s.depends_on || [])
+      .map((d) => indexById.get(d))
+      .filter(Boolean)
+      .map((n) => `#${n}`);
+    if (deps.length) tags.push(`after ${deps.join(', ')}`);
+    const lines = [`  ${i + 1}. ${asciiSafe(s.name)} - ${asciiSafe(s.participant)}`];
+    if (tags.length) lines.push(`     ${tags.join(' . ')}`);
+    if (s.details) {
+      const oneLine = asciiSafe(String(s.details)).replace(/\s+/g, ' ').trim();
+      if (oneLine) lines.push(`     brief: ${oneLine.length > 80 ? oneLine.slice(0, 77) + '...' : oneLine}`);
+    }
+    return lines.join('\n');
+  });
+  // knowless caps the body at 2048 chars. Truncate the steps section if
+  // a 50-step event with rich details would otherwise blow the budget.
+  // Keep the first N steps that fit under ~1200 chars and summarise the
+  // rest; the dashboard has the full list anyway.
+  const STEPS_BUDGET = 1200;
+  const kept = [];
+  let used = 0;
+  for (const block of stepBlocks) {
+    if (used + block.length + 1 > STEPS_BUDGET && kept.length > 0) break;
+    kept.push(block);
+    used += block.length + 1;
+  }
+  const omitted = stepBlocks.length - kept.length;
+  if (omitted > 0) {
+    kept.push(`  ... and ${omitted} more step${omitted === 1 ? '' : 's'} (open the dashboard for the full list)`);
+  }
+  const stepsList = kept.join('\n');
+
   return ({ url }) => withSignature([
     `You created the event "${safeTitle}" on gitdone.`,
     ``,
-    `Click the link below to sign in. You'll then see a one-click`,
-    `confirmation to activate the event and notify participants.`,
-    `Until you confirm, no one is contacted and no replies count.`,
-    `The sign-in link is valid for 15 minutes; if it expires, request`,
-    `a new one at ${publicBaseUrl()}/manage.`,
+    `Clicking the link below signs you in and opens the event dashboard.`,
+    `Review the steps below, then press Activate on the dashboard to send`,
+    `invitations. Nothing leaves the server until you press Activate; if`,
+    `you decide not to go ahead, just ignore this email.`,
+    `Sign-in link is valid for 15 minutes; request a new one at`,
+    `${publicBaseUrl()}/manage if it expires.`,
     ``,
     url,
     ``,
     `Event ID: ${event.id}`,
     `Minimum trust: ${event.min_trust_level}`,
     ``,
-    `Steps that will be notified on activation:`,
+    `Steps that will be notified on Activate:`,
     stepsList,
     ``,
     `Day-to-day commands by email from ${safeInitiator}:`,
@@ -758,11 +801,12 @@ function buildCryptoActivationBody(event) {
   return ({ url }) => withSignature([
     `You created the crypto event "${safeTitle}" on gitdone.`,
     ``,
-    `Click the link below to sign in. You'll then see a one-click`,
-    `confirmation to activate. Activation makes the reply address`,
-    `live${event.mode === 'declaration' ? ' and notifies the signer' : ''}. Until you confirm, no replies count.`,
-    `The sign-in link is valid for 15 minutes; if it expires, request`,
-    `a new one at ${publicBaseUrl()}/manage.`,
+    `Clicking the link below signs you in and opens the event dashboard.`,
+    `Review the details below, then press Activate on the dashboard to make`,
+    `the reply address live${event.mode === 'declaration' ? ' and notify the signer' : ''}. Nothing leaves the server until you press`,
+    `Activate; if you decide not to go ahead, just ignore this email.`,
+    `Sign-in link is valid for 15 minutes; request a new one at`,
+    `${publicBaseUrl()}/manage if it expires.`,
     ``,
     url,
     ``,
@@ -784,8 +828,14 @@ function buildCryptoActivationBody(event) {
 // non-ASCII so a non-Latin event title doesn't 500 the create-event
 // response, then truncate to fit alongside the bracketed prefix.
 function activationSubject(title) {
-  const prefix = '[gitdone] activate "';
-  const suffix = '"';
+  // Match the [gitdone] "<title>" - <verb> shape used by every other
+  // outbound subject (completion, bounce, please-sign, etc.) so the
+  // sender alias every mail client groups by stays just "gitdone"
+  // instead of fragmenting into "gitdone activate <title>" etc.
+  // ASCII-only because knowless's validateSubject (60-char cap, no
+  // CR/LF, ASCII-only) gates this string before sending.
+  const prefix = '[gitdone] "';
+  const suffix = '" - activate';
   const room = 60 - prefix.length - suffix.length;
   const ascii = String(title).replace(/[\r\n]/g, ' ').replace(/[^\x20-\x7e]/g, '');
   const safe = ascii.trim() || 'event';
@@ -1283,6 +1333,7 @@ async function renderSessionHub({ handle, auth, flash, showArchived = false }) {
 function renderSignInForm({ flash, devLink, email, next }) {
   return html`
     <style>${raw(MANAGE_HUB_CSS)}</style>
+    <p style="margin:0 0 0.4rem"><a href="/" style="color:#8b949e;font-size:0.88em">← back</a></p>
     <div class="mh">
       <h1>Open your events</h1>
       <p class="lede">Enter the email you used to create events. We'll send a one-time link (valid 15 minutes). You'll stay signed in for 30 days.</p>

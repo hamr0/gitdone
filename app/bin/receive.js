@@ -235,7 +235,7 @@ async function main() {
       const rawMessage = buildRawMessage({
         from: `gitdone <${fromAddr}>`,
         to,
-        subject: `[GitDone] Verification report for event ${verifyTag.eventId}`,
+        subject: `[gitdone] verification report for event ${verifyTag.eventId}`,
         inReplyTo: parsed.messageId || null,
         references: parsed.messageId || null,
         body: formatVerifyReportBody(report),
@@ -323,7 +323,7 @@ async function main() {
       const rawMessage = buildRawMessage({
         from: `gitdone <${fromAddr}>`,
         to,
-        subject: `[GitDone] Re-verification report for ${reverifyTag.eventId} commit-${String(reverifyTag.commitSequence).padStart(3, '0')}`,
+        subject: `[gitdone] re-verification report for ${reverifyTag.eventId} commit-${String(reverifyTag.commitSequence).padStart(3, '0')}`,
         inReplyTo: parsed.messageId || null,
         references: parsed.messageId || null,
         body,
@@ -401,7 +401,7 @@ async function main() {
       const rawMessage = buildRawMessage({
         from: `gitdone <${fromAddr}>`,
         to,
-        subject: `[GitDone] ${cmdTag.command} · ${cmdTag.eventId}`,
+        subject: `[gitdone] ${cmdTag.command} · ${cmdTag.eventId}`,
         inReplyTo: parsed.messageId || null,
         references: parsed.messageId || null,
         body: replyBody,

@@ -128,11 +128,34 @@ test('POST /events sends a knowless magic link to the initiator', async () => {
 
   const bossCapture = path.join(tmp, 'captures', 'boss_at_example.com.eml');
   const submitted = fs.readFileSync(bossCapture, 'utf8');
-  // knowless owns the subject prefix; gitdone supplies "activate <title>"
-  assert.match(submitted, /^Subject: \[gitdone\] activate "Manage me"/m);
+  // Subject matches the unified [gitdone] "<title>" - <verb> shape every
+  // other outbound message uses, so mail clients group all gitdone mail
+  // under a single sender alias.
+  assert.match(submitted, /^Subject: \[gitdone\] "Manage me" - activate$/m);
   // Magic link is on /manage/callback, not on a gitdone-internal /activate path.
   assert.doesNotMatch(submitted, /\/activate\//);
   assert.match(submitted, /\/manage\/callback\?t=/);
+});
+
+test('POST /events activation email shows two-stage wording and rich step snippets', async () => {
+  await post('/events', {
+    title: 'Two-stage preview', initiator: 'preview@example.com',
+    step_name: ['Legal review', 'Sign'],
+    step_participant: ['legal@x.com', 'ceo@x.com'],
+    step_deadline: ['2026-06-01', ''],
+    step_depends_on: ['', '1'],
+    step_details: ['Review section 3.2 of the contract focusing on indemnification.', ''],
+  });
+  const cap = path.join(tmp, 'captures', 'preview_at_example.com.eml');
+  const body = fs.readFileSync(cap, 'utf8');
+  // Two-stage wording: clicking signs in, Activate is a separate press.
+  assert.match(body, /press Activate/);
+  assert.match(body, /Nothing leaves the server/);
+  // Rich step metadata.
+  assert.match(body, /Legal review - legal@x\.com/);
+  assert.match(body, /deadline 2026-06-01/);
+  assert.match(body, /after #1/);
+  assert.match(body, /brief: Review section 3\.2/);
 });
 
 test('GET /manage/:token redirects to /manage (backward compat for old bookmarked links)', async () => {

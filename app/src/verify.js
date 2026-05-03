@@ -221,7 +221,7 @@ async function buildVerificationReport(eventId, parsedForwardedEmail) {
 // compact; the machine-readable JSON stays in receive.log, not the email.
 function formatVerifyReportBody(report) {
   const lines = [];
-  lines.push('GitDone verification report');
+  lines.push('gitdone verification report');
   lines.push('===========================');
   lines.push('');
   lines.push(`Event ID: ${report.event_id}`);
@@ -284,7 +284,7 @@ function formatVerifyReportBody(report) {
   lines.push('This is an automated verification response.');
   lines.push('The cryptographic guarantee for this event is recorded in its');
   lines.push('git repository and anchored to Bitcoin via OpenTimestamps.');
-  lines.push('Every proof can be verified offline without contacting GitDone.');
+  lines.push('Every proof can be verified offline without contacting gitdone.');
   return lines.join('\r\n');
 }
 

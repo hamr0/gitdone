@@ -18,7 +18,7 @@ const { createAuthMailer } = require('./auth-mailer');
 const { SIGNATURE_FOOTER } = require('./outbound');
 
 const FROM_ADDR = `gitdone@${config.domain}`;
-const FROM_NAME = 'GitDone';
+const FROM_NAME = 'gitdone';
 
 let _authPromise = null;
 
@@ -61,9 +61,9 @@ async function _bootstrap() {
     verifyPath: '/manage/verify',
     logoutPath: '/manage/logout',
     failureRedirect: '/manage',
-    subject: 'Sign in to GitDone',
+    subject: 'Sign in to gitdone',
     bodyFooter: SIGNATURE_FOOTER,
-    confirmationMessage: 'Check your inbox. If {email} has events on GitDone, a sign-in link is on its way.',
+    confirmationMessage: 'Check your inbox. If {email} has events on gitdone, a sign-in link is on its way.',
     openRegistration: true,
     cookieSecure,
     devLogMagicLinks: process.env.GITDONE_DEV_MAGIC_LINKS === '1',

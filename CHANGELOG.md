@@ -15,6 +15,112 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Bounce handling — synchronous send failures and DSN parsing surface on dashboard
+
+The organiser used to find out a participant address was wrong only
+when the step quietly stayed pending forever. Two paths now make
+delivery problems visible:
+
+- **Synchronous failures** — when `sendmail(8)` exits non-zero (bad
+  pipe, MTA misconfig, etc.), `notifyWorkflowParticipants` records a
+  per-step `last_send_error: { reason, code, at }` on the event. A
+  successful retry clears it. Persistence runs under the same
+  per-event mutex as activate / edit so it can't lose to a
+  concurrent edit.
+- **RFC 3464 DSN parsing in `receive.js`** — when a downstream MTA
+  returns a multipart/report bounce, gitdone detects it before the
+  prefilter rejects mailer-daemon, parses the delivery-status part,
+  reads `Original-Recipient` to find the failed `event+id-step@` tag,
+  and stamps `last_send_error: { reason: 'bounced', code, diagnostic,
+  final_recipient, at }` on the bounced step. The organiser also gets
+  a plain-text alert email summarising the bounce and linking back to
+  the dashboard.
+- **Dashboard surfacing** — open steps with `last_send_error` render a
+  `⚠ delivery failed` row beneath the row, mirroring the existing
+  `mg-reject-row` pattern. The organiser can use Edit to fix the
+  address; once the fix re-notifies successfully, the flag clears.
+
+New module `app/src/dsn.js` parses RFC 3464 multipart/report messages
+(falls back to splitting the multipart body from raw bytes because
+mailparser folds the delivery-status part into `parsed.text`). Tests:
+unit coverage of the parser, integration coverage of the dashboard
+surfacing, and end-to-end pipe tests that feed a Postfix-shaped DSN
+through `receive.js`.
+
+### Activation email — richer step preview and explicit two-stage wording
+
+The Mode A magic-link email is now self-contained enough that the
+organiser can decide whether to activate without leaving their inbox,
+and explicit enough that "did clicking the link already activate?"
+isn't a question anyone has to ask.
+
+- **Per-step block** carries deadline, `attachment required`, and
+  `after #N` dependency tags inline; a `brief:` line under each step
+  shows the first 80 chars of the step's `details` when present. With
+  50 steps × full metadata the body would blow knowless's 2048-char
+  cap, so the builder caps the inline list at ~1200 chars and appends
+  `… and N more steps (open the dashboard for the full list)` —
+  truncation is rare in practice but the email never silently fails
+  to send.
+- **Two-stage wording** — "Clicking the link signs you in and opens
+  the event dashboard. Review the steps below, then press Activate to
+  send invitations. Nothing leaves the server until you press
+  Activate; if you decide not to go ahead, just ignore this email."
+  Replaces the older "click to sign in, you'll see a one-click
+  confirmation" copy that left readers unsure whether they'd already
+  fired anything off.
+
+The crypto activation email got the same wording lift.
+
+### Identity alias — lowercase `gitdone` everywhere user-facing
+
+Per PRD §"Findings from Phase 1" point 25 ("identity aliases are
+lowercase `gitdone`, not `GitDone`"), but the `From:` display name was
+still capitalised `GitDone`, the knowless factory subject said
+`Sign in to GitDone`, and three subject prefixes in `receive.js`
+(verify report / reverify report / initiator-command reply) carried
+`[GitDone]` instead of `[gitdone]`. Mail clients (Gmail in particular)
+treat `[gitdone]` and `[GitDone]` as separate sender aliases, so users
+saw the same gitdone instance fragmented across multiple inbox
+groups. Now consistently lowercase across:
+
+- `From: gitdone <gitdone@git-done.com>` on every magic-link email
+- `Subject: Sign in to gitdone` (knowless factory subject)
+- `Subject: [gitdone] verification report …`
+- `Subject: [gitdone] re-verification report …`
+- `Subject: [gitdone] <command> · <event-id>` (initiator commands)
+- `gitdone verification report` / `gitdone re-verification report`
+  report-body headings
+- "verified offline without contacting gitdone" outbound copy
+- knowless `confirmationMessage` ("events on gitdone")
+
+The activation subject also got reshaped from `[gitdone] activate
+"<title>"` (verb before title) to `[gitdone] "<title>" - activate`
+(verb after title) so it matches the same `[gitdone] "<title>" -
+<verb>` shape that completion / bounce / please-sign etc. already use
+— additional alias-grouping nicety in clients that key off subject
+prefixes. ASCII hyphen because knowless's `validateSubject` is
+ASCII-only.
+
+`X-GitDone-*` HTTP-style header names stay PascalCase (header
+convention, not user-facing identity).
+
+### Sign-in page — back link
+
+`GET /manage` (sign-in form when signed-out) now carries the same
+`← back` link to `/` that every other secondary page has. Prior gap;
+no functional change.
+
+### Form — drop the dimmed-deadline visual hint
+
+The workflow create / edit form used to render `step_deadline` at
+opacity 0.55 when the row had a `depends_on` value, intending to
+signal "soft cap on top of an implicit dep wait". In practice it
+read as "field is disabled". The opacity is gone; the tooltip
+("Optional — step already waits for its dependencies. Set only if
+you need a wall-clock cap.") still carries the meaning for anyone
+who hovers.
+
 ### Outbound email — unified `From`, standard signature, `feedback@` inbox
 
 Every outbound message now has the same sender identity and a single,

@@ -190,7 +190,7 @@ async function persistReverifyRecord(eventId, event, targetSequence, record, rec
 function formatReverifyReportBody(eventId, targetSequence, record) {
   const lines = [];
   const target = `commit-${String(targetSequence).padStart(3, '0')}.json`;
-  lines.push('GitDone re-verification report');
+  lines.push('gitdone re-verification report');
   lines.push('==============================');
   lines.push('');
   lines.push(`Event: ${eventId}`);
