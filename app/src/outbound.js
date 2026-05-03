@@ -19,17 +19,18 @@ const crypto = require('node:crypto');
 
 const SENDMAIL_BIN = process.env.GITDONE_SENDMAIL_BIN || '/usr/sbin/sendmail';
 
-// Standard email signature delimiter (RFC 3676 §4.3): exactly "-- " on
-// its own line, then the signature body. Mail clients strip below this
-// when quoting. Pure ASCII so it's safe inside knowless's body
-// constraints (no CR, ASCII only, ≤2048 chars).
-const SIGNATURE = [
-  '-- ',
+// Standard email signature, in two parts. SIGNATURE_FOOTER is the body
+// (≤4 ASCII lines, no URLs — knowless's bodyFooter validator enforces
+// this). SIGNATURE prepends the RFC 3676 §4.3 "-- " separator for use
+// in messages we compose ourselves; knowless adds the separator itself
+// when consuming the footer.
+const SIGNATURE_FOOTER = [
   "gitdone -- we don't store email bodies or attachments; those go to",
   'the organiser. We keep DKIM proof, a SHA-256 hash of each message,',
   'and an OpenTimestamps anchor so the record is tamper-evident.',
   'Feedback: feedback@git-done.com',
 ].join('\n');
+const SIGNATURE = `-- \n${SIGNATURE_FOOTER}`;
 
 // Append the standard signature with a blank line separator. Idempotent
 // so callers that already include it (e.g. via a body builder that
@@ -151,4 +152,4 @@ function sendmail({ from, rawMessage, binary = SENDMAIL_BIN, to }) {
   });
 }
 
-module.exports = { sendmail, buildRawMessage, newMessageId, rfc5322Date, SIGNATURE, withSignature };
+module.exports = { sendmail, buildRawMessage, newMessageId, rfc5322Date, SIGNATURE, SIGNATURE_FOOTER, withSignature };

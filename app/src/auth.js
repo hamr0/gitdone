@@ -15,6 +15,7 @@
 
 const config = require('./config');
 const { createAuthMailer } = require('./auth-mailer');
+const { SIGNATURE_FOOTER } = require('./outbound');
 
 const FROM_ADDR = `gitdone@${config.domain}`;
 const FROM_NAME = 'GitDone';
@@ -61,6 +62,7 @@ async function _bootstrap() {
     logoutPath: '/manage/logout',
     failureRedirect: '/manage',
     subject: 'Sign in to GitDone',
+    bodyFooter: SIGNATURE_FOOTER,
     confirmationMessage: 'Check your inbox. If {email} has events on GitDone, a sign-in link is on its way.',
     openRegistration: true,
     cookieSecure,
