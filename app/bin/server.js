@@ -1258,16 +1258,41 @@ router.get('/manage', async (req, res) => {
   } else {
     const u = new URL(req.url || '/', 'http://localhost');
     const next = u.searchParams.get('next') || '';
+    const sent = u.searchParams.get('sent');
+    const flash = sent
+      ? "Check your inbox. If your email has events on gitdone, a sign-in link is on its way."
+      : null;
     res.end(layout({
       title: 'sign in — gitdone',
-      body: renderSignInForm({ next }),
+      body: renderSignInForm({ next, flash }),
     }));
   }
 });
 
+// Mode B sign-in: parse the email out of the form, send the magic link
+// via auth.startLogin, then 303 back to /manage?sent=1 with a flash —
+// no dead-end confirmation page. nextUrl defaults to /manage so the
+// callback after clicking the link lands the user on their dashboard.
+// Calling startLogin directly (vs auth.login(req, res)) means knowless
+// still rate-limits but we control the response shape.
 router.post('/manage', async (req, res) => {
+  let body;
+  try { body = await parseBody(req); }
+  catch { res.writeHead(400); return res.end('bad request'); }
+  const email = (body.email || '').toString().trim();
+  if (!email) { res.writeHead(303, { location: '/manage' }); return res.end(); }
+  const next = (body.next || '/manage').toString();
   const auth = await getAuth();
-  return auth.login(req, res);
+  try {
+    await auth.startLogin({ email, nextUrl: next });
+  } catch (err) {
+    process.stderr.write(`manage-login: ${err.message || err}\n`);
+    // Don't leak whether the email matched — the flash is intentionally
+    // shaped the same on success and failure (per knowless's
+    // confirmationMessage policy).
+  }
+  res.writeHead(303, { location: '/manage?sent=1' });
+  res.end();
 });
 
 router.get('/manage/callback', async (req, res) => {
