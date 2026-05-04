@@ -208,3 +208,17 @@ test('sendmail: pipes rawMessage to stdin of binary', async () => {
     try { fs.unlinkSync(tmp); } catch {}
   }
 });
+
+test('buildRawMessage: strips CR/LF from subject (header injection guard)', () => {
+  const raw = buildRawMessage({
+    from: 'a@x.com', to: 'b@x.com',
+    subject: 'evil\r\nBcc: attacker@x.com',
+    body: 'hi',
+    domain: 'x.com',
+  });
+  const headerBlock = raw.split('\r\n\r\n')[0];
+  assert.match(headerBlock, /Subject: evil Bcc: attacker@x\.com/);
+  // Must not produce a real Bcc header.
+  assert.doesNotMatch(headerBlock, /^Bcc:/m);
+});
+

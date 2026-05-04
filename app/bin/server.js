@@ -601,16 +601,11 @@ async function checkInitiatorMx(email) {
   }
 }
 
-// Same MX pre-flight, applied to every workflow participant. Returns
-// an array of { email, reason } for the addresses that fail; empty
-// when all participants are reachable. Caller surfaces the failures
-// in the form so the user fixes them at preview time instead of
-// waiting for a DSN bounce that may never arrive.
+// Catches typos at preview time instead of waiting for a DSN bounce
+// that may never arrive when the receiving MTA black-holes the address.
 async function checkParticipantsMx(steps) {
   const failures = [];
-  // De-dupe addresses so the same participant across multiple steps
-  // only triggers one DNS lookup. Preserve first-seen order so
-  // failure order matches the form rows.
+  // De-dupe by lowercased address so multi-step participants get one lookup.
   const seen = new Map();
   for (let i = 0; i < steps.length; i++) {
     const addr = String(steps[i].participant || '').trim();
@@ -1825,11 +1820,15 @@ router.post('/manage/event/:id/activate', async (req, res, params) => {
         for (const r of results) {
           if (!r.ok) process.stderr.write(`activate-notify: failed ${r.to}: ${r.reason || r.code}\n`);
         }
-        // Confirm to the organiser what just went out, with a per-step
-        // marker showing who participants are currently waiting on.
-        // Best-effort: a send failure here doesn't undo the activation.
-        notifyOrganiserOfActivation(event, { sendResults: results })
-          .catch((err) => process.stderr.write(`activate-organiser-notify: ${err.message || err}\n`));
+        // Confirm to the organiser what just went out. Awaited so the
+        // 303 doesn't race the send (tests, and any caller checking the
+        // outbox immediately after). Best-effort: a send failure logs
+        // but doesn't undo the activation.
+        try {
+          await notifyOrganiserOfActivation(event, { sendResults: results });
+        } catch (err) {
+          process.stderr.write(`activate-organiser-notify: ${err.message || err}\n`);
+        }
       } else if (event.type === 'crypto' && event.mode === 'declaration') {
         const results = await notifyDeclarationSigner(event);
         for (const r of results) {

@@ -59,18 +59,20 @@ function rfc5322Date(d = new Date()) {
   return d.toUTCString();
 }
 
-// Build a raw RFC-822 message from structured fields. Only text/plain
-// bodies are supported at this stage — verify reports, notifications,
-// and receipts are all plaintext in Phase 1 (§0.1.4 — "invisible beats
-// correct"; no HTML to render or sanitise).
-//
-// Headers passed here are emitted verbatim. The caller should not
-// pre-encode subjects with RFC 2047 unless they contain non-ASCII;
-// for ASCII subjects pass them as-is.
+// Strip CR/LF so user-supplied event titles can't break out of the
+// Subject header and inject extra ones. validateTitle only trims; this
+// is the second line of defence at the boundary that emits the message.
+function sanitizeSubject(s) {
+  return String(s == null ? '' : s).replace(/[\r\n]+/g, ' ');
+}
+
+// Build a raw RFC-822 message from structured fields. Plaintext only;
+// non-ASCII subjects are RFC 2047 encoded.
 function buildRawMessage({ from, to, subject, body, inReplyTo, references, autoSubmitted, messageId, extraHeaders, domain, replyTo, noSignature }) {
   if (!from || !to || !subject || body == null) {
     throw new Error('buildRawMessage: from, to, subject, body are required');
   }
+  subject = sanitizeSubject(subject);
   const signedBody = (noSignature ? body : withSignature(body))
     .replace(/\r\n/g, '\n')
     .replace(/\n/g, '\r\n');
@@ -152,4 +154,4 @@ function sendmail({ from, rawMessage, binary = SENDMAIL_BIN, to }) {
   });
 }
 
-module.exports = { sendmail, buildRawMessage, newMessageId, rfc5322Date, SIGNATURE, SIGNATURE_FOOTER, withSignature };
+module.exports = { sendmail, buildRawMessage, sanitizeSubject, newMessageId, rfc5322Date, SIGNATURE, SIGNATURE_FOOTER, withSignature };

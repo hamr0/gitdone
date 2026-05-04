@@ -168,9 +168,13 @@ async function notifyWorkflowParticipants(event, { stepsOverride } = {}) {
 // or declaration signed). One email per distinct address. Plain text,
 // DKIM-signed via the MTA milter. Best-effort — failures don't block
 // the completion commit itself.
-async function notifyEventCompletion(event, { reason = 'all_steps_done', publicBaseUrl } = {}) {
+async function notifyEventCompletion(event, { reason = 'all_steps_done', publicBaseUrl, completedStepId } = {}) {
   if (!event) return [];
   const completedAt = (event.completion && event.completion.completed_at) || new Date().toISOString();
+  const finalStep = completedStepId && Array.isArray(event.steps)
+    ? event.steps.find((s) => s.id === completedStepId)
+    : null;
+  const finalIdx = finalStep ? event.steps.indexOf(finalStep) : -1;
   const recipients = new Set();
   if (event.initiator) recipients.add(event.initiator.toLowerCase());
   if (event.type === 'event' && Array.isArray(event.steps)) {
@@ -210,6 +214,7 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
         `Event ID: ${event.id}`,
         `${isClosedEarly ? 'Closed' : 'Completed'}: ${completedAt}`,
         `Reason: ${reasonLabel}`,
+        finalStep ? `Final step: #${finalIdx + 1} "${finalStep.name}" by ${finalStep.participant}` : '',
         ``,
         steps ? `Steps:` : '',
         steps,
@@ -258,10 +263,9 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
   return Promise.all(jobs);
 }
 
-// Render the workflow's step list as plain-text lines, with a "▸"
-// marker next to every step the organiser is currently waiting on
-// (i.e. unblocked + not yet complete). Shared by activation and
-// per-step-transition emails so the visual cue stays consistent.
+// "▸" marks every step the organiser is currently waiting on. Shared
+// by activation and per-step-transition emails so the visual cue stays
+// consistent.
 function renderOrganiserStepList(event, activeStepIds) {
   const active = new Set(activeStepIds || []);
   return event.steps.map((s, i) => {
@@ -330,9 +334,12 @@ async function notifyOrganiserOfStepProgress(event, { completedStepId, newlyActi
   if (!completed) return null;
   const activeIds = newlyActiveSteps.map((s) => s.id);
   const baseUrl = publicBaseUrl || process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
+  // Match by id, not reference: future refactors that clone steps would
+  // silently produce #0 with indexOf.
+  const idxOfStep = (s) => event.steps.findIndex((x) => x.id === s.id);
   const newlyActiveLabel = newlyActiveSteps.length === 0
     ? 'No new steps unblocked yet (still waiting on other dependencies).'
-    : `Now waiting on: ${newlyActiveSteps.map((s) => `#${event.steps.indexOf(s) + 1} ${s.name} (${s.participant})`).join(', ')}.`;
+    : `Now waiting on: ${newlyActiveSteps.map((s) => `#${idxOfStep(s) + 1} ${s.name} (${s.participant})`).join(', ')}.`;
   const body = [
     `Step #${completedIdx + 1} "${completed.name}" was just completed by ${completed.participant}.`,
     ``,
@@ -347,7 +354,7 @@ async function notifyOrganiserOfStepProgress(event, { completedStepId, newlyActi
   ].join('\n');
   return sendOne({
     to: event.initiator,
-    subject: `[gitdone] "${event.title}" — step ${completedIdx + 1} done${newlyActiveSteps.length ? `, step${newlyActiveSteps.length === 1 ? '' : 's'} ${newlyActiveSteps.map((s) => `#${event.steps.indexOf(s) + 1}`).join(', ')} now active` : ''}`,
+    subject: `[gitdone] "${event.title}" — step ${completedIdx + 1} done${newlyActiveSteps.length ? `, step${newlyActiveSteps.length === 1 ? '' : 's'} ${newlyActiveSteps.map((s) => `#${idxOfStep(s) + 1}`).join(', ')} now active` : ''}`,
     body,
     event,
   });

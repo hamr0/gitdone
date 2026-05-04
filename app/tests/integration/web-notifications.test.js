@@ -239,6 +239,31 @@ test('attestation does NOT notify anyone besides the initiator', async () => {
   assert.deepEqual(recipients, ['chair@ex.com']);
 });
 
+test('activation emails the organiser a summary with ▸ on root steps', async () => {
+  await clearCaptures();
+  const r = await post('/events', {
+    title: 'Wedding',
+    initiator: 'org@ex.com',
+    step_name: ['audio', 'video'],
+    step_participant: ['a@ex.com', 'v@ex.com'],
+    step_depends_on: ['', '1'],
+  });
+  assert.equal(r.status, 200);
+  // Drop the magic-link capture so we only see the post-Activate sends.
+  await clearCaptures();
+  await activateAll();
+  const msg = await readCapture('org@ex.com');
+  assert.ok(msg, 'organiser received an email');
+  // Subject confirms activation + count of root invitations sent (just one).
+  assert.match(msg, /Subject: \[gitdone\].*activated, 1 invitation sent/);
+  // Body marks step 1 (root) as active and step 2 (depends on #1) as not.
+  assert.match(msg, /▸ 1\. audio → a@ex\.com/);
+  assert.match(msg, /^   {1,3}2\. video/m);
+  assert.match(msg, /after #1/);
+  // Delivery line lists the participant we tried to email.
+  assert.match(msg, /sent.* → a@ex\.com/);
+});
+
 // Regression: two concurrent POSTs to /activate (e.g. double-click on
 // the Activate button, or two tabs racing) must activate the event once
 // and notify each step participant exactly once. Without the per-event

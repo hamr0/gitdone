@@ -631,7 +631,7 @@ async function main() {
           const reason = nextEvent.type === 'crypto' && nextEvent.mode === 'declaration'
             ? 'declaration_signed'
             : 'all_steps_done';
-          const results = await notifyEventCompletion(nextEvent, { reason });
+          const results = await notifyEventCompletion(nextEvent, { reason, completedStepId: applied.completedStep });
           completion.completion_notified = results.map((r) => ({ to: r.to, ok: r.ok }));
         } catch (err) {
           completion.completion_notify_error = err.message || String(err);
@@ -659,13 +659,16 @@ async function main() {
           };
         }
         // Tell the organiser a step completed and which participant(s)
-        // are now active. Best-effort; skipped only if there's nothing
-        // newly active AND nothing left in flight (covered by the
-        // event-completion email path above).
-        notifyOrganiserOfStepProgress(nextEvent, {
-          completedStepId: applied.completedStep,
-          newlyActiveSteps: newlyEligible,
-        }).catch((err) => process.stderr.write(`progress-notify: ${err.message || err}\n`));
+        // are now active. Awaited so receive.js (a Postfix pipe
+        // transport) doesn't exit before the SMTP submission finishes.
+        try {
+          await notifyOrganiserOfStepProgress(nextEvent, {
+            completedStepId: applied.completedStep,
+            newlyActiveSteps: newlyEligible,
+          });
+        } catch (err) {
+          process.stderr.write(`progress-notify: ${err.message || err}\n`);
+        }
       }
     } catch (err) {
       completion = { error: err.message || String(err) };

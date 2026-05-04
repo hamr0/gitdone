@@ -305,6 +305,8 @@ test('POST /events: per-participant errors list every bad participant', async ()
     assert.equal(r.status, 422);
     assert.match(r.body, /participant email &quot;x@bad1\.invalid&quot;/);
     assert.match(r.body, /participant email &quot;y@bad2\.invalid&quot;/);
+    const ev = await latestEventFor('org2@example.com');
+    assert.equal(ev, null);
   } finally {
     process.env.GITDONE_SKIP_MX_CHECK = '1';
   }
