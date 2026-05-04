@@ -50,9 +50,10 @@ target_short="$(git rev-parse --short "$target_sha")"
 
 echo "==> Deploying $target_short to $SSH_HOST"
 
-# ---- 1. clean tree ----------------------------------------------------
+# ---- 1. clean tree (tracked files only — untracked is fine) -----------
 echo "==> Pre-flight"
-[[ -z "$(git status --porcelain)" ]] || fail "working tree dirty — commit or stash first"
+git diff --quiet || fail "unstaged changes to tracked files — commit or stash first"
+git diff --cached --quiet || fail "staged changes not committed"
 ok "clean tree"
 
 # ---- 2. on main -------------------------------------------------------
