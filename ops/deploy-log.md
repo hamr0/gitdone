@@ -2,7 +2,6 @@
 
 One line per successful production deploy. Newest first.
 
-- 2026-05-04T18:54Z · `1ba1ab4` · Landing: replace kicker + long tag with bare wordmark + one-liner
 - 2026-05-04T18:50Z · `ce32254` · deploy-log: 9216f8d (deploy.md step expansion)
 - 2026-05-04T18:40Z · `9216f8d` · deploy.md: expand each of the 14 steps with command + rationale
 - 2026-05-04T18:38Z · `7d47a5a` · docs: link ops/deploy.sh + deploy.md from index and CLAUDE.md
