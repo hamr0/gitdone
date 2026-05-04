@@ -19,33 +19,195 @@ it by hand against the runbook below — don't add a flag to the script.
 
 ## What it checks, and why
 
-Each check is one numbered step in `ops/deploy.sh`. They run in this
-order; the first failure exits non-zero before anything touches the
-VPS.
+The script runs fourteen numbered steps in the order below. They share
+a fail-fast contract: any non-zero exit aborts before the next step
+runs. Steps 1–8 are local; nothing on the VPS changes until step 10.
 
 ### Pre-flight (local)
 
-| # | Check | Why |
-|---|-------|-----|
-| 1 | Working tree is clean | A dirty tree means the sha you think you're deploying isn't what's on disk. Tests passing on uncommitted code don't prove anything once the script `git checkout`s a different sha on the VPS. |
-| 2 | On branch `main` | Production tracks `main`. Deploying from a feature branch is almost always a mistake. Use the explicit `<sha-or-tag>` form if you really need to deploy something off-main. |
-| 3 | `main == origin/main` | Catches the "I forgot to `git push`" case. The VPS pulls from `origin`, not your laptop. |
-| 4 | Target sha is reachable from `origin/main` | Stops you from deploying a sha that exists locally but isn't on the public main branch. |
-| 5 | `app/package-lock.json` is tracked | `npm ci` requires a lockfile. Without it the VPS install is non-reproducible and may silently skip new deps. |
-| 6 | No `file:` / `link:` / `git:` deps in `app/package.json` | Those resolve only on the maintainer laptop and break `npm ci` on the VPS. Use a published package or vendor it. |
-| 7 | Local Node major ≤ VPS Node major | knowless once required Node ≥22.5 while the VPS was on 20; `auth.startLogin` blew up at runtime because `node:sqlite` is a 22.5+ built-in and only `/health` worked. Engine drift = silent prod outage. |
-| 8 | `cd app && npm test` passes | Final gate. The full suite (~390 cases) runs against the same code that's about to ship. Output goes to `/tmp/gitdone-deploy-tests.log` if it fails. |
+#### 1. Working tree is clean (tracked files only)
+
+```bash
+git diff --quiet                # no unstaged tracked diffs
+git diff --cached --quiet       # no staged-but-uncommitted diffs
+```
+
+Untracked files (stash notes, scratch dirs) are ignored on purpose —
+they don't affect the sha that ships. Tracked diffs do: if the working
+tree disagrees with HEAD, you have no idea what you're actually
+deploying. Tests passing on uncommitted code prove nothing once the
+script `git checkout`s the *committed* sha on the VPS.
+
+**Failure says:** `unstaged changes to tracked files — commit or stash first`.
+Commit (or `git stash`) and re-run.
+
+#### 2. On branch `main`
+
+```bash
+git symbolic-ref --short HEAD   # must equal "main"
+```
+
+Production tracks `main`. A feature-branch deploy is almost always a
+mistake, and a detached HEAD has no upstream to compare against in
+step 3. If you genuinely need to deploy something off-main, pass it
+explicitly: `ops/deploy.sh <sha-or-tag>` — that bypasses the branch
+check by going through step 4 instead.
+
+#### 3. Local `main` == `origin/main`
+
+```bash
+git fetch --quiet origin main
+test "$(git rev-parse main)" = "$(git rev-parse origin/main)"
+```
+
+Catches the "I forgot to `git push`" case. The VPS clones from
+`origin`, not from your laptop, so anything not on the remote is
+invisible to it. We `fetch` first so a stale local view of
+`origin/main` doesn't pass when the remote has actually moved on
+(someone else pushed).
+
+#### 4. Target sha is reachable from `origin/main`
+
+```bash
+git merge-base --is-ancestor "$target_sha" origin/main
+```
+
+Stops you from deploying a sha that exists locally but was never
+pushed (or was pushed only to a branch). The check uses
+`is-ancestor`, so `origin/main` itself qualifies, as does any commit
+that's already in main's history — including older shas for rollback.
+
+#### 5. `app/package-lock.json` is tracked
+
+```bash
+git ls-files --error-unmatch app/package-lock.json
+```
+
+`npm ci` *requires* a lockfile and refuses to install without one. If
+the lockfile is gitignored or never added, the VPS install becomes
+non-reproducible — npm falls back to `package.json` resolution, may
+silently skip new transitive deps, and the production behavior diverges
+from what you tested locally.
+
+#### 6. No `file:` / `link:` / `git:` deps in `app/package.json`
+
+```bash
+grep -E '"(file|link|git\+?[a-z]*):"' app/package.json
+```
+
+These specifier schemes resolve relative to the maintainer's laptop
+(`file:../knowless`) or against a private git URL the VPS may not have
+access to. They install fine in development and explode at `npm ci`
+time on the VPS. Either publish the dep to npm or vendor it into the
+repo.
+
+#### 7. Local Node major ≤ VPS Node major
+
+```bash
+node -p 'process.versions.node.split(".")[0]'   # local
+ssh gitdone-vps 'node --version'                # remote
+```
+
+Engine drift is a silent prod outage. The canonical scar:
+`knowless` once bumped to Node ≥22.5 while the VPS was pinned to 20;
+the app booted, `/health` returned 200, but `auth.startLogin` blew up
+at runtime because `node:sqlite` is a 22.5+ built-in. The check fails
+loud at pre-flight rather than letting that recur. Resolution is
+always the same — upgrade the VPS Node major *first*, in a separate
+change, then come back to the app deploy.
+
+#### 8. Full test suite passes
+
+```bash
+cd app && npm test
+```
+
+Final gate before anything touches the VPS. Output is captured to
+`/tmp/gitdone-deploy-tests.log`; on failure the script tails the last
+30 lines so you don't have to dig. The current suite is 393 cases and
+runs in ~14s — there is intentionally no skip flag because the cost
+of waiting is far less than the cost of shipping a regression.
 
 ### Deploy (remote)
 
-| # | Action | Notes |
-|---|--------|-------|
-| 9 | Load SSH key from `pass gitdone/vps/ssh_key_federver` into `/tmp/gitdone-vps-key` | Only happens if the file is missing. The `gitdone-vps` ssh alias in `~/.ssh/config` points at this path. |
-| 10 | `git fetch --tags && git checkout <target>` at `/opt/gitdone` | Run as `sudo` because the deploy dir is root-owned. |
-| 11 | `npm ci --omit=dev` | Only if `app/package-lock.json` or `app/package.json` changed between deployed and target sha. Skipped otherwise — restart is sub-second. |
-| 12 | `systemctl restart gitdone-web.service` | The service is a single Node process on `127.0.0.1:3001`. nginx proxies `:443` → `:3001`. |
-| 13 | Poll `/health` (200) and `/manage` (200/302) | `/health` is zero-dep so it passes even when auth is broken — `/manage` exercises the knowless bootstrap. Up to 15s of polling on `/health` to ride out the restart. |
-| 14 | Append a line to `ops/deploy-log.md` | Uncommitted — fold it into your next commit. |
+#### 9. Load the SSH key from `pass`
+
+```bash
+pass show gitdone/vps/ssh_key_federver > /tmp/gitdone-vps-key
+chmod 600 /tmp/gitdone-vps-key
+```
+
+Only runs if `/tmp/gitdone-vps-key` is missing or empty — across
+multiple deploys in one session, the key persists for the
+`ControlMaster` to reuse. The path is the one the `gitdone-vps` host
+in `~/.ssh/config` already references, so no SSH config edits are
+needed. The key is the same one the federver homeserver uses for
+backups (single source of truth in `pass`).
+
+#### 10. Fetch and check out on the VPS
+
+```bash
+ssh gitdone-vps "cd /opt/gitdone && sudo git fetch --tags --quiet origin \
+  && sudo git checkout --quiet <target_sha>"
+```
+
+`/opt/gitdone` is a regular git clone, root-owned (hence `sudo`). The
+checkout is detached at the target sha — branches don't matter here
+because the script always passes a resolved sha. `--tags` keeps tag
+refs current so tag-based deploys work without a separate fetch.
+
+#### 11. `npm ci --omit=dev` (only if deps changed)
+
+```bash
+git diff --quiet "$deployed_sha" "$target_sha" -- \
+  app/package-lock.json app/package.json
+```
+
+If that diff is empty between the previously-deployed sha and the
+target sha, the script skips `npm ci` entirely — `node_modules/` on
+the VPS already matches. When it isn't empty (lockfile or
+package.json changed), it runs `npm ci --omit=dev` to install
+production deps deterministically. Skipping the install when nothing
+changed is what makes the typical deploy sub-second.
+
+#### 12. Restart the service
+
+```bash
+ssh gitdone-vps "sudo systemctl restart gitdone-web.service"
+```
+
+The service is a single Node process bound to `127.0.0.1:3001`; nginx
+on `:443` proxies to it. Restart drops the listening socket briefly,
+which nginx surfaces as a `502` to anyone hitting the site during the
+window. That's expected and is what step 13 polls past.
+
+#### 13. Smoke checks
+
+```bash
+# poll /health up to 15× with 1s spacing
+curl -fsS -o /dev/null -w '%{http_code}' --max-time 3 https://git-done.com/health
+curl -fsS -o /dev/null -w '%{http_code}' --max-time 5 https://git-done.com/manage
+```
+
+`/health` is the zero-dep liveness endpoint — it returns 200 even when
+auth is broken (by design), so it tells you the process is up but not
+that the app is functional. `/manage` is the second probe: it
+exercises the knowless bootstrap, which is the part that tends to fail
+on Node-version drift or session-secret problems. We accept 200 *or*
+302 (the redirect-to-sign-in is healthy). On failure the script dumps
+the last 40 lines of `journalctl -u gitdone-web.service` so the cause
+is visible without a second SSH round-trip.
+
+#### 14. Record in `ops/deploy-log.md`
+
+```markdown
+- 2026-05-04T18:34Z · `53ffaaa` · deploy: ignore untracked files in clean-tree check
+```
+
+One line, prepended at the top (newest first). Left **uncommitted** so
+it folds into your next functional commit instead of generating churn
+of its own. The log is a thin audit trail — handy for "when did we
+last ship X?" without grepping git history.
 
 ## When something fails
 
