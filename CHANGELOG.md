@@ -15,6 +15,36 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Discoverability — tier 1 head tags, robots.txt, sitemap.xml
+
+Privacy-led SEO per `docs/04-process/privacy-seo.md`. The web is
+declarative-machine-readable in its 1995 form; refusing the static
+head tags and sitemap files is leaving signal on the table without
+gaining any privacy.
+
+- **Head tags via `layout()`** in `app/src/web/templates.js` — every
+  page now emits `<meta name="description">`, `<meta name="theme-
+  color">`, `<link rel="canonical">` (when supplied), the OpenGraph
+  quintet (`og:type`, `og:site_name`, `og:title`, `og:description`,
+  `og:url`), and `twitter:card`. Optional fields default safely so
+  the 20 existing call sites are unchanged. Routes that should be
+  indexed (`/`, `/events/new`, `/crypto/new`, `/manage`) pass a
+  description and canonical; transactional routes inherit the
+  default description. No JSON-LD (skipped on principle); no
+  og-card.png yet (design task; unfurl falls back to title +
+  description).
+- **`/robots.txt`** — `User-agent: *`, `Allow: /`, `Disallow:` for
+  the session-gated paths (`/manage/event/`, `/manage/callback`,
+  `/manage/verify`, `/events/` — the per-event audit viewer), with
+  `Allow: /events/new` to restore the create form since longest-
+  match wins for Google. References the sitemap.
+- **`/sitemap.xml`** — lists exactly the four indexable URLs with
+  `<changefreq>weekly</changefreq>`. Per-event audit pages are
+  deliberately absent.
+- **Audit:** the page source has no analytics scripts (`gtag`,
+  `plausible`, `fathom`, `umami` etc.), no third-party JS, no
+  tracking cookies — verified by integration test.
+
 ### Organiser visibility — activation summary, per-step progress, MX pre-flight on participants
 
 Three changes that close the "I can't tell from email tracking what's

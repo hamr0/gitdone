@@ -191,3 +191,39 @@ test('POST /events with multi-step deadlines is persisted correctly', async () =
   assert.equal(ev.steps[2].requires_attachment, true);
   assert.equal(ev.min_trust_level, 'authorized');
 });
+
+test('GET /robots.txt allows public surfaces, disallows session-gated paths, lists sitemap', async () => {
+  const r = await get('/robots.txt');
+  assert.equal(r.status, 200);
+  assert.match(r.headers['content-type'], /text\/plain/);
+  assert.match(r.body, /^User-agent: \*/m);
+  assert.match(r.body, /^Disallow: \/manage\/event\//m);
+  assert.match(r.body, /^Disallow: \/manage\/callback/m);
+  assert.match(r.body, /^Disallow: \/events\//m);
+  assert.match(r.body, /^Allow: \/events\/new/m);
+  assert.match(r.body, /^Sitemap: http:\/\/localhost:3001\/sitemap\.xml/m);
+});
+
+test('GET /sitemap.xml lists every public URL', async () => {
+  const r = await get('/sitemap.xml');
+  assert.equal(r.status, 200);
+  assert.match(r.headers['content-type'], /application\/xml/);
+  for (const u of ['/', '/events/new', '/crypto/new', '/manage']) {
+    assert.match(r.body, new RegExp(`<loc>http://localhost:3001${u.replace(/\//g, '\\/')}<\\/loc>`));
+  }
+  // Per-event audit pages must NOT be in the sitemap.
+  assert.doesNotMatch(r.body, /\/events\/[a-z0-9]{12}/);
+});
+
+test('GET / has SEO head tags (description, canonical, og:title, twitter:card)', async () => {
+  const r = await get('/');
+  assert.equal(r.status, 200);
+  assert.match(r.body, /<meta name="description" content="[^"]*[Nn]o accounts[^"]*"/);
+  assert.match(r.body, /<link rel="canonical" href="http:\/\/localhost:3001\/"/);
+  assert.match(r.body, /<meta property="og:title" content="[^"]*gitdone[^"]*"/);
+  assert.match(r.body, /<meta property="og:url" content="http:\/\/localhost:3001\/"/);
+  assert.match(r.body, /<meta name="twitter:card" content="summary"/);
+  assert.match(r.body, /<meta name="theme-color" content="#0d1117"/);
+  // No analytics/tracking scripts.
+  assert.doesNotMatch(r.body, /gtag|google-analytics|plausible|fathom|umami/i);
+});

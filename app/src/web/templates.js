@@ -41,13 +41,35 @@ function html(strings, ...values) {
 // correct") — whitespace, no branding chrome, no JS in production.
 // In dev mode (layout called with { dev: true, devHUD: "..." }),
 // injects the feedback/reload HUD.
-function layout({ title, body, dev, devHUD, pageName }) {
+// Discoverability tier 1 (declarative head tags only — no scripts, no
+// trackers). description + canonical are passed by routes that should
+// be indexed; transactional routes pass nothing and rely on robots.txt
+// to keep them out of search.
+const DEFAULT_DESCRIPTION = 'Email-native multi-party workflow coordination with cryptographic proof of the reply sequence. No accounts, no API, no telemetry, open source.';
+const SITE_NAME = 'gitdone';
+const THEME_COLOR = '#0d1117';
+
+function layout({ title, body, dev, devHUD, pageName, description, canonical, noindex }) {
   // Auto-derive header name from title when not explicitly given.
   // Title shape across the app is "<page> — gitdone" or just "gitdone".
   if (pageName === undefined && title) {
     const m = String(title).match(/^(.*?)\s+—\s+gitdone\s*$/);
     pageName = m ? m[1].trim() : (title === 'gitdone' ? '' : String(title).trim());
   }
+  const desc = description || DEFAULT_DESCRIPTION;
+  const seoTags = [];
+  seoTags.push(`<meta name="description" content="${escapeHTML(desc)}">`);
+  seoTags.push(`<meta name="theme-color" content="${THEME_COLOR}">`);
+  if (canonical) seoTags.push(`<link rel="canonical" href="${escapeHTML(canonical)}">`);
+  if (noindex) seoTags.push(`<meta name="robots" content="noindex,nofollow">`);
+  // OpenGraph + twitter card — skip og:image (deferred design task per
+  // privacy-seo.md tier 1; unfurl falls back to title+description).
+  seoTags.push(`<meta property="og:type" content="website">`);
+  seoTags.push(`<meta property="og:site_name" content="${SITE_NAME}">`);
+  seoTags.push(`<meta property="og:title" content="${escapeHTML(title || SITE_NAME)}">`);
+  seoTags.push(`<meta property="og:description" content="${escapeHTML(desc)}">`);
+  if (canonical) seoTags.push(`<meta property="og:url" content="${escapeHTML(canonical)}">`);
+  seoTags.push(`<meta name="twitter:card" content="summary">`);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -55,6 +77,7 @@ function layout({ title, body, dev, devHUD, pageName }) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHTML(title || 'gitdone')}</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+${seoTags.join('\n')}
 <style>
 /* Terminal theme — retro CRT (charcoal + phosphor green + amber). */
 html, body { background: #0d1117; }

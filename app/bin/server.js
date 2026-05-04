@@ -192,7 +192,44 @@ router.get('/', async (req, res) => {
     </div>
   `;
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  res.end(layout({ title: 'gitdone', body }));
+  res.end(layout({
+    title: 'gitdone — multi-party workflows over email, with cryptographic proof',
+    description: 'Email-native multi-party workflow coordination with cryptographic proof of the reply sequence. No accounts, no API, no telemetry, open source.',
+    canonical: `${publicBaseUrl()}/`,
+    body,
+  }));
+});
+
+// Tier-2 discoverability: robots.txt + sitemap.xml. Only the public
+// marketing/utility surfaces are indexable; per-event audit pages and
+// the session-gated dashboard sit behind Disallow.
+router.get('/robots.txt', async (req, res) => {
+  const base = publicBaseUrl();
+  res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=86400' });
+  res.end([
+    'User-agent: *',
+    'Allow: /',
+    'Disallow: /manage/event/',
+    'Disallow: /manage/callback',
+    'Disallow: /manage/verify',
+    'Disallow: /events/',
+    'Allow: /events/new',
+    `Sitemap: ${base}/sitemap.xml`,
+    '',
+  ].join('\n'));
+});
+router.get('/sitemap.xml', async (req, res) => {
+  const base = publicBaseUrl();
+  const urls = ['/', '/events/new', '/crypto/new', '/manage'];
+  const body = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ...urls.map((u) => `  <url><loc>${base}${u}</loc><changefreq>weekly</changefreq></url>`),
+    '</urlset>',
+    '',
+  ].join('\n');
+  res.writeHead(200, { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=86400' });
+  res.end(body);
 });
 
 // -------- event creation (workflow) --------
@@ -503,7 +540,12 @@ router.get('/events/new', async (req, res) => {
     values.step_details.splice(removeIdx, 1);
   }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  res.end(layout({ title: 'create event — gitdone', body: renderWorkflowForm({ values }) }));
+  res.end(layout({
+    title: 'create event — gitdone',
+    description: 'Create a multi-party workflow that runs over email. DKIM-verified replies, OpenTimestamped, committed to a per-event git repository. No accounts, no API.',
+    canonical: `${publicBaseUrl()}/events/new`,
+    body: renderWorkflowForm({ values }),
+  }));
 });
 
 const { renderFlowProse, levelsByStep } = require('../src/web/flow-prose');
@@ -1168,7 +1210,12 @@ router.get('/crypto/new', async (req, res) => {
     allow_anonymous: sp.get('allow_anonymous') || '',
   };
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  res.end(layout({ title: 'create crypto — gitdone', body: renderCryptoForm({ values }) }));
+  res.end(layout({
+    title: 'create crypto — gitdone',
+    description: 'Cryptographically timestamped declarations and N-of-M attestations over email. DKIM + OpenTimestamps on every reply. No accounts, no API.',
+    canonical: `${publicBaseUrl()}/crypto/new`,
+    body: renderCryptoForm({ values }),
+  }));
 });
 
 router.post('/crypto', async (req, res) => {
@@ -1517,6 +1564,8 @@ router.get('/manage', async (req, res) => {
       : null;
     res.end(layout({
       title: 'sign in — gitdone',
+      description: 'Sign in by email — no passwords. gitdone organisers manage their events here.',
+      canonical: `${publicBaseUrl()}/manage`,
       body: renderSignInForm({ next, flash }),
     }));
   }
