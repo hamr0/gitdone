@@ -111,8 +111,7 @@ const LANDING_CSS = `
                  animation: vF-blink 1.1s steps(1) infinite;
                  box-shadow: 0 0 10px rgba(63,185,80,.6); }
 @keyframes vF-blink { 50% { opacity: 0; } }
-.vF .tag { font-size: 0.95em; color: #8b949e; margin: 0; max-width: 44ch; line-height: 1.5; }
-.vF .tag em { color: #3fb950; font-style: normal; }
+.vF .tag { font-size: 0.95em; color: #8b949e; margin: 0; line-height: 1.5; }
 .vF .grid { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #30363d; }
 .vF .cell { display: block; padding: 1.5rem 1.4rem; text-decoration: none; color: inherit;
             border-right: 1px solid #30363d; transition: background 0.12s; position: relative; }
