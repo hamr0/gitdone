@@ -103,6 +103,8 @@ const LANDING_CSS = `
               background: repeating-linear-gradient(45deg, #ffb000 0 9px, #0d1117 9px 11px);
               opacity: 0.85; pointer-events: none; }
 .vF .top { padding: 1.3rem 1.4rem 1rem; border-bottom: 1px solid #30363d; position: relative; z-index: 1; }
+.vF .kicker { font-size: 0.7em; letter-spacing: 0.22em; color: #8b949e; margin: 0 0 0.4rem; text-transform: uppercase; }
+.vF .kicker .dot { color: #3fb950; margin: 0 0.3em; }
 .vF h1 { font-family: inherit; font-size: clamp(2.4rem, 8vw, 4.4rem); line-height: 0.88;
          font-weight: 700; letter-spacing: -0.04em; margin: 0 0 1.1rem; color: #c9d1d9; }
 .vF h1 .slash { color: #ffb000; text-shadow: 0 0 18px rgba(255,176,0,.35); }
@@ -159,8 +161,9 @@ router.get('/', async (req, res) => {
     <style>${raw(LANDING_CSS)}</style>
     <div class="vF" data-variant-root="F">
       <div class="top">
-        <h1>g<span class="slash">/</span>gitdone<span class="cursor"></span></h1>
-        <p class="tag">multi-party workflows over email, with cryptographic proof</p>
+        <p class="kicker">email-native <span class="dot">●</span> git-proved <span class="dot">●</span> offline-verifiable</p>
+        <h1>git<span class="slash">/</span>done<span class="cursor"></span></h1>
+        <p class="tag">Multi-party actions coordinated by email. Every reply <em>DKIM-verified</em>, <em>OpenTimestamped</em>, and committed to a per-event git repository.</p>
       </div>
       <div class="manage-strip">
         <span>Already have events? <a href="/manage">Manage your events &amp; crypto ▸</a></span>
