@@ -142,7 +142,7 @@ ssh "$SSH_HOST" "sudo systemctl restart gitdone-web.service"
 echo "==> Smoke checks"
 http_health="000"
 for _ in $(seq 1 15); do
-  http_health="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 3 "$HEALTH_URL" || echo "000")"
+  http_health="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 3 "$HEALTH_URL" 2>/dev/null || echo "000")"
   [[ "$http_health" == "200" ]] && break
   sleep 1
 done
