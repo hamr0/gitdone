@@ -139,6 +139,12 @@ poc/             # throwaway proofs-of-concept
 
 ## Production
 
+Deploy with `ops/deploy.sh` — full pre-flight (clean tree, on main,
+pushed, lockfile, deps, Node compat, full test suite), then loads the
+SSH key from `pass gitdone/vps/ssh_key_federver` and ships. Tests are
+not skippable. See `docs/04-process/deploy.md` for the contract;
+`deployment.md` is for host-level work the script doesn't automate.
+
 Live at **https://git-done.com**. AlmaLinux 8 VPS at `104.129.2.254`;
 nginx `:443 → :3001`; Postfix pipe-transport `gitdone` user →
 `/opt/gitdone/app/bin/receive.sh`; opendkim selector `gd202604`.

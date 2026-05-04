@@ -26,7 +26,8 @@ docs/
 │   └── insights.md          lessons learned
 ├── 04-process/      HOW to work with the system
 │   ├── phase1-plan.md       Phase 1 execution plan
-│   ├── deployment.md        VPS deploy runbook
+│   ├── deploy.md            ops/deploy.sh contract — every check, why
+│   ├── deployment.md        VPS install + ops runbook
 │   ├── dev-workflow.md
 │   ├── definition-of-done.md
 │   └── llm-prompts.md       guidelines for AI agents
@@ -38,7 +39,9 @@ docs/
 
 - Want to **understand the product**: `00-context/vision.md` →
   `00-context/system-state.md` → `01-product/prd.md`.
-- Want to **deploy or operate it**: `04-process/deployment.md` +
+- Want to **deploy**: `../ops/deploy.sh` (script) +
+  `04-process/deploy.md` (its contract).
+- Want to **operate the host**: `04-process/deployment.md` +
   `../ops/homeserver/README.md`.
 - Want to **contribute**: `../CLAUDE.md` (agent rules) +
   `04-process/definition-of-done.md`.
