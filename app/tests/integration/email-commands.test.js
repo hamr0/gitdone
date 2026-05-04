@@ -98,7 +98,7 @@ test('stats+ from the initiator: reply lists step statuses', async () => {
     const replies = await capturesFor(captureDir, 'boss@ex.com');
     assert.equal(replies.length, 1);
     const reply = replies[0];
-    assert.match(reply, /Subject: \[gitdone\] stats · evstats01/);
+    assert.match(reply, /Subject: \[gitdone\] stats "Q2" \[1\/2\] step done/);
     assert.match(reply, /\[x\] Legal/);
     assert.match(reply, /\[ \] Design/);
   } finally {

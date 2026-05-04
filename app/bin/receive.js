@@ -440,10 +440,26 @@ async function main() {
     const to = envelope.sender || from.address || null;
     if (to) {
       const fromAddr = `${cmdTag.command}+${cmdTag.eventId}@${config.domain}`;
+      // Mirror the [N/M] step-progress notification shape so stats replies
+      // read like a status snapshot rather than a tag dump. Falls back to
+      // the bare command·id form when the event isn't loaded (rejected
+      // commands, unknown ids).
+      let subjectStr = `[gitdone] ${cmdTag.command} · ${cmdTag.eventId}`;
+      if (cmdTag.command === 'stats' && cmdEvent) {
+        if (cmdEvent.type === 'event') {
+          const total = (cmdEvent.steps || []).length;
+          const done = (cmdEvent.steps || []).filter((s) => s.status === 'complete').length;
+          const phrase = cmdEvent.completion && cmdEvent.completion.status === 'complete' ? 'complete' : 'step done';
+          subjectStr = `[gitdone] stats "${cmdEvent.title}" [${done}/${total}] ${phrase}`;
+        } else if (cmdEvent.type === 'crypto') {
+          const status = cmdEvent.completion && cmdEvent.completion.status === 'complete' ? 'complete' : 'open';
+          subjectStr = `[gitdone] stats "${cmdEvent.title}" — ${cmdEvent.mode} · ${status}`;
+        }
+      }
       const rawMessage = buildRawMessage({
         from: `gitdone <${fromAddr}>`,
         to,
-        subject: `[gitdone] ${cmdTag.command} · ${cmdTag.eventId}`,
+        subject: subjectStr,
         inReplyTo: parsed.messageId || null,
         references: parsed.messageId || null,
         body: replyBody,
