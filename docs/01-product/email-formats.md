@@ -267,6 +267,237 @@ A second DKIM-authenticated reply within the TTL, containing
 - **Subject.** `[gitdone] re-verification report for <eventId> commit-<NNN>`
 - **Body.** Same shape as #19, scoped to the one commit.
 
+## Worked example
+
+A two-step workflow with both steps requiring an attachment and
+carrying an aspirational date, to make it easy to scan the actual
+subject + body shape end-to-end.
+
+**Event setup (what the organiser submitted):**
+
+```
+title:      wedding video
+organiser:  jane@example.com
+min trust:  authorized
+steps:
+  1. audio mix    → contractor1@example.com   deadline 2026-06-01   attachment required
+  2. video edit   → contractor2@example.com   deadline 2026-06-15   attachment required   after #1
+```
+
+Event id assumed: `evd47k0vqc23`. Domain: `git-done.com`.
+
+### Email A — activation receipt to organiser (#9)
+
+```
+From:    gitdone <gitdone@git-done.com>
+To:      jane@example.com
+Subject: [gitdone] "wedding video" — activated, 1 invitation sent
+
+Your event is now active. Invitations have been sent to the participants
+whose steps are unblocked (▸ in the list below). Downstream participants
+will be invited automatically as their dependencies complete.
+
+Event: wedding video
+Activated: 2026-05-04T19:30:00Z
+
+Steps (▸ = waiting on this person now):
+  ▸ 1. audio mix → contractor1@example.com  [pending]  (deadline 2026-06-01, attachment required)
+    2. video edit → contractor2@example.com  [pending]  (after #1, deadline 2026-06-15, attachment required)
+
+Delivery:
+  sent   → contractor1@example.com
+
+If a participant's address bounces you'll get a separate "invitation
+bounced" email and the dashboard will show "delivery failed" on that step.
+
+Manage: https://git-done.com/manage/event/evd47k0vqc23
+```
+
+### Email B — first invitation to step 1 participant (#2)
+
+```
+From:     gitdone <gitdone@git-done.com>
+To:       contractor1@example.com
+Reply-To: event+evd47k0vqc23-s1@git-done.com
+Subject:  [gitdone] wedding video — audio mix [1/2] — your step
+
+You've been named as a participant in a gitdone event.
+
+Event: wedding video
+Your step: audio mix (step 1 of 2)
+Organiser: jane@example.com
+Attachment: required
+Aspirational date: Mon 1 Jun 2026
+
+Reply from contractor1@example.com to:
+  event+evd47k0vqc23-s1@git-done.com
+
+Write whatever you want in the body. Attachments are forwarded to the
+organiser directly — gitdone only stores hashes of them, never content.
+Your reply is DKIM-verified, OpenTimestamped, and committed to a
+per-event git repository as a permanent record.
+
+If this is unexpected or you don't want to participate, ignore this
+email. The organiser can see that your step is still pending.
+```
+
+### Email C — reply ack: accepted (#4)
+
+After contractor1 replies with the audio file attached:
+
+```
+From:    gitdone <event+evd47k0vqc23-s1@git-done.com>
+To:      contractor1@example.com
+Subject: [gitdone] Accepted — wedding video — audio mix [1/2]
+
+Your reply for "audio mix" on event "wedding video" was accepted.
+The step is marked complete and the reply is recorded in the event's
+git audit trail (DKIM-verified, OpenTimestamped).
+
+Thank you — nothing else is needed from you on this step.
+
+Organiser: jane@example.com
+```
+
+### Email D — step-progress update to organiser (#10)
+
+```
+From:    gitdone <gitdone@git-done.com>
+To:      jane@example.com
+Subject: [gitdone] "wedding video" [1/2] step done · next active
+
+Step #1 "audio mix" was just completed by contractor1@example.com.
+
+Now waiting on: #2 video edit (contractor2@example.com).
+
+Event: wedding video
+
+Steps (▸ = waiting on this person now):
+    1. audio mix → contractor1@example.com  [DONE]  (deadline 2026-06-01, attachment required)
+  ▸ 2. video edit → contractor2@example.com  [pending]  (after #1, deadline 2026-06-15, attachment required)
+
+Manage: https://git-done.com/manage/event/evd47k0vqc23
+```
+
+### Email E — cascaded invitation to step 2 participant (#2)
+
+Same shape as Email B, sent the moment step 1 commits. Note `[2/2]`.
+
+```
+From:     gitdone <gitdone@git-done.com>
+To:       contractor2@example.com
+Reply-To: event+evd47k0vqc23-s2@git-done.com
+Subject:  [gitdone] wedding video — video edit [2/2] — your step
+
+You've been named as a participant in a gitdone event.
+
+Event: wedding video
+Your step: video edit (step 2 of 2)
+Organiser: jane@example.com
+Attachment: required
+Aspirational date: Mon 15 Jun 2026
+
+Reply from contractor2@example.com to:
+  event+evd47k0vqc23-s2@git-done.com
+
+[…body identical to Email B…]
+```
+
+### Email F — completion notice to organiser (#11)
+
+After contractor2 replies, the event reaches `complete` and one email
+goes to every distinct contributor. The organiser's variant:
+
+```
+From:    gitdone <gitdone@git-done.com>
+To:      jane@example.com
+Subject: [gitdone] "wedding video" — completed [2/2]
+
+The event you organized has completed.
+
+Event: wedding video
+Event ID: evd47k0vqc23
+Completed: 2026-05-15T18:14:22Z
+Reason: all steps completed
+Final step: #2 "video edit" by contractor2@example.com
+
+Steps:
+  1. audio mix — DONE
+  2. video edit — DONE
+
+The full audit trail is stored as a git repository with one commit per
+reply, DKIM keys archived, and OpenTimestamps proofs attached. Anyone
+can verify it offline with the gitdone-verify CLI, even if gitdone itself
+goes away — the proofs outlive the service.
+
+  Event repo: git-done.com/events/evd47k0vqc23 (auth required)
+  Organiser: jane@example.com
+```
+
+Each contributor gets a slimmer participant variant — same subject, no
+step table.
+
+### Email G — what jane sees if she sends `remind+` mid-flow (#17, #2)
+
+After Email B but before contractor1 replies, jane sends to
+`remind+evd47k0vqc23@git-done.com`. Two messages go out:
+
+**Receipt back to jane:**
+
+```
+From:    gitdone <remind+evd47k0vqc23@git-done.com>
+To:      jane@example.com
+Subject: [gitdone] reminded "wedding video" [0/2] step done
+
+Reminders sent:
+  ✓ contractor1@example.com
+```
+
+**Reminder to contractor1** — same as Email B but the subject is
+prefixed with `"reminder"` so the participant's MUA can disambiguate
+the resend:
+
+```
+Subject: [gitdone] "reminder" wedding video — audio mix [1/2] — your step
+```
+
+### Email H — what jane sees if she sends `close+` (#18)
+
+Two replies are required. First — pending intent:
+
+```
+From:    gitdone <close+evd47k0vqc23@git-done.com>
+To:      jane@example.com
+Subject: [gitdone] close pending "wedding video" — reply to confirm
+
+Closing an event is irreversible — confirmation required.
+
+To close "wedding video" (evd47k0vqc23), reply to this message
+from the same address with the following confirmation:
+
+  CONFIRM 7af31b9c
+
+(in the subject or anywhere in the body — case-insensitive).
+This token expires at 2026-05-04T20:00:00Z.
+
+Closing the event writes a final completion commit to the audit
+trail and notifies all participants. It cannot be undone.
+```
+
+Then jane replies with `CONFIRM 7af31b9c` in the subject (or anywhere
+in the body) within 30 minutes:
+
+```
+From:    gitdone <close+evd47k0vqc23@git-done.com>
+To:      jane@example.com
+Subject: [gitdone] closed "wedding video" [1/2] step done
+
+Confirmed. Event evd47k0vqc23 ("wedding video") closed by initiator at 2026-05-04T19:42:08Z.
+```
+
+The completion notice (#11) fans out to participants in the same tick
+with `closed early` rather than `completed` in the subject and reason.
+
 ## Conventions worth keeping
 
 When adding a new email to gitdone, match these patterns so subjects
