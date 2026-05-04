@@ -354,7 +354,7 @@ async function notifyOrganiserOfStepProgress(event, { completedStepId, newlyActi
   ].join('\n');
   return sendOne({
     to: event.initiator,
-    subject: `[gitdone] "${event.title}" — step ${completedIdx + 1} done${newlyActiveSteps.length ? `, step${newlyActiveSteps.length === 1 ? '' : 's'} ${newlyActiveSteps.map((s) => `#${idxOfStep(s) + 1}`).join(', ')} now active` : ''}`,
+    subject: `[gitdone] "${event.title}" [${completedIdx + 1}/${event.steps.length}] step done${newlyActiveSteps.length ? ' · next active' : ''}`,
     body,
     event,
   });
