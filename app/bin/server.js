@@ -616,7 +616,16 @@ async function checkInitiatorMx(email) {
   const dns = require('node:dns').promises;
   try {
     const records = await dns.resolveMx(domain);
-    if (!records || records.length === 0) {
+    // RFC 7505 — a "null MX" record (priority 0, exchange "." or empty)
+    // means the domain explicitly refuses mail. No A-record fallback;
+    // delivery would silently black-hole. Catch it as a typo signal.
+    const nullMx = Array.isArray(records) && records.length > 0 && records.every(r => {
+      const ex = String(r && r.exchange || '').replace(/\.$/, '');
+      return ex === '' && (r.priority === 0 || r.priority == null);
+    });
+    if (nullMx) return { ok: false, reason: 'domain refuses mail (null MX)' };
+    const real = Array.isArray(records) ? records.filter(r => String(r && r.exchange || '').replace(/\.$/, '') !== '') : [];
+    if (real.length === 0) {
       // RFC 5321 §5.1 — when no MX exists, the A/AAAA record of the
       // domain is the implicit MX. Check that fallback so domains
       // hosted directly off A records (rare but valid) still pass.

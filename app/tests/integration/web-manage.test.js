@@ -294,6 +294,25 @@ test('POST /events: participant email with no MX is rejected with form error', a
   }
 });
 
+test('POST /events: participant email at a null-MX domain is rejected', async () => {
+  // RFC 7505 null MX (priority 0, exchange "."): the domain explicitly
+  // refuses mail. invmail.com publishes one in real DNS.
+  delete process.env.GITDONE_SKIP_MX_CHECK;
+  try {
+    const r = await post('/events', {
+      title: 'nullmx', initiator: 'org-nullmx@example.com',
+      step_name: 'a', step_participant: 'nobody@invmail.com',
+    });
+    assert.equal(r.status, 422);
+    assert.match(r.body, /participant email &quot;nobody@invmail\.com&quot;/);
+    assert.match(r.body, /refuses mail|null MX/);
+    const ev = await latestEventFor('org-nullmx@example.com');
+    assert.equal(ev, null);
+  } finally {
+    process.env.GITDONE_SKIP_MX_CHECK = '1';
+  }
+});
+
 test('POST /events: per-participant errors list every bad participant', async () => {
   delete process.env.GITDONE_SKIP_MX_CHECK;
   try {
