@@ -202,17 +202,52 @@ trail guarantee.
 - **Body.** Either "no eligible steps" / "already complete", or
   `Reminders sent:` followed by per-recipient `✓`/`✗` lines.
 
-## 18. Initiator command — close
+## 18. Initiator command — close (two-step confirm)
+
+Closing an event is irreversible — it writes a final completion commit
+and notifies all participants. To stop a single autoreply, stale
+forwarded message, or one-off compromised send from triggering it, the
+email path uses a two-step confirm. (The web dashboard close button is
+unchanged — the deliberate click + active session is its own
+confirmation.)
 
 - **Trigger.** DKIM-authenticated reply to `close+<id>@<domain>`.
 - **Sent by.** `app/bin/receive.js`.
+
+### Step 1 — pending intent
+
+The first reply records a `pending_close = { token, expires_at }` on
+the event (TTL 30 min) and replies with the token + instructions. No
+completion commit is written yet.
+
+- **Subject.** `[gitdone] close pending "<title>" — reply to confirm`
+- **Body.** "Closing is irreversible — to confirm, reply within 30 min
+  with `CONFIRM <token>` in the subject or body. The token is
+  case-insensitive."
+
+### Step 2 — confirm
+
+A second DKIM-authenticated reply within the TTL, containing
+`CONFIRM <token>`, commits the close.
+
 - **Subject.**
   - workflow: `[gitdone] closed "<title>" [<done>/<total>] step done`
-    (or `… complete` if it had already finished naturally).
+    (or `… complete` when finished).
   - crypto: `[gitdone] closed "<title>" — <mode> · <open|complete>`.
-- **Body.** Confirmation that the event is now closed, plus the
-  completion timestamp. The event itself also fans out a
-  **completion notice** (#11) to participants.
+- **Body.** Confirmation that the event is now closed + completion
+  timestamp. The event itself also fans out a **completion notice**
+  (#11) to participants.
+
+### Edge subjects
+
+- `[gitdone] close pending "<title>" — still awaiting confirmation` —
+  a `close+` reply arrived without the token while a valid intent is
+  outstanding (gitdone reminds with the *same* token; doesn't reissue,
+  so a stray re-send can't refresh the window).
+- `[gitdone] close pending "<title>" — token mismatch, retry` — token
+  was supplied but didn't match the outstanding intent.
+- `[gitdone] closed "<title>" — already complete` — event was already
+  finished; no-op.
 
 ## 19. Verify report
 

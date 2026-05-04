@@ -25,7 +25,7 @@ const { forwardToOwner } = require('../src/forward');
 const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
 const { applyReply, updateEventAtomic } = require('../src/completion');
 const { notifyWorkflowParticipants, notifyEventCompletion, notifyOrganiserOfStepProgress } = require('../src/notifications');
-const { authenticateInitiatorCommand, statsBody, executeRemind, executeClose } = require('../src/email-commands');
+const { authenticateInitiatorCommand, statsBody, executeRemind, executeCloseRequest } = require('../src/email-commands');
 const { extractDsn } = require('../src/dsn');
 const logger = require('../src/logger');
 const fs = require('node:fs/promises');
@@ -400,6 +400,7 @@ async function main() {
     });
     let replyBody;
     let cmdOutcome = { command: cmdTag.command, event_id: cmdTag.eventId, authenticated: auth1.ok };
+    let closeOutcome = null;
     if (!auth1.ok) {
       replyBody = `Command rejected: ${auth1.reason}.\nOnly the event initiator can issue ${cmdTag.command}+ commands.`;
       cmdOutcome.reason = auth1.reason;
@@ -410,11 +411,16 @@ async function main() {
       replyBody = r.body;
       cmdOutcome.sent_to = r.sentTo.map((x) => ({ to: x.to, ok: x.ok }));
     } else if (cmdTag.command === 'close') {
-      const r = executeClose(cmdEvent, { receivedAt: receivedAtCmd });
+      const r = executeCloseRequest(cmdEvent, {
+        receivedAt: receivedAtCmd,
+        replySubject: parsed.subject || '',
+        replyText: parsed.text || '',
+      });
       replyBody = r.body;
-      cmdOutcome.already_complete = r.wasAlreadyComplete;
-      if (!r.wasAlreadyComplete) {
-        // Persist new event + write completion commit.
+      cmdOutcome.close_kind = r.kind;
+      cmdOutcome.already_complete = r.kind === 'already_complete';
+      closeOutcome = r;
+      if (r.kind === 'committed') {
         try {
           await updateEventAtomic(cmdTag.eventId, () => r.newEvent);
           const cc = await commitCompletion(cmdTag.eventId, r.newEvent, {
@@ -423,7 +429,6 @@ async function main() {
             summary: { closed_by: 'initiator', reason: 'close-command' },
           });
           cmdOutcome.completion_commit = cc;
-          // Notify everyone that the event was closed.
           try {
             const results = await notifyEventCompletion(r.newEvent, { reason: 'closed_by_initiator' });
             cmdOutcome.completion_notified = results.map((x) => ({ to: x.to, ok: x.ok }));
@@ -433,7 +438,17 @@ async function main() {
         } catch (err) {
           cmdOutcome.close_error = err.message || String(err);
         }
+      } else if (r.kind === 'pending_started') {
+        // First-stage: persist the pending intent so the second reply
+        // can verify it. No completion commit yet.
+        try {
+          await updateEventAtomic(cmdTag.eventId, () => r.newEvent);
+          cmdOutcome.pending_close_expires_at = r.expiresAt;
+        } catch (err) {
+          cmdOutcome.close_error = err.message || String(err);
+        }
       }
+      // pending_remind / token_mismatch / already_complete: no persistence.
     }
 
     // Reply to the initiator.
@@ -457,6 +472,17 @@ async function main() {
         } else if (cmdEvent.type === 'crypto') {
           const status = cmdEvent.completion && cmdEvent.completion.status === 'complete' ? 'complete' : 'open';
           subjectStr = `[gitdone] ${verb} "${cmdEvent.title}" — ${cmdEvent.mode} · ${status}`;
+        }
+        // Pending-close intermediate states get their own subject so the
+        // initiator's MUA shows them as pending rather than closed.
+        if (cmdTag.command === 'close' && closeOutcome) {
+          if (closeOutcome.kind === 'pending_started') {
+            subjectStr = `[gitdone] close pending "${cmdEvent.title}" — reply to confirm`;
+          } else if (closeOutcome.kind === 'pending_remind') {
+            subjectStr = `[gitdone] close pending "${cmdEvent.title}" — still awaiting confirmation`;
+          } else if (closeOutcome.kind === 'token_mismatch') {
+            subjectStr = `[gitdone] close pending "${cmdEvent.title}" — token mismatch, retry`;
+          }
         }
       }
       const rawMessage = buildRawMessage({

@@ -14,9 +14,27 @@
 
 'use strict';
 
+const crypto = require('node:crypto');
 const config = require('./config');
 const { meetsTrust, applyReply, updateEventAtomic, eligibleSteps, isComplete } = require('./completion');
 const { notifyWorkflowParticipants, notifyDeclarationSigner } = require('./notifications');
+
+// close+ uses a two-step confirm so a single autoreply, stale forwarded
+// message, or a one-off compromised send can't write an irreversible
+// completion commit. First reply records a pending intent + token; a
+// second DKIM-authenticated reply within CLOSE_CONFIRM_TTL_MS quoting
+// the token actually closes.
+const CLOSE_CONFIRM_TTL_MS = 30 * 60 * 1000; // 30 min
+const CLOSE_TOKEN_RE = /CONFIRM\s+([A-Fa-f0-9]{8})\b/;
+
+function generateCloseToken() {
+  return crypto.randomBytes(4).toString('hex');
+}
+
+function extractCloseToken({ subject = '', body = '' } = {}) {
+  const m = String(subject).match(CLOSE_TOKEN_RE) || String(body).match(CLOSE_TOKEN_RE);
+  return m ? m[1].toLowerCase() : null;
+}
 
 function normaliseEmail(s) {
   return (s || '').trim().toLowerCase();
@@ -122,9 +140,10 @@ async function executeRemind(event) {
   return { body: lines.join('\n'), sentTo: results };
 }
 
-// Mark event complete by initiator command. Does NOT write the git
-// completion commit here — receive.js orchestrates that so stamp/commit
-// stays in one place. Returns { body, newEvent, wasAlreadyComplete }.
+// Immediate close — used by the web dashboard, where the deliberate
+// action is the button click + active session, not an email round-trip.
+// Returns { body, newEvent, wasAlreadyComplete }; persistence + the
+// completion commit are the caller's job.
 function executeClose(event, { receivedAt }) {
   if (isComplete(event)) {
     return {
@@ -149,11 +168,118 @@ function executeClose(event, { receivedAt }) {
   };
 }
 
+// Two-step close — used by the email path (close+<id>@). First call
+// returns a pending intent + token; second call (within TTL, with the
+// token quoted in subject or body) returns the committed close.
+// Persistence and the git completion commit are the caller's job —
+// receive.js orchestrates them.
+//
+// Outcome kinds:
+//   already_complete  — event was already finished; no-op
+//   committed         — token matched, write completion commit + notify
+//   pending_started   — first request, or prior intent expired
+//   pending_remind    — outstanding intent, no token in this reply
+//   token_mismatch    — outstanding intent, but token didn't match
+//
+// The body is plain text the caller drops straight into the receipt.
+function executeCloseRequest(event, { receivedAt, replySubject = '', replyText = '', generateToken = generateCloseToken } = {}) {
+  if (!event) return { kind: 'already_complete', body: 'Unknown event.', newEvent: null };
+  if (isComplete(event)) {
+    return {
+      kind: 'already_complete',
+      body: `Event ${event.id} ("${event.title}") is already complete (${event.completion.completed_at}). No action taken.`,
+      newEvent: event,
+    };
+  }
+
+  const supplied = extractCloseToken({ subject: replySubject, body: replyText });
+  const pending = event.pending_close || null;
+  const pendingValid = pending && pending.expires_at && new Date(pending.expires_at) > new Date(receivedAt);
+
+  // Confirm path: outstanding intent + matching token + within TTL.
+  if (pending && pendingValid && supplied && supplied === pending.token) {
+    const newEvent = {
+      ...event,
+      pending_close: undefined,
+      completion: {
+        status: 'complete',
+        completed_at: receivedAt,
+        closed_by: 'initiator',
+        reason: 'close-command',
+      },
+    };
+    return {
+      kind: 'committed',
+      body: `Confirmed. Event ${event.id} ("${event.title}") closed by initiator at ${receivedAt}.`,
+      newEvent,
+    };
+  }
+
+  // Outstanding intent + token in reply but mismatched.
+  if (pending && pendingValid && supplied && supplied !== pending.token) {
+    return {
+      kind: 'token_mismatch',
+      body: closeConfirmInstructions(event, pending.token, pending.expires_at, {
+        leadIn: 'That confirmation token does not match the outstanding close request.',
+      }),
+      newEvent: null,
+    };
+  }
+
+  // Outstanding intent + no token: just remind with the same token, do
+  // NOT reissue (so a stray re-send can't refresh the window).
+  if (pending && pendingValid && !supplied) {
+    return {
+      kind: 'pending_remind',
+      body: closeConfirmInstructions(event, pending.token, pending.expires_at, {
+        leadIn: 'A close request for this event is already outstanding.',
+      }),
+      newEvent: null,
+    };
+  }
+
+  // Otherwise (no intent, or expired): start a fresh pending close.
+  const token = generateToken();
+  const expiresAt = new Date(new Date(receivedAt).getTime() + CLOSE_CONFIRM_TTL_MS).toISOString();
+  const newEvent = { ...event, pending_close: { token, created_at: receivedAt, expires_at: expiresAt } };
+  return {
+    kind: 'pending_started',
+    body: closeConfirmInstructions(event, token, expiresAt, {
+      leadIn: 'Closing an event is irreversible — confirmation required.',
+    }),
+    newEvent,
+    token,
+    expiresAt,
+  };
+}
+
+function closeConfirmInstructions(event, token, expiresAt, { leadIn = '' } = {}) {
+  return [
+    leadIn,
+    '',
+    `To close "${event.title}" (${event.id}), reply to this message`,
+    `from the same address with the following confirmation:`,
+    '',
+    `  CONFIRM ${token}`,
+    '',
+    `(in the subject or anywhere in the body — case-insensitive).`,
+    `This token expires at ${expiresAt}.`,
+    '',
+    'Closing the event writes a final completion commit to the audit',
+    'trail and notifies all participants. It cannot be undone.',
+  ].join('\n');
+}
+
 module.exports = {
   authenticateInitiatorCommand,
   statsBody,
   executeRemind,
-  executeClose,
+  executeClose,         // immediate close — web dashboard
+  executeCloseRequest,  // two-step close — email path
   workflowStatsBody,
   cryptoStatsBody,
+  // exported for tests
+  generateCloseToken,
+  extractCloseToken,
+  CLOSE_CONFIRM_TTL_MS,
 };

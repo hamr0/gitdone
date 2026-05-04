@@ -180,8 +180,8 @@ test('remind+ resends invitation to pending-first-step participant', async () =>
   }
 });
 
-test('close+ flips event to complete and writes completion.json', async () => {
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-cmd-close-'));
+test('close+ first reply: pending intent, no completion commit', async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-cmd-close-pending-'));
   try {
     const { fake } = makeFakeSendmail(tmp);
     await fs.mkdir(path.join(tmp, 'events'));
@@ -189,30 +189,97 @@ test('close+ flips event to complete and writes completion.json', async () => {
       id: 'evc01', type: 'crypto', mode: 'attestation',
       min_trust_level: 'unverified', initiator: 'c@ex.com',
       threshold: 99, dedup: 'unique', allow_anonymous: true, replies: [],
-      title: 'abandon this',
-      salt: 'salt-close',
+      title: 'abandon this', salt: 'salt-close',
       activated_at: '2026-01-01T00:00:00Z',
     }));
-    const eml = buildEml([
-      'From: c@ex.com', 'To: close+evc01@git-done.com', 'Subject: close',
-    ]);
+    const eml = buildEml(['From: c@ex.com', 'To: close+evc01@git-done.com', 'Subject: close']);
     const r = await runReceive(eml,
       ['1.2.3.4', 'ex.com', 'c@ex.com', 'close+evc01@git-done.com'],
       { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
     const out = JSON.parse(r.stdout.trim());
     assert.equal(out.command.authenticated, true);
-    assert.equal(out.command.already_complete, false);
-    assert.ok(out.command.completion_commit, 'completion commit recorded');
+    assert.equal(out.command.close_kind, 'pending_started');
+    assert.ok(!out.command.completion_commit, 'no completion commit on first reply');
 
     const ev = await readEvent(tmp, 'evc01');
+    assert.equal(ev.completion, undefined, 'event not yet complete');
+    assert.ok(ev.pending_close && ev.pending_close.token, 'pending_close persisted');
+    assert.ok(/^[a-f0-9]{8}$/.test(ev.pending_close.token), 'token is 8 hex chars');
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('close+ confirm with matching token: commits completion', async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-cmd-close-confirm-'));
+  try {
+    const { fake } = makeFakeSendmail(tmp);
+    await fs.mkdir(path.join(tmp, 'events'));
+    // Pre-seed a pending_close so the second reply commits.
+    const futureExp = new Date(Date.now() + 25 * 60 * 1000).toISOString();
+    await fs.writeFile(path.join(tmp, 'events', 'evc02.json'), JSON.stringify({
+      id: 'evc02', type: 'event',
+      min_trust_level: 'unverified', initiator: 'c@ex.com', title: 'wedding',
+      salt: 'salt-close-2', activated_at: '2026-01-01T00:00:00Z',
+      steps: [{ id: 's1', name: 'Audio', participant: 'a@ex.com', status: 'pending', depends_on: [] }],
+      pending_close: { token: 'deadbeef', created_at: '2026-01-02T00:00:00Z', expires_at: futureExp },
+    }));
+    const eml = buildEml([
+      'From: c@ex.com', 'To: close+evc02@git-done.com',
+      'Subject: CONFIRM deadbeef',
+    ]);
+    const r = await runReceive(eml,
+      ['1.2.3.4', 'ex.com', 'c@ex.com', 'close+evc02@git-done.com'],
+      { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
+    const out = JSON.parse(r.stdout.trim());
+    assert.equal(out.command.close_kind, 'committed');
+    assert.ok(out.command.completion_commit, 'completion commit recorded');
+
+    const ev = await readEvent(tmp, 'evc02');
     assert.equal(ev.completion.status, 'complete');
     assert.equal(ev.completion.closed_by, 'initiator');
+    assert.equal(ev.pending_close, undefined, 'pending_close cleared');
 
-    // completion.json file lives in the per-event repo
-    const repo = path.join(tmp, 'repos', 'evc01');
+    const repo = path.join(tmp, 'repos', 'evc02');
     const complete = JSON.parse(await fs.readFile(path.join(repo, 'commits', 'completion.json'), 'utf8'));
     assert.equal(complete.kind, 'completion');
     assert.equal(complete.summary.closed_by, 'initiator');
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('close+ confirm with mismatched token: no commit, body explains', async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-cmd-close-mismatch-'));
+  try {
+    const { fake, captureDir } = makeFakeSendmail(tmp);
+    await fs.mkdir(path.join(tmp, 'events'));
+    const futureExp = new Date(Date.now() + 25 * 60 * 1000).toISOString();
+    await fs.writeFile(path.join(tmp, 'events', 'evc03.json'), JSON.stringify({
+      id: 'evc03', type: 'event',
+      min_trust_level: 'unverified', initiator: 'c@ex.com', title: 'wedding',
+      salt: 'salt-close-3', activated_at: '2026-01-01T00:00:00Z',
+      steps: [{ id: 's1', name: 'Audio', participant: 'a@ex.com', status: 'pending', depends_on: [] }],
+      pending_close: { token: 'deadbeef', created_at: '2026-01-02T00:00:00Z', expires_at: futureExp },
+    }));
+    const eml = buildEml([
+      'From: c@ex.com', 'To: close+evc03@git-done.com',
+      'Subject: CONFIRM cafebabe',
+    ]);
+    const r = await runReceive(eml,
+      ['1.2.3.4', 'ex.com', 'c@ex.com', 'close+evc03@git-done.com'],
+      { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
+    const out = JSON.parse(r.stdout.trim());
+    assert.equal(out.command.close_kind, 'token_mismatch');
+    assert.ok(!out.command.completion_commit, 'no completion commit on mismatch');
+
+    const ev = await readEvent(tmp, 'evc03');
+    assert.equal(ev.completion, undefined);
+    assert.equal(ev.pending_close.token, 'deadbeef', 'original token preserved');
+
+    const replies = await capturesFor(captureDir, 'c@ex.com');
+    assert.equal(replies.length, 1);
+    assert.match(replies[0], /token mismatch, retry/);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }
