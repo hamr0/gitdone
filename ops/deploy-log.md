@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-04T19:01Z · `7a2ff0b` · Landing: add two-line page title above the hero, restore old hero
 <<<<<<< Updated upstream
 =======
 - 2026-05-04T18:57Z · `2098755` · Landing tag: drop 44ch max-width cap so the one-liner stays one line
