@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-04T19:07Z · `0aef4fb` · Layout header: split "gitdone — <tagline>" titles onto two lines
 - 2026-05-04T19:01Z · `7a2ff0b` · Landing: add two-line page title above the hero, restore old hero
 <<<<<<< Updated upstream
 =======

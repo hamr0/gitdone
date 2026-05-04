@@ -144,11 +144,16 @@ th { color: #8b949e; font-weight: 500; text-transform: uppercase; font-size: 0.7
 .page-header .name { color: #8b949e; font-weight: 400; font-size: 0.92em; letter-spacing: 0.04em; }
 .page-header .tagline { display: block; margin-top: 0.25rem; font-size: 0.85em;
                         font-weight: 400; color: #8b949e; letter-spacing: 0; }
+/* Home variant: tight wordmark (no slash spacing), bold, one size up. */
+.page-header.home .line1 { font-size: 1.4rem; font-weight: 700; }
+.page-header.home .slash { margin: 0; }
+.page-header.home .name { font-size: 1em; font-weight: 700; color: #c9d1d9; letter-spacing: -0.01em; }
+.page-header.home .tagline { font-size: 0.95em; }
 ::selection { background: rgba(63,185,80,.28); color: #c9d1d9; }
 </style>
 </head>
 <body>
-${pageName ? `<header class="page-header"><div class="line1"><a href="/">g</a><span class="slash">/</span><span class="name">${escapeHTML(pageName)}</span></div>${pageTagline ? `<div class="tagline">${escapeHTML(pageTagline)}</div>` : ''}</header>` : ''}
+${pageName ? `<header class="page-header${pageTagline ? ' home' : ''}"><div class="line1"><a href="/">g</a><span class="slash">/</span><span class="name">${escapeHTML(pageName)}</span></div>${pageTagline ? `<div class="tagline">${escapeHTML(pageTagline)}</div>` : ''}</header>` : ''}
 ${(body && body[RAW_MARK]) ? body.html : escapeHTML(body || '')}
 <div class="footer">
   <a href="/">gitdone</a> &middot; proofs verify offline &middot;
