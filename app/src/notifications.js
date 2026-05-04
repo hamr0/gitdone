@@ -120,7 +120,7 @@ async function sendOne({ to, subject, body, event, replyTo, stepId }) {
 // (used by the cascade path after a dependency completes, and by
 // remind+). Otherwise notifies every step whose depends_on is empty —
 // the "roots" of the dependency graph.
-async function notifyWorkflowParticipants(event, { stepsOverride } = {}) {
+async function notifyWorkflowParticipants(event, { stepsOverride, reminder = false } = {}) {
   if (!event || event.type !== 'event' || !Array.isArray(event.steps) || event.steps.length === 0) {
     return [];
   }
@@ -128,11 +128,14 @@ async function notifyWorkflowParticipants(event, { stepsOverride } = {}) {
   const target = stepsOverride
     ? stepsOverride
     : event.steps.filter((s) => !s.depends_on || s.depends_on.length === 0);
+  // remind+ command resends the same prompt with a "reminder" tag so the
+  // participant's MUA can disambiguate this from the original invite.
+  const tag = reminder ? '"reminder" ' : '';
   const jobs = target.map((step) => {
     const idx = event.steps.indexOf(step);
     return sendOne({
       to: step.participant,
-      subject: `[gitdone] ${event.title} — ${step.name} [${idx + 1}/${total}] — your step`,
+      subject: `[gitdone] ${tag}${event.title} — ${step.name} [${idx + 1}/${total}] — your step`,
       body: workflowStepBody({ event, step, stepIndex: idx, totalSteps: total }),
       event,
       replyTo: stepReplyAddr(event, step.id),

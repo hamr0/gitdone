@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-04T20:17Z · `9230c3f` · Stats command: [N/M] step-done subject + email-formats.md catalog
 - 2026-05-04T19:12Z · `cca6c87` · Layout header (home): tight wordmark, bold, bumped one size
 - 2026-05-04T19:07Z · `0aef4fb` · Layout header: split "gitdone — <tagline>" titles onto two lines
 - 2026-05-04T19:01Z · `7a2ff0b` · Landing: add two-line page title above the hero, restore old hero

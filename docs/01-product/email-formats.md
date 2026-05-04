@@ -62,7 +62,9 @@ can reply normally.
   (c) inbound `remind+<id>@`.
 - **Sent by.** `notifyWorkflowParticipants` in `app/src/notifications.js`.
 - **Recipient.** Step `participant`.
-- **Subject.** `[gitdone] <title> — <step.name> [<idx>/<total>] — your step`
+- **Subject.**
+  - first invite (activation/cascade): `[gitdone] <title> — <step.name> [<idx>/<total>] — your step`
+  - re-send via `remind+`: `[gitdone] "reminder" <title> — <step.name> [<idx>/<total>] — your step`
 - **Reply-To.** `event+<id>-<stepId>@<domain>`
 - **Body.** "What we need from you", deadline, attachment requirement
   flag, plain instructions to reply (with anything in the body) for
@@ -190,9 +192,13 @@ trail guarantee.
 ## 17. Initiator command — remind
 
 - **Trigger.** DKIM-authenticated reply to `remind+<id>@<domain>`.
-- **Sent by.** `app/bin/receive.js`.
-- **Subject.** `[gitdone] remind · <eventId>` *(legacy form — candidate
-  for the same `[N/M]` treatment as stats; tracked for follow-up).*
+- **Sent by.** `app/bin/receive.js`. Also fans out **workflow invitations**
+  (#2) to every still-pending participant whose dependencies are met,
+  with the `"reminder"` subject tag.
+- **Subject.**
+  - workflow: `[gitdone] reminded "<title>" [<done>/<total>] step done`
+    (or `… complete` when the event has already finished).
+  - crypto: `[gitdone] reminded "<title>" — <mode> · <open|complete>`.
 - **Body.** Either "no eligible steps" / "already complete", or
   `Reminders sent:` followed by per-recipient `✓`/`✗` lines.
 
@@ -200,8 +206,10 @@ trail guarantee.
 
 - **Trigger.** DKIM-authenticated reply to `close+<id>@<domain>`.
 - **Sent by.** `app/bin/receive.js`.
-- **Subject.** `[gitdone] close · <eventId>` *(legacy form — candidate
-  for the same treatment as stats).*
+- **Subject.**
+  - workflow: `[gitdone] closed "<title>" [<done>/<total>] step done`
+    (or `… complete` if it had already finished naturally).
+  - crypto: `[gitdone] closed "<title>" — <mode> · <open|complete>`.
 - **Body.** Confirmation that the event is now closed, plus the
   completion timestamp. The event itself also fans out a
   **completion notice** (#11) to participants.

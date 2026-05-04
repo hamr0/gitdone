@@ -108,7 +108,7 @@ async function executeRemind(event) {
         sentTo: [],
       };
     }
-    results = await notifyWorkflowParticipants(event, { stepsOverride: eligible });
+    results = await notifyWorkflowParticipants(event, { stepsOverride: eligible, reminder: true });
   } else if (event.type === 'crypto' && event.mode === 'declaration') {
     results = await notifyDeclarationSigner(event);
   } else if (event.type === 'crypto' && event.mode === 'attestation') {

@@ -166,11 +166,15 @@ test('remind+ resends invitation to pending-first-step participant', async () =>
     const dCaptures = await capturesFor(captureDir, 'd@ex.com');
     assert.equal(lCaptures.length, 1, 'step-1 participant got reminded');
     assert.equal(dCaptures.length, 0, 'step-2 participant did not (sequential)');
+    // Reminder subject carries the "reminder" tag so the participant's MUA
+    // can disambiguate this from the original invite.
+    assert.match(lCaptures[0], /Subject: \[gitdone\] "reminder" Q3 — Legal \[1\/2\] — your step/);
 
     // Initiator also got the summary reply.
     const summary = await capturesFor(captureDir, 'boss@ex.com');
     assert.equal(summary.length, 1);
     assert.match(summary[0], /Reminders sent/);
+    assert.match(summary[0], /Subject: \[gitdone\] reminded "Q3" \[0\/2\] step done/);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }
