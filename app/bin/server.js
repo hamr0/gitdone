@@ -99,6 +99,10 @@ const LANDING_CSS = `
 .vF { font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
       background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 0;
       margin: 1rem 0 1.5rem; overflow: hidden; position: relative; }
+.page-title { padding: 0.4rem 0 0.9rem; }
+.page-title-name { margin: 0; font-size: 1rem; color: #c9d1d9; font-weight: 600; letter-spacing: -0.01em; }
+.page-title-name .slash { color: #ffb000; }
+.page-title-tag { margin: 0.2rem 0 0; font-size: 0.82em; color: #8b949e; line-height: 1.4; }
 .vF::before { content: ''; position: absolute; top: 0; right: 0; width: 82px; height: 82px;
               background: repeating-linear-gradient(45deg, #ffb000 0 9px, #0d1117 9px 11px);
               opacity: 0.85; pointer-events: none; }
@@ -159,6 +163,10 @@ const LANDING_CSS = `
 router.get('/', async (req, res) => {
   const body = html`
     <style>${raw(LANDING_CSS)}</style>
+    <div class="page-title">
+      <p class="page-title-name">g<span class="slash">/</span>gitdone</p>
+      <p class="page-title-tag">multi-party workflows over email, with cryptographic proof</p>
+    </div>
     <div class="vF" data-variant-root="F">
       <div class="top">
         <p class="kicker">email-native <span class="dot">●</span> git-proved <span class="dot">●</span> offline-verifiable</p>
