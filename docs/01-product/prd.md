@@ -506,6 +506,28 @@ immediately blast real notifications to real participants.
   mode has no auto-invite (organiser shares the reply address
   themselves).
 
+**Organiser receipt and progress emails (workflow only).** After the
+fan-out completes, the organiser receives one summary email
+(`notifyOrganiserOfActivation`) listing every step with a `▸` marker
+on the DAG roots and per-recipient delivery status, so they can
+verify what just left the server without polling the dashboard. As
+replies land and downstream steps unblock, the cascade in `receive.js`
+emails the organiser a per-transition note
+(`notifyOrganiserOfStepProgress`) naming the completer and the newly-
+active step(s). The final transition is short-circuited by
+`!applied.completedEvent`; `notifyEventCompletion` carries the
+final-step name in the organiser body so no transition is silent.
+
+**Pre-flight MX on every recipient.** Both the initiator address and
+every participant address are checked at confirm time
+(`checkInitiatorMx` / `checkParticipantsMx`): `dns.resolveMx` with an
+A/AAAA fallback per RFC 5321 §5.1, fail-soft on resolver hiccups.
+Catches typos at no-such-domain TLDs (`@y.c`, `@gmaicom.invalid`)
+before anything is sent — the failure path that DSN bounces miss
+because the receiving MTA never returns one. The DSN handler in
+`receive.js` stays as the backstop for real bounces from real
+domains.
+
 ### 6.2 Management
 
 Single self-serve path: knowless-backed sessions. The initiator hub

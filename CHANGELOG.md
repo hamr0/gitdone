@@ -15,6 +15,46 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Organiser visibility — activation summary, per-step progress, MX pre-flight on participants
+
+Three changes that close the "I can't tell from email tracking what's
+actually live" gap. Until now, the only feedback after pressing
+Activate was a green flash on the dashboard, and a participant typo
+like `ahf@y.com` could sit on `○ pending` forever if the receiving
+MTA black-holed the message without returning a DSN.
+
+- **Activation confirmation email.** After `/activate` succeeds, the
+  organiser receives `[gitdone] "<title>" — activated, N invitations
+  sent` listing every step with a `▸` marker on the steps participants
+  are currently waiting on (the DAG roots), plus per-recipient
+  delivery status from the participant sends. Awaited inside the
+  handler so the 303 doesn't race the SMTP submission.
+- **Per-step progress email.** When a reply lands and unblocks a
+  downstream step, the cascade in `receive.js` now also emails the
+  organiser `[gitdone] "<title>" — step N done, step M now active`.
+  When the *final* step completes the cascade is naturally short-
+  circuited, so `notifyEventCompletion` was extended to surface
+  `Final step: #N "<name>" by <participant>` in the organiser body —
+  no transition is silent.
+- **MX pre-flight on workflow participants.** `checkParticipantsMx`
+  reuses the existing `checkInitiatorMx` (DNS MX → A/AAAA fallback per
+  RFC 5321 §5.1) and runs it against every step's participant at
+  confirm time. Failures merge into the same in-form error list as
+  organiser MX failures. Honours `GITDONE_SKIP_MX_CHECK=1` for the
+  offline integration suite. The DSN handler stays — it's still the
+  right backstop for real bounces from real domains.
+
+Smaller fixes alongside:
+
+- **Subject-header CR/LF guard.** `outbound.buildRawMessage` now
+  strips `[\r\n]` from Subject headers (`sanitizeSubject`). Title
+  validation only trims whitespace, so this is the second line of
+  defence at the boundary that emits the message.
+- **Pending-activation banner readability.** The dashboard banner's
+  `<strong>` rule was `display:block`, splitting "Activate" /
+  "Close event" onto their own lines mid-paragraph. Heading moved to
+  a `.title` span so inline emphasis stays inline.
+
 ### Bounce handling — synchronous send failures and DSN parsing surface on dashboard
 
 The organiser used to find out a participant address was wrong only

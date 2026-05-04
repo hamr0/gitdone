@@ -123,10 +123,21 @@ a permanent commit, and that's a human decision.
   at `/manage`. If you never sign in and activate, the event is
   **deleted** at 72h — no trace, no stranger you claimed to be hears
   from us.
-- **Delivery problems are visible.** If an invitation bounces or our
-  MTA refuses it, the dashboard shows a `⚠ delivery failed` row under
-  the affected step, and you get an email pointing back at it. Use
-  Edit to fix the address; the next send clears the warning.
+- **Delivery problems are visible.** Participant addresses are MX-
+  checked at the preview screen — typos at no-such-domain TLDs
+  (`@y.c`, `@gmaicom`) bounce back as a form error before anything is
+  sent. Real bounces (mailbox full, user unknown, malformed SMTP) are
+  caught in flight via RFC 3464 DSN parsing: the dashboard shows a
+  `⚠ delivery failed` row under the affected step and you get an
+  email pointing back at it. Use Edit to fix the address; the next
+  send clears the warning.
+- **Activation confirms what went out.** Pressing Activate sends one
+  email to you summarising every step, with a `▸` marker on whoever
+  participants are currently waiting on, plus per-recipient delivery
+  status. As steps complete and the dependency graph unblocks the
+  next ones, you get a short follow-up naming the completer and the
+  newly-active steps — no need to poll the dashboard to see where the
+  flow sits.
 - **Open.** Steps complete as replies come in. Late replies still
   count — deadlines are aspirational, not gates.
 - **Day 14 past deadline → nudge.** One email to you: *"remind,
