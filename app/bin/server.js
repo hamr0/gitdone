@@ -1460,9 +1460,15 @@ const MANAGE_HUB_CSS = `
 .mh .devlink { background: rgba(255,176,0,.08); border: 1px solid #ffb000; color: #ffb000;
                padding: 0.55rem 0.85rem; margin: 0 0 1rem; font-size: 0.85em; word-break: break-all; }
 .mh .devlink code { background: #0d1117; color: #ffb000; }
-.mh-counts { color: #8b949e; font-size: 0.85em; margin: 0 0 0.8rem; display: flex; flex-wrap: wrap; gap: 0.9rem; }
-.mh-counts span { white-space: nowrap; }
-.mh-counts strong { color: #c9d1d9; font-weight: 600; margin-right: 0.25rem; }
+.mh-counts { color: #8b949e; font-size: 0.85em; margin: 0 0 0.8rem; display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
+.mh-counts .legend { white-space: nowrap; display: inline-flex; align-items: center; gap: 0.4rem;
+                     padding: 0.18em 0.55em; border: 1px solid; line-height: 1.4; }
+.mh-counts .legend strong { font-weight: 700; }
+.mh-counts .legend.active { color: #58a6ff; border-color: #58a6ff; }
+.mh-counts .legend.completed { color: #3fb950; border-color: #3fb950; }
+.mh-counts .legend.closed { color: #d29922; border-color: #d29922; }
+.mh-counts .legend.pending { color: #ffb000; border-color: #ffb000; }
+.mh-counts .legend.archived { color: #6e7681; border-color: #6e7681; }
 .mh-pill { display:inline-block; padding:0.1em 0.45em; border-radius:0; font-size:0.65em; font-weight:600;
            text-transform:uppercase; letter-spacing:0.1em; border:1px solid; vertical-align:0.15em; margin-left:0.3em; }
 .mh-pill.open { background:#0d1117; color:#58a6ff; border-color:#58a6ff; }
@@ -1579,11 +1585,11 @@ async function renderSessionHub({ handle, auth, flash, showArchived = false }) {
   };
   const countsStrip = all.length === 0 ? raw('') : html`
     <p class="mh-counts">
-      ${counts.active ? html`<span><strong>${String(counts.active)}</strong> active</span>` : raw('')}
-      ${counts.completed ? html`<span><strong>${String(counts.completed)}</strong> completed</span>` : raw('')}
-      ${counts.closed ? html`<span><strong>${String(counts.closed)}</strong> closed early</span>` : raw('')}
-      ${counts.archived ? html`<span><strong>${String(counts.archived)}</strong> archived</span>` : raw('')}
-      ${counts.pending ? html`<span><strong>${String(counts.pending)}</strong> pending activation</span>` : raw('')}
+      ${counts.active ? html`<span class="legend active"><strong>${String(counts.active)}</strong> active</span>` : raw('')}
+      ${counts.completed ? html`<span class="legend completed"><strong>${String(counts.completed)}</strong> completed</span>` : raw('')}
+      ${counts.closed ? html`<span class="legend closed"><strong>${String(counts.closed)}</strong> closed early</span>` : raw('')}
+      ${counts.pending ? html`<span class="legend pending"><strong>${String(counts.pending)}</strong> pending activation</span>` : raw('')}
+      ${counts.archived ? html`<span class="legend archived"><strong>${String(counts.archived)}</strong> archived</span>` : raw('')}
     </p>`;
   const rows = events.length === 0
     ? (showArchived
