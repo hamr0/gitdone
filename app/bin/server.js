@@ -150,11 +150,14 @@ const LANDING_CSS = `
 .vF .manage-strip { padding: 0.75rem 1.4rem; border-bottom: 1px solid #30363d;
                     font-size: 0.85em; color: #8b949e; display: flex; justify-content: space-between;
                     align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-.vF .manage-strip a { color: #58a6ff; }
+.vF .manage-strip a { color: #58a6ff; white-space: nowrap; }
 .vF .manage-strip a:hover { color: #ffb000; }
 @media (max-width: 640px) { .vF .grid { grid-template-columns: 1fr; }
   .vF .cell { border-right: 0; border-bottom: 1px solid #30363d; }
-  .vF .cell:last-child { border-bottom: 0; } }
+  .vF .cell:last-child { border-bottom: 0; }
+  /* Decorative corner badge clipped the kicker + wordmark on narrow
+     viewports — purely chrome, hide it below tablet width. */
+  .vF::before { display: none; } }
 `;
 router.get('/', async (req, res) => {
   const body = html`
@@ -283,9 +286,51 @@ const WORKFLOW_FORM_CSS = `
 .vf-add-row { margin: 0.5rem 0 0; font-size: 0.85em; }
 .vf-add-row button { background: none; border: 0; color: #58a6ff; cursor: pointer; padding: 0; font: inherit; text-decoration: none; }
 .vf-add-row button:hover { color: #ffb000; text-decoration: underline; }
-.vf-submit { background: #3fb950; color: #0d1117; padding: 0.65rem 1.8rem; border: 0; border-radius: 0; cursor: pointer; font-weight: 600; margin-top: 1.1rem; font-size: 0.95em; letter-spacing: 0.05em; text-transform: uppercase; }
+.vf-submit { display: block; margin: 1.1rem auto 0; background: #3fb950; color: #0d1117; padding: 0.65rem 1.8rem; border: 0; border-radius: 0; cursor: pointer; font-weight: 600; font-size: 0.95em; letter-spacing: 0.05em; text-transform: uppercase; }
 .vf-submit:hover { background: #ffb000; }
-@media (max-width: 540px) { .vf-row { grid-template-columns: 1fr; } .vf-steps-table { font-size: 0.83em; } }
+@media (max-width: 540px) {
+  .vf-row { grid-template-columns: 1fr; }
+  .vf-steps-table { font-size: 0.85em; border: 0; }
+  .vf-steps-table thead { display: none; }
+  .vf-steps-table, .vf-steps-table tbody { display: block; }
+  /* Each step becomes a 2-row grid card: name + email on top, the rest
+     on a second line. col-num spans both rows as a left-edge label. */
+  /* Row 1: name (narrower) + email (wider, full address visible).
+     Row 2: date matches name's width, deps + checkbox share email's width.
+     Remove × stays as a corner-right control on row 1. */
+  .vf-steps-table tr:not(.vf-details-row) {
+    display: grid;
+    grid-template-columns: 28px 2fr 2fr 1fr 28px;
+    grid-template-areas:
+      "num name email email remove"
+      "num dl   deps att   .";
+    column-gap: 0.4rem;
+    row-gap: 0.35rem;
+    padding: 0.55rem 0.35rem;
+    border-bottom: 1px solid #30363d;
+    align-items: center;
+  }
+  .vf-steps-table tr:not(.vf-details-row) > td {
+    display: block;
+    width: auto;
+    padding: 0;
+    border-bottom: 0;
+  }
+  .vf-steps-table tr.vf-details-row { display: block; }
+  .vf-steps-table tr.vf-details-row > td { display: block; padding: 0.25rem 0.35rem 0.4rem; border-bottom: 0; }
+  .vf-steps-table .col-num    { grid-area: num; align-self: start; padding-top: 0.35rem; }
+  .vf-steps-table .col-name   { grid-area: name; }
+  .vf-steps-table .col-email  { grid-area: email; }
+  .vf-steps-table .col-dl     { grid-area: dl; }
+  .vf-steps-table .col-deps   { grid-area: deps; }
+  .vf-steps-table .col-att    { grid-area: att; }
+  .vf-steps-table .col-remove { grid-area: remove; }
+  /* Inputs lose their transparent-by-default look on mobile so the
+     controls read as discrete fields rather than blending into the row. */
+  .vf-steps-table input[type=text], .vf-steps-table input[type=email], .vf-steps-table input[type=date] {
+    border: 1px solid #30363d; background: #161b22;
+  }
+}
 `;
 
 const TRUST_LABELS = {
@@ -581,6 +626,13 @@ const PREVIEW_CSS = `
 .pv .actions .confirm:hover { background: #ffb000; }
 .pv .actions .edit { background: transparent; color: #8b949e; border: 1px solid #30363d; }
 .pv .actions .edit:hover { background: #161b22; color: #c9d1d9; }
+@media (max-width: 540px) {
+  /* Share the row 50/50 instead of wrapping; shrink padding + font so
+     "Confirm & send invites ▸" still fits. */
+  .pv .actions { flex-wrap: nowrap; gap: 0.5rem; }
+  .pv .actions button { flex: 1 1 0; min-width: 0; padding: 0.65rem 0.6rem;
+                        font-size: 0.82em; letter-spacing: 0.04em; }
+}
 `;
 
 const TRUST_LABEL_SHORT = {
@@ -2007,8 +2059,26 @@ const MANAGE_CSS = `
 .mg-pending-activation { background:rgba(255,176,0,0.06); border:1px solid #ffb000; border-left-width:3px; color:#ffb000; padding:0.7rem 0.95rem; margin:0 0 1rem; font-size:0.92em; line-height:1.5; }
 .mg-pending-activation strong { color:#ffb000; }
 .mg-pending-activation .title { color:#ffb000; font-weight:700; display:block; margin-bottom:0.25rem; }
-.mg-actions { display:flex; gap:0.7rem; margin:1rem 0; }
-.mg-actions button { padding:0.55rem 1.2rem; border-radius:0; cursor:pointer; font:inherit; font-size:0.85em; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; }
+.mg-actions { display:flex; gap:0.7rem; margin:1rem 0; justify-content:center; flex-wrap:wrap; align-items:center; }
+.mg-actions button, .mg-actions .mg-edit-btn { padding:0.55rem 1.2rem; border-radius:0; cursor:pointer; font:inherit; font-size:0.85em; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; }
+.mg-activate { background:#3fb950; color:#0d1117; border:0; }
+.mg-activate:hover { background:#ffb000; }
+.mg-edit-btn { display:inline-block; background:transparent; border:1px solid #58a6ff; color:#58a6ff; text-decoration:none; }
+.mg-edit-btn.mg-disabled { opacity:0.4; pointer-events:none; }
+/* Callout strip: full-width, sits directly below the buttons row, only
+   one is visible at a time. The [hidden] selector wins over display:flex. */
+.mg-confirm-callout { display:flex; gap:0.7rem; align-items:center; flex-wrap:wrap;
+                      margin:0.4rem 0 1rem; padding:0.65rem 0.85rem;
+                      background:#161b22; border:1px solid #30363d; border-left:3px solid #ffb000; }
+.mg-confirm-callout[hidden] { display:none; }
+.mg-confirm-msg { color:#c9d1d9; font-size:0.88em; flex:1 1 280px; }
+.mg-confirm-actions { display:flex; gap:0.5rem; flex-wrap:wrap; }
+.mg-cancel { background:transparent; color:#8b949e; border:1px solid #30363d; }
+.mg-cancel:hover { background:#0d1117; color:#c9d1d9; }
+@media (max-width:540px) {
+  .mg-confirm-msg { flex:1 1 100%; }
+  .mg-confirm-actions { width:100%; justify-content:flex-end; }
+}
 .mg-remind { background:#0d1117; color:#3fb950; border:1px solid #3fb950; }
 .mg-remind:hover { background:#3fb950; color:#0d1117; }
 .mg-close { background:#0d1117; color:#f85149; border:1px solid #f85149; }
@@ -2031,6 +2101,34 @@ const MANAGE_CSS = `
 .mg-steps .mg-reject { font-size:0.85em; color:#ffb000; border-left:2px solid #ffb000; padding:0.3rem 0.65rem; background:rgba(255,176,0,0.05); }
 .mg-steps .mg-reject code { background:#161b22; color:#c9d1d9; padding:0.05em 0.3em; }
 .mg-steps .mg-reject-at { color:#6e7681; font-family:inherit; }
+@media (max-width: 540px) {
+  /* Stack each row as a card. Cells carry data-label so the column
+     header reads as a key:value line (avoids the conditional-column
+     positioning problem with nth-child). Auxiliary rows (details +
+     rejection + delivery-failed callout) span the full card width. */
+  .mg-steps { font-size:0.88em; border:0; }
+  .mg-steps thead { display:none; }
+  .mg-steps, .mg-steps tbody, .mg-steps tr, .mg-steps td { display:block; width:auto; }
+  .mg-steps tbody > tr {
+    border:1px solid #30363d; border-left:3px solid #30363d;
+    margin-bottom:0.5rem; padding:0.55rem 0.7rem;
+  }
+  .mg-steps tbody > tr > td { padding:0.18rem 0; border-bottom:0; }
+  .mg-steps tbody > tr > td[data-label]::before {
+    content: attr(data-label) ': ';
+    color:#8b949e; font-size:0.75em; text-transform:uppercase; letter-spacing:0.08em;
+    margin-right:0.45rem; display:inline-block; min-width:5.5em;
+  }
+  .mg-steps tbody > tr > td:first-child { color:#6e7681; padding-bottom:0.3rem; font-size:0.85em; }
+  .mg-steps tbody > tr.mg-details-row,
+  .mg-steps tbody > tr.mg-reject-row {
+    border:0; border-bottom:1px solid #21262d; padding:0.3rem 0 0.5rem;
+    margin:-0.3rem 0 0.5rem;
+  }
+  .mg-steps tbody > tr.mg-details-row > td:first-child,
+  .mg-steps tbody > tr.mg-reject-row > td:first-child { display:none; }
+  .mg-steps .col-att-flag { text-align:left; width:auto; }
+}
 `;
 
 function renderManagementDashboard({ eventId, initiatorEmail, event, flash, stepAttempts = {} }) {
@@ -2085,14 +2183,12 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
         html`
           <tr>
             <td>${String(i + 1)}</td>
-            <td>
-              <strong>${s.name}</strong>
-            </td>
-            <td><code>${s.participant}</code></td>
-            ${anyDeadlines ? html`<td>${s.deadline ? html`<code>${s.deadline.slice(0, 10)}</code>` : raw('—')}</td>` : raw('')}
-            ${anyAtt ? html`<td class="col-att-flag">${s.requires_attachment ? html`<span title="attachment required">📎</span>` : raw('')}</td>` : raw('')}
-            <td>${raw(depsLabel === '—' ? '—' : 'after ' + depsLabel)}</td>
-            <td class="${statusCls}">${statusLabel}</td>
+            <td data-label="Step"><strong>${s.name}</strong></td>
+            <td data-label="Participant"><code>${s.participant}</code></td>
+            ${anyDeadlines ? html`<td data-label="Deadline">${s.deadline ? html`<code>${s.deadline.slice(0, 10)}</code>` : raw('—')}</td>` : raw('')}
+            ${anyAtt ? html`<td class="col-att-flag" data-label="Attachment">${s.requires_attachment ? html`<span title="attachment required">📎</span>` : raw('—')}</td>` : raw('')}
+            <td data-label="Depends on">${raw(depsLabel === '—' ? '—' : 'after ' + depsLabel)}</td>
+            <td class="${statusCls}" data-label="Status">${statusLabel}</td>
           </tr>
         `,
       ];
@@ -2216,19 +2312,47 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
     ${bodyMiddle}
 
     <div class="mg-actions">
-      ${pendingActivation ? html`<form method="POST" action="/manage/event/${eventId}/activate" style="margin:0"
-            onsubmit="return confirm('Activate now? This emails ${event.type === 'event' ? 'all named participants' : (event.mode === 'declaration' ? 'the signer' : 'no one — the reply address just goes live')} and cannot be undone.');">
-        <button type="submit" class="mg-activate" style="background:#3fb950;color:#0d1117;border:0;padding:0.5em 1.1em;font:inherit;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer">Activate</button>
-      </form>` : html`<form method="POST" action="/manage/event/${eventId}/remind" style="margin:0">
-        <button type="submit" class="mg-remind" ${complete || archived ? raw('disabled') : ''}>Send reminders</button>
-      </form>`}
-      ${event.type === 'event' ? html`<a href="/manage/event/${eventId}/edit" class="mg-edit-btn"
-            style="display:inline-block;padding:0.5em 1.1em;background:transparent;border:1px solid #58a6ff;color:#58a6ff;text-decoration:none;font:inherit;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;${complete || archived ? 'opacity:0.4;pointer-events:none;' : ''}">Edit</a>` : raw('')}
-      <form method="POST" action="/manage/event/${eventId}/close" style="margin:0"
-            onsubmit="return confirm(${pendingActivation ? raw("'Close (delete) this event now? It hasn\\'t been activated, so deleting leaves no trace; participants are never contacted.'") : raw("'Close this event now? This writes a completion commit and cannot be undone.'")});">
-        <button type="submit" class="mg-close" ${complete || archived ? raw('disabled') : ''}>Close event</button>
-      </form>
+      ${pendingActivation
+        ? html`<button type="button" class="mg-activate" data-confirm-trigger="activate">Activate</button>`
+        : html`<form method="POST" action="/manage/event/${eventId}/remind" style="margin:0">
+            <button type="submit" class="mg-remind" ${complete || archived ? raw('disabled') : ''}>Send reminders</button>
+          </form>`}
+      ${event.type === 'event' ? html`<a href="/manage/event/${eventId}/edit" class="mg-edit-btn ${complete || archived ? raw('mg-disabled') : ''}">Edit</a>` : raw('')}
+      <button type="button" class="mg-close" ${complete || archived ? raw('disabled') : ''} data-confirm-trigger="close">Close event</button>
     </div>
+    ${pendingActivation ? html`<form method="POST" action="/manage/event/${eventId}/activate" class="mg-confirm-callout" data-confirm-panel="activate" hidden>
+      <span class="mg-confirm-msg">${event.type === 'event' ? raw('Emails all named participants. Cannot be undone.') : (event.mode === 'declaration' ? raw('Emails the signer. Cannot be undone.') : raw('Brings the reply address live. Cannot be undone.'))}</span>
+      <span class="mg-confirm-actions">
+        <button type="submit" class="mg-activate">Yes, activate</button>
+        <button type="button" class="mg-cancel" data-confirm-cancel>Cancel</button>
+      </span>
+    </form>` : raw('')}
+    <form method="POST" action="/manage/event/${eventId}/close" class="mg-confirm-callout" data-confirm-panel="close" hidden>
+      <span class="mg-confirm-msg">${pendingActivation ? raw("Hasn't been activated — deleting leaves no trace; participants are never contacted.") : raw('Writes a completion commit. Cannot be undone.')}</span>
+      <span class="mg-confirm-actions">
+        <button type="submit" class="mg-close">${pendingActivation ? raw('Yes, delete') : raw('Yes, close')}</button>
+        <button type="button" class="mg-cancel" data-confirm-cancel>Cancel</button>
+      </span>
+    </form>
+    <script>${raw(`
+      (function(){
+        document.querySelectorAll('[data-confirm-trigger]').forEach(function(t){
+          t.addEventListener('click', function(){
+            if (t.disabled) return;
+            var key = t.getAttribute('data-confirm-trigger');
+            document.querySelectorAll('[data-confirm-panel]').forEach(function(p){
+              p.hidden = (p.getAttribute('data-confirm-panel') !== key);
+            });
+          });
+        });
+        document.querySelectorAll('[data-confirm-cancel]').forEach(function(c){
+          c.addEventListener('click', function(){
+            var panel = c.closest('[data-confirm-panel]');
+            if (panel) panel.hidden = true;
+          });
+        });
+      })();
+    `)}</script>
 
     <div class="mg-email-cmds">
       <p style="margin:0 0 0.4rem">Prefer email? Send a short message from <code>${initiatorEmail}</code> (DKIM-verified) to any of these:</p>
