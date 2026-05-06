@@ -274,6 +274,12 @@ function _applyEditPatch(event, patch) {
           changes.push({ step_id: sp.id, field: f, from: before == null ? null : before, to: value == null ? null : value });
           if (value === undefined) delete merged[f];
           else merged[f] = value;
+          // A participant edit invalidates any previous last_send_error.
+          // Re-notify will write a fresh outcome — leaving the stale error
+          // in place makes "did my fix land?" indistinguishable from
+          // "did the new send fail too?". Clear here, let the new send
+          // record its own result.
+          if (f === 'participant') delete merged.last_send_error;
         }
       }
       next.steps[idx] = merged;

@@ -133,6 +133,28 @@ test('editEvent: pending event — no audit commit, plain mutation', async () =>
   assert.equal(reloaded.steps[0].requires_attachment, true);
 });
 
+test('editEvent: participant change clears last_send_error on that step', async () => {
+  const { editEvent, createEvent, loadEvent } = require('../../src/event-store');
+  const ev = await createEvent({
+    type: 'event', title: 'reset', initiator: 'org@ex.com',
+    activated_at: '2026-01-01T00:00:00Z',
+    steps: [
+      { id: 'a', name: 'audio', participant: 'old@ex.com', status: 'pending',
+        last_send_error: { reason: 'bounced', code: '5.1.1', at: '2026-01-02T00:00:00Z' } },
+      { id: 'b', name: 'video', participant: 'b@ex.com', status: 'pending',
+        last_send_error: { reason: 'timeout', at: '2026-01-02T00:00:00Z' } },
+    ],
+  });
+  // Edit only step a's participant; b is left alone.
+  await editEvent(ev.id, { steps: [{ id: 'a', participant: 'new@ex.com' }, { id: 'b', participant: 'b@ex.com' }] });
+  const reloaded = await loadEvent(ev.id);
+  const sa = reloaded.steps.find((s) => s.id === 'a');
+  const sb = reloaded.steps.find((s) => s.id === 'b');
+  assert.equal(sa.last_send_error, undefined, 'changed-participant step has its error cleared');
+  assert.ok(sb.last_send_error, 'untouched step keeps its error');
+  assert.equal(sb.last_send_error.reason, 'timeout');
+});
+
 test('editEvent: no-op when patch matches current state', async () => {
   const { editEvent, createEvent } = require('../../src/event-store');
   const ev = await createEvent({
