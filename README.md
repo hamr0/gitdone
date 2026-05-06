@@ -174,6 +174,11 @@ a permanent commit, and that's a human decision.
 
 - [Product requirements (PRD)](docs/01-product/prd.md) — what it is,
   what it isn't, why.
+- [Email formats](docs/01-product/email-formats.md) — every email
+  gitdone sends: trigger, recipient, subject, body. End-to-end
+  worked example included.
+- [Deploy](docs/04-process/deploy.md) — `ops/deploy.sh` contract:
+  every pre-flight check + the why behind it.
 - [Changelog](CHANGELOG.md) — what shipped, newest first.
 - Source: <https://github.com/hamr0/gitdone>.
 

@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-06T12:26Z · `61e12cf` · Crypto pending-activation parity + dated 72h warning + typed manage title
 - 2026-05-06T12:20Z · `2bde554` · Crypto declaration: reject signer == initiator (no self-sign)
 - 2026-05-06T12:04Z · `ba36413` · Mobile responsive pass: landing, create form, dashboard
 - 2026-05-04T20:37Z · `792f9b8` · close+: two-step confirm with 30-min token (email path only)

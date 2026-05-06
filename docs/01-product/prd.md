@@ -592,7 +592,7 @@ Per the moat (§0.1.4 — "invisible beats correct"), the initiator's day-to-day
 | `verify+{id}@` | anyone forwards a raw `.eml` or attachment; gets a verification report back | none (public op) |
 | `stats+{id}@` | initiator: current event state + progress | DKIM + envelope sender == `event.initiator` |
 | `remind+{id}@` | initiator: resend reminders to pending-step participants | same |
-| `close+{id}@` | initiator: close event early | same |
+| `close+{id}@` | initiator: close event early — **two-step confirm**; first reply replies with a 30-min token, second reply quoting `CONFIRM <token>` actually closes | same |
 | `reverify+{id}-{commitN}@` | initiator or auditor: re-run verification on a specific commit with supplied evidence (raw `.eml`, attachment) | none |
 
 **Initiator authentication via DKIM:** when an inbound message is DKIM-verified and its envelope sender matches `event.initiator`, that's cryptographic proof that the initiator authorised the command. As strong as (and often stronger than) a magic link — DKIM can't be spoofed, magic links can be forwarded.

@@ -15,6 +15,159 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Crypto pending-activation parity, dated 72h auto-delete, typed manage title
+
+Crypto events go through the same pending-activation pipeline as
+workflow events (72h TTL, magic-link required even when signed in,
+24h-before-deletion nudge — none of that changed in the sweep or
+event-store), but the dashboard rendered them as if they were already
+live. Three small surface changes close the gap:
+
+- **Pending crypto bodies flag pending state inline.** Declaration
+  now reads `Signer: <addr> — will be invited on Activate` and
+  `Reply address (goes live on Activate): event+<id>@…`, with no
+  `Status: awaiting signature` line until activation. Attestation
+  reads `Reply address (goes live on Activate): …` with no
+  `Replies received` line. Activated events render as before.
+- **Dated auto-delete.** The pending-activation banner used to say
+  "lapses on its own at 72h" — relative and easy to miss. Now
+  computes `created_at + 72h` and shows `auto-deleted YYYY-MM-DD
+  HH:MMZ if not activated` so the organiser knows the exact window.
+  `renderCheckYourInboxPage` (post-create) gets the same treatment.
+- **Typed `/manage/event/:id` title.** Was always `manage —
+  <title>`; now `manage event — <title>` for workflows, `manage
+  declaration — <title>` for declarations, `manage attestation —
+  <title>` for attestations. Layout's auto-derived page-header
+  picks this up so the breadcrumb at the top distinguishes types
+  when multiple tabs are open.
+- **Crypto declaration: signer must differ from initiator.** A
+  declaration's whole purpose is third-party signing; the form
+  used to allow self-signatures. `validateCryptoEvent` rejects
+  case-insensitive matches with "signer must be different from
+  the requester (you can't self-sign a declaration)". Attestation
+  unaffected (anonymous-allowed mode is legitimate self-contribution).
+
+### Mobile responsive pass — landing, create form, dashboard
+
+Five fixes batched as one viewport-aware pass; all CSS-only with one
+`data-label` markup tweak. Targets 375px and up.
+
+- **Landing.** Decorative yellow corner badge clipped the kicker +
+  wordmark on narrow viewports — hidden below 640px (pure chrome).
+  "Manage your events & crypto ▸" was wrapping mid-link, leaking the
+  arrow onto the next line — `white-space: nowrap` on the link.
+- **Create event.** Step rows collapse into a 2-line grid card
+  on ≤540px: row 1 is name (2fr) + email (3fr — full address visible
+  for typo-checking) + remove ×; row 2 is date (matches name width)
+  · deps + checkbox (share email's column). Inputs get visible borders
+  on mobile so controls read as discrete fields. Submit centred via
+  `display:block; margin: 1.1rem auto 0`.
+- **Preview/confirmation.** "Confirm & send invites" + "← Go back to
+  edit" share the row 50/50 on ≤540px instead of wrapping awkwardly.
+- **Dashboard.** Action row (Activate / Edit / Close event)
+  centred via `justify-content: center; flex-wrap: wrap`. JS
+  `confirm()` popups for Activate and Close replaced with a
+  full-width inline callout below the buttons row showing the
+  warning + `Yes, …` submit + Cancel; opening one swaps which
+  callout is visible. Steps table uses the standard responsive-
+  table pattern: thead hides on mobile, each row stacks as a card
+  with `data-label` attrs prefixing values (e.g. `DEADLINE:
+  2026-06-06`); auxiliary rows (delivery-failed callout, rejection,
+  details) span full card width.
+
+### Email-formats catalog
+
+`docs/01-product/email-formats.md` — single-page reference for every
+email gitdone sends. Twenty entries covering sign-in, invitations,
+reply acks, organiser receipts, sweep nudges, initiator commands,
+verification reports — each with trigger, recipient, subject template
+and body shape. A "Worked example" section walks an end-to-end 2-step
+workflow (with attachment + deadline) showing verbatim subjects and
+bodies for activation receipt → first invite → accepted ack →
+step-progress update → cascaded second invite → completion notice,
+plus the `remind+` and two-step `close+` scenarios. Subject grammar
+conventions documented at the bottom.
+
+Linked from `docs/README.md`.
+
+### close+ two-step confirm
+
+Closing an event is irreversible — it writes a final completion
+commit and notifies every participant. A single DKIM-authenticated
+reply was enough to trigger it, which leaves no margin for an
+autoreply, stale forwarded message, filter rule that strips +-tags,
+or one-off compromised send. The fix is to require a second
+deliberate authenticated action.
+
+- **Email path (`close+<id>@`)** is now a two-step confirm:
+  - Reply 1 records `pending_close = { token, expires_at }` on the
+    event (TTL 30 min, 8 hex chars) and replies with the token plus
+    instructions. **No completion commit.**
+  - Reply 2, within the TTL, with `CONFIRM <token>` anywhere in
+    subject or body (case-insensitive), commits the close.
+  - Outstanding intent + reply with no token → reminds with the
+    *same* token (does NOT reissue, so a stray re-send can't refresh
+    the window). Wrong token → `token mismatch, retry`. Expired
+    intent → fresh token.
+  - New subjects for the in-between states:
+    `[gitdone] close pending "<title>" — reply to confirm`,
+    `[gitdone] close pending "<title>" — still awaiting confirmation`,
+    `[gitdone] close pending "<title>" — token mismatch, retry`.
+- **Web path (`/manage/event/:id/close`) unchanged.** The dashboard
+  click + active session is its own confirmation; an email-style
+  two-step would be wrong UX. Kept `executeClose()` as the immediate
+  primitive for the web route; new `executeCloseRequest()` handles
+  the email flow.
+
+### Subject grammar — `[N/M]` step-progress, status snapshots, reminder tag, RFC 7505 null MX
+
+A consistent grammar across every gitdone-originated subject so
+inbox glance reads like a status update instead of a tag dump.
+
+- **Step-progress notifications** to the organiser used to grow
+  unboundedly with step count (named the just-completed step plus
+  every newly-active downstream step). Now bounded:
+  `[gitdone] "wedding" [2/12] step done · next active`. The ` · next
+  active` suffix drops on fan-in waiting on parallel branches.
+- **Stats / remind / close receipts** to the initiator follow the
+  same shape (replacing the opaque `[gitdone] stats · <id>` form):
+  - workflow: `[gitdone] <verb> "<title>" [<done>/<total>] step done`
+    (or `… complete` when finished).
+  - crypto: `[gitdone] <verb> "<title>" — <mode> · <open|complete>`.
+  - verb = `stats` | `reminded` | `closed`.
+- **Participant reminders** carry a `"reminder"` tag so the MUA can
+  distinguish a re-send from the original invite:
+  - first invite: `[gitdone] wedding — audio [1/2] — your step`
+  - re-send via `remind+`: `[gitdone] "reminder" wedding — audio [1/2] — your step`
+- **RFC 7505 null MX rejection.** `checkInitiatorMx` only treated
+  zero MX records as "no mail" — but a domain like `invmail.com`
+  publishes a *null MX* (`0 .`) which Node returns as a single-
+  element array, so the message went into the queue, no DSN came
+  back, and the step sat forever. Pre-flight now detects null MX
+  (priority 0, exchange "." or empty) and rejects with `domain
+  refuses mail (null MX)`. Per RFC 7505 §3, no A-record fallback in
+  this case. The existing zero-MX → A-record path is preserved.
+
+### Deploy automation — `ops/deploy.sh` + `docs/04-process/deploy.md`
+
+One script, no skip flags, runs every pre-flight check the runbook
+spelled out by hand: clean tree, on `main`, pushed, lockfile tracked,
+no `file:`/`link:`/`git:` deps, local Node major ≤ VPS Node major,
+full test suite passes. Then loads the SSH key from `pass
+gitdone/vps/ssh_key_federver` into `/tmp/gitdone-vps-key`, fetches +
+checks out on the VPS, runs `npm ci --omit=dev` only when
+`app/package*.json` changed, restarts `gitdone-web.service`, polls
+`/health` and `/manage`, and appends one line to `ops/deploy-log.md`
+(left uncommitted so it folds into the next functional change). Tests
+are intentionally not skippable — there's no flag for that.
+
+`docs/04-process/deploy.md` is the contract: every numbered step has
+its actual shell command, why the check exists, what the failure
+message looks like, and how to clear it. The expanded
+`deployment.md §11` runbook stays for things the script deliberately
+doesn't automate (initial install, Node major upgrades, DKIM rotation,
+cert renewal). Linked from `docs/README.md` and `CLAUDE.md`.
+
 ### Discoverability — tier 1 head tags, robots.txt, sitemap.xml
 
 Privacy-led SEO per `docs/04-process/privacy-seo.md`. The web is
