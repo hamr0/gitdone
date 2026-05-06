@@ -48,7 +48,7 @@
 | Let's Encrypt cert not renewing | `gitdone-health.timer` warns 14 days before expiry; certbot timer handles renewal |
 | VPS dies | Full restore from federver tar → new VPS: ~30 min with DNS cutover |
 | Inbound mail pipeline OOM on a huge attachment | Postfix `message_size_limit` caps; receive.js streams, doesn't buffer |
-| Attestation spam | `min_trust_level=verified` default + `allow_anonymous=off` default; dedup rule chooses whether duplicates count |
+| Attestation spam | Dedup rule encodes the trust policy: `unique`/`latest` require DKIM-verified senders; `accumulating` accepts both verified and unverified but flags each in the audit trail. (The pre-1.H `allow_anonymous` toggle is gone — dedup is the single knob.) |
 | Session secret leaked | Rotate via `/etc/default/gitdone-web`; all live sessions forcibly re-sign |
 | gitdone-verify tool maintainer captured | MIT license + PRD §0.1.2; the tool must remain forkable |
 

@@ -121,25 +121,12 @@ async function createEvent(partialEvent) {
 // (O_EXCL on a sentinel) — but the in-process serialisation is correct
 // for the current deployment shape.
 // Per-event write mutex. Both activateEvent and editEvent serialize
-// through this map so an edit can't race with a first-visit activation
-// (and vice versa). Each entry is a Promise of the in-flight write.
-// Callers always reload from disk after the mutex unlocks; the in-flight
-// Promise's result shape is op-specific and not relied on here.
-const _writeMutex = new Map();
-async function _serialize(eventId, work) {
-  const prev = _writeMutex.get(eventId);
-  const p = (async () => {
-    if (prev) { try { await prev; } catch { /* ignore prior failure */ } }
-    return work();
-  })();
-  _writeMutex.set(eventId, p);
-  try { return await p; }
-  finally {
-    // Only clear if we're still the latest entry — a follow-up call may
-    // have already chained itself behind us.
-    if (_writeMutex.get(eventId) === p) _writeMutex.delete(eventId);
-  }
-}
+// through the shared per-event mutex (event-mutex.js) so an edit can't
+// race with a first-visit activation (and vice versa). The same mutex
+// also serialises every other writer in this process — completion.js's
+// updateEventAtomic, sweep.js's atomicWriteEvent — so simple-git's
+// index.lock can't collide between writers either.
+const { withEventMutex: _serialize } = require('./event-mutex');
 
 // Validate a one-time activation-ack token and record the click. The
 // activation magic-link email's nextUrl carries this token; the

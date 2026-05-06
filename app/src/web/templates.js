@@ -152,6 +152,7 @@ th { color: #8b949e; font-weight: 500; text-transform: uppercase; font-size: 0.7
 ::selection { background: rgba(63,185,80,.28); color: #c9d1d9; }
 .copyable { cursor: pointer; position: relative; }
 .copyable:hover { background: #1f2630; }
+.copyable:focus-visible { outline: 1px solid #3fb950; outline-offset: 2px; }
 .copyable.copied::after { content: 'copied'; position: absolute; left: 100%; top: 50%;
   transform: translateY(-50%); margin-left: 0.4rem; padding: 0.1em 0.4em;
   background: #3fb950; color: #0d1117; font-size: 0.72em; letter-spacing: 0.06em;
@@ -184,9 +185,46 @@ ${dev && devHUD ? devHUD : ''}
       } catch(e) {}
     }
   }
+  // Promote every .copyable to a real keyboard-focusable button at
+  // attach time so server-rendered HTML stays clean. aria-label uses
+  // the actual text so screen readers announce "copy <text>".
+  function enhance(){
+    var nodes = document.querySelectorAll('.copyable');
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (el.dataset.copyableEnhanced) continue;
+      el.dataset.copyableEnhanced = '1';
+      if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+      if (!el.hasAttribute('role')) el.setAttribute('role', 'button');
+      if (!el.hasAttribute('aria-label')) {
+        var t = (el.textContent || '').trim();
+        if (t) el.setAttribute('aria-label', 'Copy ' + t);
+      }
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', enhance);
+  } else {
+    enhance();
+  }
   document.addEventListener('click', function(e){
     var c = e.target.closest && e.target.closest('.copyable');
-    if (c) copyText(c);
+    if (!c) return;
+    // Don't hijack a click that ends a partial-selection drag — losing
+    // the user's selection by snapping it to the whole element is
+    // worse than missing one copy gesture. Honour their selection.
+    try {
+      var sel = window.getSelection && window.getSelection();
+      if (sel && sel.toString().length > 0) return;
+    } catch(_) {}
+    copyText(c);
+  });
+  document.addEventListener('keydown', function(e){
+    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+    var c = e.target && e.target.closest && e.target.closest('.copyable');
+    if (!c) return;
+    e.preventDefault(); // Space would otherwise scroll the page.
+    copyText(c);
   });
 })();
 </script>

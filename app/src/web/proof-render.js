@@ -46,6 +46,14 @@ function truncHash(sha) {
   return `sha256:${noPrefix.slice(0, 4)}…${noPrefix.slice(-4)}`;
 }
 
+function formatBytes(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x) || x <= 0) return '';
+  if (x < 1024) return `${x} B`;
+  if (x < 1024 * 1024) return `${(x / 1024).toFixed(1)} KB`;
+  return `${(x / 1024 / 1024).toFixed(1)} MB`;
+}
+
 // Aggregate trust-level signal from a list of {trust_level} items
 // (commits / replies). Returns counts per level + the modal level
 // (most common; ties break high) and the weakest level present.
@@ -135,9 +143,30 @@ function renderProofReceipt(commit, eventId) {
       <div class="mg-receipt-row"><div class="mg-receipt-key">OTS</div><div>${otsState}</div></div>
       <div class="mg-receipt-row"><div class="mg-receipt-key">Raw hash</div><div class="mg-receipt-mono">${hash || '—'}</div></div>
       <div class="mg-receipt-row"><div class="mg-receipt-key">Trust</div><div style="color:${raw(TRUST_COLOR[commit.trust_level] || '#c9d1d9')}">${commit.trust_level || 'unknown'}</div></div>
+      ${renderAttachmentsBlock(commit.attachments)}
       <div class="mg-receipt-cmd"><code class="copyable">$ ${cmd}</code></div>
     </div>
   `;
+}
+
+// Per-attachment rows inside an mg-receipt block. Renders nothing when
+// the commit has no recorded attachments (most replies). Filename +
+// truncated sha256 + size; bytes are NOT stored, only the hash —
+// enough to verify against the owner's forwarded copy offline.
+function renderAttachmentsBlock(attachments) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return raw('');
+  const rows = attachments.map((a, i) => {
+    const name = a.filename || `attachment-${i + 1}`;
+    const hash = truncHash(a.sha256) || '—';
+    const sz = formatBytes(a.size);
+    return html`
+      <div class="mg-receipt-row">
+        <div class="mg-receipt-key">${i === 0 ? raw('Attachments') : raw('')}</div>
+        <div><code>${name}</code><span class="mg-receipt-mono" style="margin-left:0.5rem;color:#8b949e">${hash}</span>${sz ? html`<span style="margin-left:0.5rem;color:#6e7681">· ${sz}</span>` : raw('')}</div>
+      </div>
+    `;
+  });
+  return html`${rows}`;
 }
 
 // OTS status text for a commit JSON. The commit JSON's
@@ -178,7 +207,7 @@ function plainReceipt(commit) {
   const trustLine = commit.trust_level || 'unknown';
   // ASCII-only — replace the U+00B7 middle dot with hyphen.
   const sanitize = (s) => String(s).replace(/·/g, '-');
-  return [
+  const lines = [
     `DKIM       ${sanitize(dkimLine)}`,
     `SPF        ${spfResult}`,
     `DMARC      ${dmarcResult}`,
@@ -186,7 +215,31 @@ function plainReceipt(commit) {
     `OTS        ${sanitize(otsLine)}`,
     `Raw hash   ${hashLine}`,
     `Trust      ${trustLine}`,
-  ].join('\n');
+  ];
+  const atts = Array.isArray(commit.attachments) ? commit.attachments : [];
+  if (atts.length) {
+    lines.push(`Attachments`);
+    for (const a of atts) {
+      const name = a.filename || '(unnamed)';
+      const h = truncHash(a.sha256) || 'no-hash';
+      const sz = formatBytes(a.size);
+      lines.push(`  ${name}  ${h}${sz ? ` (${sz})` : ''}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+// Inline attachment pill — green paperclip + count. Same data-step
+// hook as the trust pill so clicking either toggles the proof drawer.
+function renderAttachmentPill({ count, stepId }) {
+  if (!count) return raw('');
+  const c = TRUST_COLOR.verified;
+  const dataStep = stepId ? ` data-step="${escapeHTML(stepId)}"` : '';
+  const role = stepId ? ' role="button" tabindex="0" aria-expanded="false"' : '';
+  return raw(
+    `<span class="trust-pill attach-pill"${dataStep}${role} `
+    + `style="color:${c};border-color:${c}">📎 ${escapeHTML(String(count))}</span>`
+  );
 }
 
 module.exports = {
@@ -195,8 +248,11 @@ module.exports = {
   TRUST_LABEL,
   trustRank,
   truncHash,
+  formatBytes,
   aggregateTrust,
   renderTrustPill,
+  renderAttachmentPill,
+  renderAttachmentsBlock,
   renderTrustLadder,
   renderProofReceipt,
   otsStatusLabel,

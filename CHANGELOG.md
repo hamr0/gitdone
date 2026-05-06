@@ -15,6 +15,49 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### QA review fixes — mutex parity, accumulating OTS email, click-to-copy a11y
+
+A code review of the recent proof-surfacing + bundle-download work
+surfaced three structural issues. All fixed:
+
+- **Per-event mutex now shared.** `event-store.js`'s `_writeMutex`
+  was only protecting `activateEvent` / `editEvent` /
+  `recordStepSendErrors`. `completion.updateEventAtomic` (called by
+  the reply commit + dashboard close + email-path close) and
+  `sweep.atomicWriteEvent` (archive/unarchive) bypassed it. Two
+  concurrent transitions on the same event could race the JSON
+  write or collide on `simple-git`'s `index.lock`. Lifted the mutex
+  into a new `app/src/event-mutex.js` module; every state-relevant
+  writer goes through it.
+- **OTS-anchored email now fires for accumulating attestation.**
+  The predicate at `ots-upgrade.js:234` was gated on
+  `event.completion.status === 'complete'`, but accumulating
+  attestation by design stays `'open'` past `threshold_reached_at`.
+  Result: the OTS-anchored follow-up never fired for accumulating
+  events. Predicate broadened to fire on either completion OR
+  `threshold_reached_at` set.
+- **Mixed-signal `commits/completion.json` removed for accumulating.**
+  Was being written on `firstCrossing` while `event.json` said
+  `'open'`. Dropped — `event.threshold_reached_at` (synced into the
+  repo's `event.json`) is the canonical milestone marker.
+- **Click-to-copy keyboard accessibility.** `<code class="copyable">`
+  elements now get `tabindex="0"`, `role="button"`, dynamic
+  `aria-label`, an Enter/Space `keydown` handler, and a
+  `:focus-visible` outline. The click handler also bails when the
+  user has an active text selection so highlighting + copying
+  partial text works.
+- **End-to-end proof-flow integration test.** New
+  `app/tests/integration/e2e-proof.test.js` exercises
+  create → activate → reply → complete → bundle download →
+  `gitdone-verify` round-trip. Would have caught the accumulating
+  bug. Spawns the verifier as a subprocess and asserts
+  `Overall: PASS`.
+- **Cleanup:** stale `allow_anonymous` references removed from
+  fixtures and `docs/00-context/assumptions.md`. Threshold cap
+  retroactive audit on prod: zero events with `threshold > 50`.
+
+497 tests pass (362 unit + 97 integration + 38 verify-tool).
+
 ### Repo `event.json` now reflects current state (offline-verifier fix)
 
 The per-event git repo at `data/repos/<id>/` is the canonical proof

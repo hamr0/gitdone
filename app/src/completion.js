@@ -310,25 +310,34 @@ function applyReply(event, commit, { now = new Date().toISOString() } = {}) {
 // Atomic read-modify-write on events/{eventId}.json. `updater(event)` receives
 // the loaded JSON and returns either a new event object OR null/undefined to
 // skip the write. Temp-file + rename for crash safety.
+//
+// Serialised through the shared per-event mutex (event-mutex.js) so this
+// can't race with activate/edit/recordStepSendErrors in event-store.js, or
+// archive/unarchive in sweep.js. The git operations inside syncEventJson
+// MUST be inside the lock — concurrent `simple-git` calls against the
+// same .git dir collide on `index.lock`.
 async function updateEventAtomic(eventId, updater, { syncMessage } = {}) {
-  const file = path.join(config.dataDir, 'events', `${eventId}.json`);
-  const raw = await fs.readFile(file, 'utf8');
-  const event = JSON.parse(raw);
-  const next = await updater(event);
-  if (!next) return { event, changed: false };
-  const tmp = file + '.tmp';
-  await fs.writeFile(tmp, JSON.stringify(next, null, 2) + '\n');
-  await fs.rename(tmp, file);
-  // Mirror state into the per-event repo's event.json. The repo IS
-  // the proof artifact; once it exists, every master-JSON state
-  // transition must also land there or the offline verifier reads a
-  // stale snapshot. No-ops cleanly when the repo doesn't exist yet
-  // (e.g. pending-activation events).
-  try {
-    const { syncEventJson } = require('./gitrepo');
-    await syncEventJson(eventId, next, syncMessage || 'event state update');
-  } catch { /* repo-sync failure shouldn't undo the master write */ }
-  return { event: next, changed: true };
+  const { withEventMutex } = require('./event-mutex');
+  return withEventMutex(eventId, async () => {
+    const file = path.join(config.dataDir, 'events', `${eventId}.json`);
+    const raw = await fs.readFile(file, 'utf8');
+    const event = JSON.parse(raw);
+    const next = await updater(event);
+    if (!next) return { event, changed: false };
+    const tmp = file + '.tmp';
+    await fs.writeFile(tmp, JSON.stringify(next, null, 2) + '\n');
+    await fs.rename(tmp, file);
+    // Mirror state into the per-event repo's event.json. The repo IS
+    // the proof artifact; once it exists, every master-JSON state
+    // transition must also land there or the offline verifier reads a
+    // stale snapshot. No-ops cleanly when the repo doesn't exist yet
+    // (e.g. pending-activation events).
+    try {
+      const { syncEventJson } = require('./gitrepo');
+      await syncEventJson(eventId, next, syncMessage || 'event state update');
+    } catch { /* repo-sync failure shouldn't undo the master write */ }
+    return { event: next, changed: true };
+  });
 }
 
 module.exports = {

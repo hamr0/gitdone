@@ -58,6 +58,8 @@ const {
   renderTrustLadder,
   renderTrustPill,
   renderProofReceipt,
+  renderAttachmentPill,
+  truncHash,
   aggregateTrust,
   TRUST_COLOR,
   TRUST_LABEL,
@@ -2408,13 +2410,26 @@ function renderAttestationHero(event, commits) {
         <details class="proof-details">
           <summary>Cryptographic proof — per-reply ledger</summary>
           <div class="mg-receipt">
-            ${commits.map((c) => html`
+            ${commits.map((c) => {
+              const atts = Array.isArray(c.attachments) ? c.attachments : [];
+              return html`
               <div class="proof-row">
                 <div class="proof-key">${c.sender_domain || '?'}</div>
                 <div class="proof-value">${fmtDate(c.received_at)}</div>
+                ${atts.length ? html`<span class="trust-pill attach-pill" style="color:${raw(TRUST_COLOR.verified)};border-color:${raw(TRUST_COLOR.verified)};margin-left:0.5rem">📎 ${String(atts.length)}</span>` : raw('')}
                 <div style="margin-left:auto;color:${raw(TRUST_COLOR[c.trust_level] || '#c9d1d9')}">${TRUST_LABEL[c.trust_level] || c.trust_level || '?'}</div>
               </div>
-            `)}
+              ${atts.length ? html`
+                <div class="proof-row" style="padding-left:1.2rem;color:#8b949e;font-size:0.85em">
+                  <div style="display:flex;flex-direction:column;gap:0.15rem">
+                    ${atts.map((a, i) => html`
+                      <div><code>${a.filename || `attachment-${String(i + 1)}`}</code> <span class="mg-receipt-mono">${truncHash(a.sha256)}</span></div>
+                    `)}
+                  </div>
+                </div>
+              ` : raw('')}
+              `;
+            })}
             <div class="mg-receipt-cmd"><code class="copyable">$ gitdone-verify ${event.id}</code></div>
           </div>
         </details>
@@ -2498,8 +2513,9 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
       // Inline trust pill on completed steps. The pill carries
       // data-step=<id> so the table click handler toggles the drawer.
       const completedCommit = s.status === 'complete' ? stepAttempts[s.id] : null;
+      const attCount = completedCommit && Array.isArray(completedCommit.attachments) ? completedCommit.attachments.length : 0;
       const stepPill = completedCommit && completedCommit.trust_level
-        ? html` <span class="trust-pill trust-${completedCommit.trust_level}" data-step="${s.id}" role="button" tabindex="0" aria-expanded="false" style="color:${raw(TRUST_COLOR[completedCommit.trust_level] || '#c9d1d9')};border-color:${raw(TRUST_COLOR[completedCommit.trust_level] || '#30363d')}">${TRUST_LABEL[completedCommit.trust_level] || completedCommit.trust_level}</span>`
+        ? html` <span class="trust-pill trust-${completedCommit.trust_level}" data-step="${s.id}" role="button" tabindex="0" aria-expanded="false" style="color:${raw(TRUST_COLOR[completedCommit.trust_level] || '#c9d1d9')};border-color:${raw(TRUST_COLOR[completedCommit.trust_level] || '#30363d')}">${TRUST_LABEL[completedCommit.trust_level] || completedCommit.trust_level}</span>${attCount ? html` ${renderAttachmentPill({ count: attCount, stepId: s.id })}` : raw('')}`
         : raw('');
       const out = [
         html`

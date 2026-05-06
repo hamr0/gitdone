@@ -46,22 +46,30 @@ async function listDir(dir) {
   catch (err) { if (err.code === 'ENOENT') return []; throw err; }
 }
 
+// Serialised through the shared per-event mutex (event-mutex.js) so an
+// archive/unarchive can't race with a concurrent activation, edit, or
+// completion-engine write. The git operations inside syncEventJson MUST
+// be inside the lock — concurrent `simple-git` calls against the same
+// .git dir collide on `index.lock`.
 async function atomicWriteEvent(eventId, event, syncMessage) {
-  const file = path.join(config.dataDir, 'events', `${eventId}.json`);
-  const tmp = file + '.tmp';
-  await fs.writeFile(tmp, JSON.stringify(event, null, 2) + '\n');
-  await fs.rename(tmp, file);
-  // Mirror state-relevant transitions (archive / unarchive) into the
-  // per-event repo. Bookkeeping flips (nudge timestamps) also flow
-  // through here — they no-op on the commit step when nothing
-  // material changed in event.json bytes anyway, but skip the sync
-  // call entirely when no message was supplied to keep the ledger
-  // tidy.
-  if (!syncMessage) return;
-  try {
-    const { syncEventJson } = require('./gitrepo');
-    await syncEventJson(eventId, event, syncMessage);
-  } catch { /* sync failure shouldn't undo the master write */ }
+  const { withEventMutex } = require('./event-mutex');
+  return withEventMutex(eventId, async () => {
+    const file = path.join(config.dataDir, 'events', `${eventId}.json`);
+    const tmp = file + '.tmp';
+    await fs.writeFile(tmp, JSON.stringify(event, null, 2) + '\n');
+    await fs.rename(tmp, file);
+    // Mirror state-relevant transitions (archive / unarchive) into the
+    // per-event repo. Bookkeeping flips (nudge timestamps) also flow
+    // through here — they no-op on the commit step when nothing
+    // material changed in event.json bytes anyway, but skip the sync
+    // call entirely when no message was supplied to keep the ledger
+    // tidy.
+    if (!syncMessage) return;
+    try {
+      const { syncEventJson } = require('./gitrepo');
+      await syncEventJson(eventId, event, syncMessage);
+    } catch { /* sync failure shouldn't undo the master write */ }
+  });
 }
 
 // The reference clock for overdue/archive decisions. Returns a ms

@@ -773,15 +773,29 @@ async function main() {
           : nextEvent.mode === 'declaration'
             ? { signer: nextEvent.signer }
             : { threshold: nextEvent.threshold, counted: applied.countedReplies, dedup: nextEvent.dedup };
-        try {
-          const cc = await commitCompletion(tag.eventId, nextEvent, {
-            completedAt: receivedAt,
-            triggeringSequence: gitCommit.sequence,
-            summary,
-          });
-          completion.completion_commit = cc;
-        } catch (err) {
-          completion.completion_commit_error = err.message || String(err);
+        // Accumulating attestation: completedEvent here signals the
+        // first threshold crossing, but completion.status is still
+        // 'open' by design (organiser closes explicitly). Writing
+        // commits/completion.json would be a lie — repo says "complete",
+        // event.json says "open". Skip the file entirely; the repo's
+        // event.json (synced via syncEventJson above) carries
+        // threshold_reached_at, which is sufficient signal for the
+        // proof-email pipeline and the offline verifier.
+        const isAccumulatingThreshold =
+          nextEvent.type === 'crypto'
+          && nextEvent.mode === 'attestation'
+          && nextEvent.dedup === 'accumulating';
+        if (!isAccumulatingThreshold) {
+          try {
+            const cc = await commitCompletion(tag.eventId, nextEvent, {
+              completedAt: receivedAt,
+              triggeringSequence: gitCommit.sequence,
+              summary,
+            });
+            completion.completion_commit = cc;
+          } catch (err) {
+            completion.completion_commit_error = err.message || String(err);
+          }
         }
         // Notify the organiser + every contributing participant that
         // the event has completed. Best-effort; a send failure here

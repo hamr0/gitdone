@@ -231,8 +231,20 @@ async function run({ dataDir = config.dataDir, binary = OTS_BIN, gitBin = GIT_BI
         && (r.pending_after || 0) === 0
         && !(await isAnchoredNotified(repo))) {
       const event = await loadEventForRepo(dataDir, repo);
-      const isComplete = event && event.completion && event.completion.status === 'complete';
-      if (event && isComplete) {
+      // Two cases fire the OTS-anchored follow-up:
+      //   - completion.status === 'complete' (workflow done, declaration
+      //     signed, attestation unique/latest threshold reached)
+      //   - threshold_reached_at is set (accumulating attestation crossed
+      //     its threshold; completion stays 'open' by design — the
+      //     organiser closes it explicitly later)
+      // The accumulating path was previously gated only on the first
+      // condition, which silently dropped the OTS-anchored email for
+      // every accumulating attestation. The proof-email-pair promise
+      // (initial proof + Bitcoin-anchored follow-up) applies to both.
+      const wasCompleteOrThresholdReached =
+        (event && event.completion && event.completion.status === 'complete')
+        || !!(event && event.threshold_reached_at);
+      if (event && wasCompleteOrThresholdReached) {
         try {
           // Lazy require — keeps the script lean when running without
           // sendmail (tests) and matches the established pattern.

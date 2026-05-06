@@ -188,7 +188,7 @@ test('close+ first reply: pending intent, no completion commit', async () => {
     await fs.writeFile(path.join(tmp, 'events', 'evc01.json'), JSON.stringify({
       id: 'evc01', type: 'crypto', mode: 'attestation',
       min_trust_level: 'unverified', initiator: 'c@ex.com',
-      threshold: 99, dedup: 'unique', allow_anonymous: true, replies: [],
+      threshold: 99, dedup: 'unique', replies: [],
       title: 'abandon this', salt: 'salt-close',
       activated_at: '2026-01-01T00:00:00Z',
     }));

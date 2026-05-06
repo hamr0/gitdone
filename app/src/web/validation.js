@@ -291,9 +291,11 @@ const MAX_THRESHOLD = 50;
 // Crypto event validator — PRD §4.2. Branches on mode:
 //   declaration: { title, initiator, signer, min_trust_level }
 //   attestation: { title, initiator, threshold, dedup }
-// Note: attestation has no min_trust_level or allow_anonymous knob —
-// trust policy is derived from the dedup rule (unique/latest require
-// DKIM-verified; accumulating counts both verified and unverified).
+// Note: attestation has no min_trust_level knob — trust policy is
+// derived from the dedup rule (unique/latest require DKIM-verified;
+// accumulating counts both verified and unverified). The pre-1.H
+// allow_anonymous form field has been dropped; the dedup rule is the
+// single source of truth.
 // Returns { ok, value?, errors? } in the same shape as validateWorkflowEvent.
 function validateCryptoEvent(form) {
   const errors = [];
