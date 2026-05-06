@@ -54,6 +54,14 @@ const { getAuth } = require('../src/auth');
 const { createEventFinder } = require('../src/web/handle-events');
 const { sendmail, buildRawMessage, withSignature } = require('../src/outbound');
 const { notifyWorkflowParticipants, notifyDeclarationSigner } = require('../src/notifications');
+const {
+  renderTrustLadder,
+  renderTrustPill,
+  renderProofReceipt,
+  aggregateTrust,
+  TRUST_COLOR,
+  TRUST_LABEL,
+} = require('../src/web/proof-render');
 const devChannel = IS_DEV ? require('../src/web/dev-channel') : null;
 const designLab = IS_DEV ? require('../src/web/design-lab') : null;
 
@@ -1746,10 +1754,13 @@ router.get('/manage/event/:id', async (req, res, params) => {
             ? 'Changes saved. Any participants whose email changed received a fresh invitation.'
             : null;
   let stepAttempts = {};
+  // Per-step commit (latest attempt) for the workflow trust pills, and
+  // ALL commits for the crypto receipt + attestation per-reply ledger.
+  // listCommits returns [] if the repo doesn't exist yet (pending events).
+  const { listCommits } = require('../src/gitrepo');
+  const allCommits = await listCommits(event.id).catch(() => []);
   if (event.type === 'event') {
-    const { listCommits } = require('../src/gitrepo');
-    const commits = await listCommits(event.id).catch(() => []);
-    for (const c of commits) {
+    for (const c of allCommits) {
       if (!c.step_id) continue;
       const prev = stepAttempts[c.step_id];
       if (!prev || (c.sequence || 0) > (prev.sequence || 0)) {
@@ -1757,6 +1768,8 @@ router.get('/manage/event/:id', async (req, res, params) => {
       }
     }
   }
+  const stepCommits = stepAttempts; // alias kept for clarity below
+  const eventCommits = allCommits;
   // Page title differentiates by type so the browser tab + the
   // page-header line (auto-derived from title) read clearly when the
   // organiser has multiple events open.
@@ -1766,7 +1779,7 @@ router.get('/manage/event/:id', async (req, res, params) => {
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
     title: `manage ${kindWord} — ${event.title}`,
-    body: renderManagementDashboard({ eventId: params.id, initiatorEmail: event.initiator, event, flash, stepAttempts }),
+    body: renderManagementDashboard({ eventId: params.id, initiatorEmail: event.initiator, event, flash, stepAttempts, eventCommits }),
   }));
 });
 
@@ -2025,7 +2038,25 @@ router.post('/manage/event/:id/close', async (req, res, params) => {
     });
     try {
       const { notifyEventCompletion } = require('../src/notifications');
-      await notifyEventCompletion(r.newEvent, { reason: 'closed_by_initiator' });
+      const { listCommits } = require('../src/gitrepo');
+      const { recordProofEmailMessageId } = require('../src/event-store');
+      const allCommits = await listCommits(params.id).catch(() => []);
+      const wantedSeqs = new Set();
+      for (const s of (r.newEvent.steps || [])) {
+        if (s && s.status === 'complete' && s.commit_sequence != null) wantedSeqs.add(s.commit_sequence);
+      }
+      const wantedHashes = new Set();
+      for (const reply of (r.newEvent.replies || [])) {
+        if (reply && reply.sender_hash) wantedHashes.add(reply.sender_hash);
+      }
+      const counting = allCommits.filter((c) => !c.kind && (
+        wantedSeqs.has(c.sequence) || (c.sender_hash && wantedHashes.has(c.sender_hash))
+      ));
+      const results = await notifyEventCompletion(r.newEvent, { reason: 'closed_by_initiator', commits: counting });
+      const firstOk = results.find((rr) => rr.ok && rr.message_id);
+      if (firstOk) {
+        try { await recordProofEmailMessageId(params.id, firstOk.message_id); } catch {}
+      }
     } catch (err) {
       process.stderr.write(`dashboard-close notify: ${err.message || err}\n`);
     }
@@ -2134,9 +2165,246 @@ const MANAGE_CSS = `
   .mg-steps tbody > tr.mg-reject-row > td:first-child { display:none; }
   .mg-steps .col-att-flag { text-align:left; width:auto; }
 }
+
+/* Proof surfacing — trust ladder + headline + receipt. Shared by the
+   crypto C3 layout and the workflow W2 layout. */
+.proof-hero { background:#0d1117; border:1px solid #30363d; padding:0.95rem 1.1rem; margin:0 0 1rem; }
+.trust-ladder { display:grid; grid-template-columns:repeat(4,1fr); gap:0; margin:0 0 0.5rem; }
+.trust-rung { padding:0.5rem 0.55rem; text-align:center; font-size:0.7rem;
+              text-transform:uppercase; letter-spacing:0.08em; border:1px solid #30363d;
+              background:transparent; }
+.trust-rung + .trust-rung { border-left:none; }
+.proof-headline { font-size:1.4rem; color:#c9d1d9; margin:0.7rem 0 0.25rem;
+                  letter-spacing:0.02em; font-weight:500; }
+.proof-headline.is-verified { color:#3fb950; }
+.proof-headline.is-forwarded { color:#58a6ff; }
+.proof-headline.is-authorized { color:#ffb000; }
+.proof-headline.is-unverified { color:#6e7681; }
+.proof-sub { font-size:0.82rem; color:#8b949e; margin:0 0 0.6rem; }
+.proof-secondary { background:#161b22; border:1px solid #30363d; padding:0.7rem 0.9rem;
+                   margin-top:0.5rem; }
+.proof-secondary h4 { margin:0 0 0.4rem; font-size:0.7rem; text-transform:uppercase;
+                      letter-spacing:0.07em; color:#8b949e; font-weight:500; }
+.proof-row { display:flex; gap:0.6rem; padding:0.32rem 0; font-size:0.82rem;
+             align-items:baseline; border-bottom:1px dotted #30363d; }
+.proof-row:last-of-type { border-bottom:none; }
+.proof-key { color:#8b949e; min-width:7rem; text-transform:uppercase;
+             letter-spacing:0.04em; font-size:0.7rem; }
+.proof-value { color:#c9d1d9; }
+.proof-tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:0.5rem;
+               margin:0.6rem 0 0.4rem; }
+.proof-tile { border:1px solid currentColor; padding:0.55rem 0.4rem; text-align:center; }
+.proof-tile .num { font-size:1.4rem; line-height:1; font-weight:600; }
+.proof-tile .lbl { font-size:0.65rem; text-transform:uppercase; letter-spacing:0.06em;
+                   color:#8b949e; margin-top:0.3rem; }
+details.proof-details { margin-top:0.7rem; border:1px solid #30363d; }
+details.proof-details summary { cursor:pointer; padding:0.45rem 0.7rem; background:#161b22;
+                                color:#ffb000; list-style:none; font-size:0.74rem;
+                                text-transform:uppercase; letter-spacing:0.07em; }
+details.proof-details summary::-webkit-details-marker { display:none; }
+details.proof-details summary::after { content:' \\25be'; }
+details.proof-details[open] summary::after { content:' \\25b4'; }
+.mg-receipt { padding:0.6rem 0.8rem; background:#0d1117; border-top:1px solid #30363d; }
+.mg-receipt-row { display:flex; gap:0.6rem; padding:0.3rem 0; font-size:0.82rem;
+                  align-items:baseline; border-bottom:1px dotted #30363d; }
+.mg-receipt-row:last-of-type { border-bottom:none; }
+.mg-receipt-key { color:#8b949e; min-width:7rem; text-transform:uppercase;
+                  letter-spacing:0.04em; font-size:0.7rem; }
+.mg-receipt-mono { word-break:break-all; color:#c9d1d9; }
+.mg-receipt-cmd { background:#0d1117; border:1px solid #30363d; padding:0.35rem 0.55rem;
+                  margin-top:0.5rem; }
+.mg-receipt-cmd code { background:transparent; color:#3fb950; font-size:0.78rem; }
+
+/* Workflow trust strip + inline pills + per-step proof drawer. */
+.proof-strip { background:#161b22; border:1px solid #30363d; padding:0.8rem 1rem;
+               margin:0 0 0.9rem; }
+.proof-strip-line { font-size:0.85rem; color:#c9d1d9; margin:0 0 0.55rem; }
+.proof-strip-line strong { color:#3fb950; font-weight:600; }
+.trust-pill { display:inline-block; padding:0.04em 0.45em; border:1px solid currentColor;
+              font-size:0.62rem; letter-spacing:0.05em; text-transform:uppercase;
+              vertical-align:middle; margin-left:0.4rem; cursor:pointer; }
+.trust-pill[data-step] { user-select:none; }
+.mg-steps tr.mg-proof-row td { background:#0d1117; padding:0.4rem 0.7rem 0.55rem;
+                               border-bottom:1px solid #30363d; }
+@media (max-width:540px) {
+  .trust-ladder { grid-template-columns:repeat(2,1fr); }
+  .trust-rung + .trust-rung { border-left:1px solid #30363d; }
+  .trust-rung:nth-child(3) { border-top:none; }
+  .trust-rung:nth-child(4) { border-top:none; }
+  .proof-tiles { grid-template-columns:repeat(2,1fr); }
+}
 `;
 
-function renderManagementDashboard({ eventId, initiatorEmail, event, flash, stepAttempts = {} }) {
+// Find the canonical "declaration" commit for a crypto declaration event:
+// the first counting reply (whose sequence equals
+// event.completion.commit_sequence). Returns null when the declaration
+// hasn't been signed yet.
+function findDeclarationCommit(event, commits) {
+  if (!event || event.type !== 'crypto' || event.mode !== 'declaration') return null;
+  if (!event.completion || event.completion.status !== 'complete') return null;
+  const seq = event.completion.commit_sequence;
+  if (seq == null) return commits.find((c) => !c.kind && c.sequence) || null;
+  return commits.find((c) => c.sequence === seq && !c.kind) || null;
+}
+
+// For attestation: the ordered list of counting reply commits — i.e.
+// commits that match a sender_hash in event.replies[]. Latest first.
+function findAttestationCommits(event, commits) {
+  if (!event || event.type !== 'crypto' || event.mode !== 'attestation') return [];
+  const wanted = new Set();
+  for (const r of (event.replies || [])) if (r.sender_hash) wanted.add(r.sender_hash);
+  const out = commits.filter((c) => !c.kind && c.sender_hash && wanted.has(c.sender_hash));
+  out.sort((a, b) => (b.sequence || 0) - (a.sequence || 0));
+  return out;
+}
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  const m = String(iso).match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
+  return m ? `${m[1]} ${m[2]}` : String(iso).slice(0, 10);
+}
+
+// C3 hero strip for crypto declarations. Ladder + headline + secondary
+// details (signer/reply-addr/status) + collapsible full receipt.
+function renderDeclarationHero(event, commit) {
+  const achieved = commit ? commit.trust_level : null;
+  const headlineLabel = (achieved && TRUST_LABEL[achieved]) || 'PENDING SIGNATURE';
+  const headlineCls = achieved ? `is-${achieved}` : 'is-unverified';
+  const dateStr = commit && commit.received_at ? fmtDate(commit.received_at).slice(0, 10) : null;
+  const domain = commit && commit.sender_domain ? commit.sender_domain : null;
+  const headline = (achieved && domain && dateStr)
+    ? html`${headlineLabel} · @${domain} · ${dateStr}`
+    : html`${headlineLabel}`;
+  return html`
+    <div class="proof-hero">
+      ${renderTrustLadder({ achieved })}
+      <div class="proof-headline ${headlineCls}">${headline}</div>
+      <div class="proof-sub">"${event.title}" · id <code>${event.id}</code></div>
+      <div class="proof-secondary">
+        <h4>Event details</h4>
+        <div class="proof-row"><div class="proof-key">Type</div><div class="proof-value">declaration</div></div>
+        <div class="proof-row"><div class="proof-key">Initiator</div><div class="proof-value"><code class="copyable">${event.initiator}</code></div></div>
+        <div class="proof-row"><div class="proof-key">Signer</div><div class="proof-value"><code class="copyable">${event.signer}</code></div></div>
+        <div class="proof-row"><div class="proof-key">Reply address</div><div class="proof-value"><code class="copyable">event+${event.id}@${config.domain}</code></div></div>
+        <div class="proof-row"><div class="proof-key">Status</div><div class="proof-value">${commit ? html`signed on <code>${event.completion.completed_at.slice(0, 10)}</code>` : 'awaiting signature'}</div></div>
+      </div>
+      ${commit ? html`
+        <details class="proof-details">
+          <summary>Cryptographic proof</summary>
+          ${renderProofReceipt(commit, event.id)}
+        </details>
+      ` : raw('')}
+    </div>
+  `;
+}
+
+// C3 hero strip for crypto attestations. Ladder uses the modal trust
+// across counted replies; headline summarises threshold progress;
+// trust tiles show non-zero counts; collapsible per-reply ledger.
+function renderAttestationHero(event, commits) {
+  const replies = event.replies || [];
+  const dedup = event.dedup || 'unique';
+  const { counts, modal } = aggregateTrust(replies);
+  let count;
+  if (dedup === 'unique') {
+    const seen = new Set();
+    for (const r of replies) if (r.sender_hash) seen.add(r.sender_hash);
+    count = seen.size;
+  } else {
+    count = replies.length;
+  }
+  const complete = event.completion && event.completion.status === 'complete';
+  const accumulating = dedup === 'accumulating';
+  const thresholdReachedAt = event.threshold_reached_at;
+  const thresholdReached = !!thresholdReachedAt || complete;
+  const achieved = modal;
+  const headlineCls = achieved ? `is-${achieved}` : 'is-unverified';
+  const modalLabel = achieved ? TRUST_LABEL[achieved] : 'PENDING REPLIES';
+  let headline;
+  if (accumulating && thresholdReached) {
+    const dateStr = thresholdReachedAt ? String(thresholdReachedAt).slice(0, 10) : '';
+    headline = html`${modalLabel} · ${String(count)} replies · threshold reached ${dateStr}`;
+  } else if (complete) {
+    const dateStr = String(event.completion.completed_at).slice(0, 10);
+    headline = html`${modalLabel} · ${String(count)} of ${String(event.threshold)} · complete ${dateStr}`;
+  } else {
+    headline = html`${modalLabel} · ${String(count)} of ${String(event.threshold)}`;
+  }
+  // Tiles: skip zero-counts.
+  const tileEntries = [
+    { lv: 'verified', n: counts.verified },
+    { lv: 'forwarded', n: counts.forwarded },
+    { lv: 'authorized', n: counts.authorized },
+    { lv: 'unverified', n: counts.unverified },
+  ].filter((t) => t.n > 0);
+  const tilesHTML = tileEntries.length
+    ? html`<div class="proof-tiles">
+        ${tileEntries.map((t) => html`
+          <div class="proof-tile" style="color:${raw(TRUST_COLOR[t.lv])}">
+            <div class="num">${String(t.n)}</div>
+            <div class="lbl">${t.lv}</div>
+          </div>
+        `)}
+      </div>`
+    : raw('');
+  return html`
+    <div class="proof-hero">
+      ${renderTrustLadder({ achieved })}
+      <div class="proof-headline ${headlineCls}">${headline}</div>
+      <div class="proof-sub">"${event.title}" · id <code>${event.id}</code></div>
+      ${tilesHTML}
+      <div class="proof-secondary">
+        <h4>Event details</h4>
+        <div class="proof-row"><div class="proof-key">Type</div><div class="proof-value">attestation · ${dedup}</div></div>
+        <div class="proof-row"><div class="proof-key">Initiator</div><div class="proof-value"><code class="copyable">${event.initiator}</code></div></div>
+        <div class="proof-row"><div class="proof-key">Reply address</div><div class="proof-value"><code class="copyable">event+${event.id}@${config.domain}</code></div></div>
+        <div class="proof-row"><div class="proof-key">Threshold</div><div class="proof-value">${String(event.threshold)}</div></div>
+        <div class="proof-row"><div class="proof-key">Total replies</div><div class="proof-value">${String(replies.length)}</div></div>
+      </div>
+      ${commits.length ? html`
+        <details class="proof-details">
+          <summary>Cryptographic proof — per-reply ledger</summary>
+          <div class="mg-receipt">
+            ${commits.map((c) => html`
+              <div class="proof-row">
+                <div class="proof-key">${c.sender_domain || '?'}</div>
+                <div class="proof-value">${fmtDate(c.received_at)}</div>
+                <div style="margin-left:auto;color:${raw(TRUST_COLOR[c.trust_level] || '#c9d1d9')}">${TRUST_LABEL[c.trust_level] || c.trust_level || '?'}</div>
+              </div>
+            `)}
+            <div class="mg-receipt-cmd"><code class="copyable">$ gitdone-verify ${event.id}</code></div>
+          </div>
+        </details>
+      ` : raw('')}
+    </div>
+  `;
+}
+
+// W2 trust strip for workflow events. Strip line + ladder above the
+// steps table. Uses the WEAKEST trust level present across completed
+// steps as the achieved rung (chain-of-trust: only as strong as the
+// least-trusted commit).
+function renderWorkflowTrustStrip(event, completedCommits) {
+  const total = (event.steps || []).length;
+  const k = completedCommits.length;
+  const { counts, weakest } = aggregateTrust(completedCommits);
+  const parts = [];
+  if (counts.verified) parts.push(html`<span class="trust-pill" style="color:${raw(TRUST_COLOR.verified)};border-color:${raw(TRUST_COLOR.verified)}">${String(counts.verified)} verified</span>`);
+  if (counts.forwarded) parts.push(html`<span class="trust-pill" style="color:${raw(TRUST_COLOR.forwarded)};border-color:${raw(TRUST_COLOR.forwarded)}">${String(counts.forwarded)} forwarded</span>`);
+  if (counts.authorized) parts.push(html`<span class="trust-pill" style="color:${raw(TRUST_COLOR.authorized)};border-color:${raw(TRUST_COLOR.authorized)}">${String(counts.authorized)} authorized</span>`);
+  if (counts.unverified) parts.push(html`<span class="trust-pill" style="color:${raw(TRUST_COLOR.unverified)};border-color:${raw(TRUST_COLOR.unverified)}">${String(counts.unverified)} unverified</span>`);
+  return html`
+    <div class="proof-strip">
+      <div class="proof-strip-line">
+        <strong>${String(k)} of ${String(total)}</strong> steps complete${parts.length ? raw(' · ') : raw('')}${parts}
+      </div>
+      ${renderTrustLadder({ achieved: weakest })}
+      <div style="font-size:0.7rem;color:#8b949e;margin-top:0.5rem;letter-spacing:0.04em;text-transform:uppercase">Chain of trust — ladder caps at the weakest commit.</div>
+    </div>
+  `;
+}
+
+function renderManagementDashboard({ eventId, initiatorEmail, event, flash, stepAttempts = {}, eventCommits = [] }) {
   const complete = event.completion && event.completion.status === 'complete';
   const pendingActivation = !event.activated_at && !complete;
   const archived = !!event.archived_at && !complete;
@@ -2184,6 +2452,12 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
             return idx >= 0 ? `#${idx + 1}` : dep;
           }).join(', ')
         : '—';
+      // Inline trust pill on completed steps. The pill carries
+      // data-step=<id> so the table click handler toggles the drawer.
+      const completedCommit = s.status === 'complete' ? stepAttempts[s.id] : null;
+      const stepPill = completedCommit && completedCommit.trust_level
+        ? html` <span class="trust-pill trust-${completedCommit.trust_level}" data-step="${s.id}" role="button" tabindex="0" aria-expanded="false" style="color:${raw(TRUST_COLOR[completedCommit.trust_level] || '#c9d1d9')};border-color:${raw(TRUST_COLOR[completedCommit.trust_level] || '#30363d')}">${TRUST_LABEL[completedCommit.trust_level] || completedCommit.trust_level}</span>`
+        : raw('');
       const out = [
         html`
           <tr>
@@ -2193,10 +2467,19 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
             ${anyDeadlines ? html`<td data-label="Deadline">${s.deadline ? html`<code>${s.deadline.slice(0, 10)}</code>` : raw('—')}</td>` : raw('')}
             ${anyAtt ? html`<td class="col-att-flag" data-label="Attachment">${s.requires_attachment ? html`<span title="attachment required">📎</span>` : raw('—')}</td>` : raw('')}
             <td data-label="Depends on">${raw(depsLabel === '—' ? '—' : 'after ' + depsLabel)}</td>
-            <td class="${statusCls}" data-label="Status">${statusLabel}</td>
+            <td class="${statusCls}" data-label="Status">${statusLabel}${stepPill}</td>
           </tr>
         `,
       ];
+      if (completedCommit) {
+        const colspan = 4 + (anyDeadlines ? 1 : 0) + (anyAtt ? 1 : 0);
+        out.push(html`
+          <tr class="mg-proof-row" data-step="${s.id}" hidden>
+            <td></td>
+            <td colspan="${String(colspan)}">${renderProofReceipt(completedCommit, eventId)}</td>
+          </tr>
+        `);
+      }
       if (s.details) {
         const colspan = 4 + (anyDeadlines ? 1 : 0) + (anyAtt ? 1 : 0);
         out.push(html`
@@ -2236,7 +2519,14 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
       }
       return out;
     });
+    // Completed-step commits feed the trust strip + ladder above the
+    // table. Per-step pills + drawer rows use stepAttempts[id] inline.
+    const completedCommits = allSteps
+      .filter((s) => s.status === 'complete')
+      .map((s) => stepAttempts[s.id])
+      .filter(Boolean);
     bodyMiddle = html`
+      ${completedCommits.length ? renderWorkflowTrustStrip(event, completedCommits) : raw('')}
       <h2>Steps
         <span class="hint" style="font-weight:400;color:#888;font-size:0.88em;text-transform:none;letter-spacing:0;margin-left:0.3rem">
           ${String(done)} of ${String(total)} complete
@@ -2260,6 +2550,20 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
           var tbl = document.querySelector('.mg-steps');
           if (!tbl) return;
           tbl.addEventListener('click', function(e){
+            // Trust pill → toggle the matching mg-proof-row drawer.
+            var pill = e.target.closest('.trust-pill[data-step]');
+            if (pill) {
+              var pid = pill.dataset.step;
+              var prow = tbl.querySelector('tr.mg-proof-row[data-step="' + pid + '"]');
+              if (prow) {
+                var pwasOpen = !prow.hasAttribute('hidden');
+                if (pwasOpen) prow.setAttribute('hidden', '');
+                else prow.removeAttribute('hidden');
+                pill.setAttribute('aria-expanded', pwasOpen ? 'false' : 'true');
+              }
+              return;
+            }
+            // Pre-existing details-toggle button.
             var btn = e.target.closest('[data-step]');
             if (!btn || btn.tagName !== 'BUTTON') return;
             var id = btn.dataset.step;
@@ -2274,57 +2578,20 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
       `)}</script>
     `;
   } else if (event.mode === 'declaration') {
-    bodyMiddle = html`
-      <h2>Declaration</h2>
-      <div class="mg-section">
-        <p class="mg-meta">Signer: <code class="copyable">${event.signer}</code>${pendingActivation ? raw(' — <em style="color:#8b949e;font-style:normal">will be invited on Activate</em>') : raw('')}</p>
-        <p class="mg-meta">Reply address${pendingActivation ? raw(' <em style="color:#8b949e;font-style:normal">(goes live on Activate)</em>') : raw('')}: <code class="copyable">event+${event.id}@${config.domain}</code></p>
-        ${pendingActivation
-          ? raw('')
-          : html`<p class="mg-meta">Status: ${complete ? html`signed on <code>${event.completion.completed_at}</code>` : html`awaiting signature`}</p>`}
-      </div>
-    `;
+    // C3 hero strip: ladder + DKIM-VERIFIED headline + secondary
+    // details + collapsible receipt. Pre-completion (no commit yet),
+    // the ladder is dim and the headline reads "PENDING SIGNATURE".
+    const declCommit = findDeclarationCommit(event, eventCommits);
+    bodyMiddle = renderDeclarationHero(event, declCommit);
   } else {
-    const replies = event.replies || [];
+    // C3 attestation hero. Threshold/dedup details live inside the
+    // hero's secondary block; the standing dedup-explainer line stays
+    // below to keep the existing dedup terminology discoverable.
+    const attCommits = findAttestationCommits(event, eventCommits);
     const dedup = event.dedup || 'unique';
-    const verified = replies.filter((r) => r.trust_level === 'verified').length;
-    const unverified = replies.length - verified;
-    // For accumulating, count = replies.length. For unique, count =
-    // distinct senders. For latest, replies[] is already pruned to one
-    // per sender, so count = replies.length.
-    let count;
-    if (dedup === 'unique') {
-      const seen = new Set();
-      for (const r of replies) if (r.sender_hash) seen.add(r.sender_hash);
-      count = seen.size;
-    } else {
-      count = replies.length;
-    }
-    const thresholdReachedAt = event.threshold_reached_at;
-    const accumulatingPastThreshold = dedup === 'accumulating' && thresholdReachedAt;
-    let progressLine;
-    if (pendingActivation) {
-      progressLine = raw('');
-    } else if (accumulatingPastThreshold) {
-      const dateStr = String(thresholdReachedAt).slice(0, 10);
-      progressLine = html`<p class="mg-meta"><strong>${String(count)}</strong> received · threshold of <strong>${String(event.threshold)}</strong> reached on <code>${dateStr}</code></p>
-        <p class="mg-meta" style="color:#8b949e;font-size:0.88em"><strong>${String(count)}</strong> total (<strong>${String(verified)}</strong> DKIM-verified, <strong>${String(unverified)}</strong> unverified)</p>`;
-    } else if (complete) {
-      const dateStr = String(event.completion.completed_at).slice(0, 10);
-      progressLine = html`<p class="mg-meta"><strong>${String(count)}</strong> of <strong>${String(event.threshold)}</strong> — completed <code>${dateStr}</code></p>`;
-    } else if (dedup === 'accumulating') {
-      progressLine = html`<p class="mg-meta">Replies received: <strong>${String(count)}</strong> of threshold <strong>${String(event.threshold)}</strong></p>
-        <p class="mg-meta" style="color:#8b949e;font-size:0.88em"><strong>${String(count)}</strong> total (<strong>${String(verified)}</strong> DKIM-verified, <strong>${String(unverified)}</strong> unverified)</p>`;
-    } else {
-      progressLine = html`<p class="mg-meta">Replies received: <strong>${String(count)}</strong> of threshold <strong>${String(event.threshold)}</strong></p>`;
-    }
     bodyMiddle = html`
-      <h2>Attestation</h2>
-      <div class="mg-section">
-        <p class="mg-meta">Reply address${pendingActivation ? raw(' <em style="color:#8b949e;font-style:normal">(goes live on Activate)</em>') : raw('')}: <code class="copyable">event+${event.id}@${config.domain}</code></p>
-        <p class="mg-meta">Threshold: <strong>${String(event.threshold)}</strong> · Dedup: <code>${dedup}</code> — ${dedupDescription(dedup)}</p>
-        ${progressLine}
-      </div>
+      ${renderAttestationHero(event, attCommits)}
+      <p class="mg-meta" style="margin-top:0.6rem">Dedup: <code>${dedup}</code> — ${dedupDescription(dedup)}</p>
     `;
   }
 

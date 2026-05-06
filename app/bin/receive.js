@@ -60,6 +60,38 @@ function summariseDkim(auth) {
   };
 }
 
+// Reduce a repo's full commit list to the commits that COUNTED toward
+// completion. Used by the proof email to embed receipts only for the
+// signal-bearing replies (no audit-trail commits, no edits, no
+// completion-marker commit).
+function filterCountingCommits(event, commits) {
+  const out = [];
+  if (!event || !Array.isArray(commits)) return out;
+  if (event.type === 'event') {
+    const wantedSeqs = new Set();
+    for (const s of (event.steps || [])) {
+      if (s && s.status === 'complete' && s.commit_sequence != null) wantedSeqs.add(s.commit_sequence);
+    }
+    for (const c of commits) {
+      if (!c.kind && c.sequence && wantedSeqs.has(c.sequence)) out.push(c);
+    }
+  } else if (event.type === 'crypto' && event.mode === 'declaration') {
+    const seq = event.completion && event.completion.commit_sequence;
+    for (const c of commits) {
+      if (!c.kind && c.sequence === seq) { out.push(c); break; }
+    }
+  } else if (event.type === 'crypto' && event.mode === 'attestation') {
+    const wantedHashes = new Set();
+    for (const r of (event.replies || [])) {
+      if (r && r.sender_hash) wantedHashes.add(r.sender_hash);
+    }
+    for (const c of commits) {
+      if (!c.kind && c.sender_hash && wantedHashes.has(c.sender_hash)) out.push(c);
+    }
+  }
+  return out;
+}
+
 function summariseAttachments(parsed) {
   return (parsed.attachments || []).map((a) => ({
     filename: a.filename || null,
@@ -430,8 +462,21 @@ async function main() {
           });
           cmdOutcome.completion_commit = cc;
           try {
-            const results = await notifyEventCompletion(r.newEvent, { reason: 'closed_by_initiator' });
+            const { listCommits } = require('../src/gitrepo');
+            const allCommitsClose = await listCommits(cmdTag.eventId).catch(() => []);
+            const countingClose = filterCountingCommits(r.newEvent, allCommitsClose);
+            const results = await notifyEventCompletion(r.newEvent, {
+              reason: 'closed_by_initiator',
+              commits: countingClose,
+            });
             cmdOutcome.completion_notified = results.map((x) => ({ to: x.to, ok: x.ok }));
+            const firstOk = results.find((rr) => rr.ok && rr.message_id);
+            if (firstOk) {
+              try {
+                const { recordProofEmailMessageId } = require('../src/event-store');
+                await recordProofEmailMessageId(cmdTag.eventId, firstOk.message_id);
+              } catch {}
+            }
           } catch (err) {
             cmdOutcome.completion_notify_error = err.message || String(err);
           }
@@ -680,12 +725,34 @@ async function main() {
         // Notify the organiser + every contributing participant that
         // the event has completed. Best-effort; a send failure here
         // doesn't undo the completion commit that was just written.
+        // Pass the counted commits so the email body embeds the
+        // cryptographic receipt(s) — this is the durable PROOF email
+        // promised in PRD §0.1.4 ("invisible beats correct"; the proof
+        // comes to the user, not the user to the proof).
         try {
           const reason = nextEvent.type === 'crypto' && nextEvent.mode === 'declaration'
             ? 'declaration_signed'
             : 'all_steps_done';
-          const results = await notifyEventCompletion(nextEvent, { reason, completedStepId: applied.completedStep });
+          const { listCommits } = require('../src/gitrepo');
+          const allCommits = await listCommits(tag.eventId).catch(() => []);
+          const countingCommits = filterCountingCommits(nextEvent, allCommits);
+          const results = await notifyEventCompletion(nextEvent, {
+            reason,
+            completedStepId: applied.completedStep,
+            commits: countingCommits,
+          });
           completion.completion_notified = results.map((r) => ({ to: r.to, ok: r.ok }));
+          // Persist the FIRST recipient's Message-Id so the OTS-anchored
+          // follow-up can thread to the proof email.
+          const firstOk = results.find((r) => r.ok && r.message_id);
+          if (firstOk) {
+            try {
+              const { recordProofEmailMessageId } = require('../src/event-store');
+              await recordProofEmailMessageId(tag.eventId, firstOk.message_id);
+            } catch (err) {
+              process.stderr.write(`proof-msgid-record: ${err.message || err}\n`);
+            }
+          }
         } catch (err) {
           completion.completion_notify_error = err.message || String(err);
         }

@@ -476,3 +476,110 @@ test('POST /manage/event/:id/close on a pending event deletes it', async () => {
   const exists = await fsp.access(path.join(tmp, 'events', `${ev.id}.json`)).then(() => true, () => false);
   assert.equal(exists, false);
 });
+
+// ---------------------------------------------------------------------
+// Proof-surfacing dashboard tests (PRD §7.5).
+// ---------------------------------------------------------------------
+
+test('GET /manage/event/:id (complete declaration) renders the trust ladder + DKIM-VERIFIED headline + receipt details', async () => {
+  // Build a minimal completed declaration with a single counting commit
+  // in the per-event git repo (synthetic — we don't need to run the full
+  // receive pipeline; the dashboard render just reads commit JSON).
+  const eventId = 'protestc1';
+  const event = {
+    id: eventId, type: 'crypto', mode: 'declaration',
+    title: 'declaration-proof-render',
+    initiator: 'declowner@example.com', signer: 'sign@example.com',
+    salt: 'salt-pc1',
+    activated_at: '2026-01-01T00:00:00Z',
+    completion: { status: 'complete', completed_at: '2026-04-15T10:00:00Z', commit_sequence: 1 },
+  };
+  await fsp.mkdir(path.join(tmp, 'events'), { recursive: true });
+  await fsp.writeFile(path.join(tmp, 'events', `${eventId}.json`), JSON.stringify(event));
+  const repoCommitsDir = path.join(tmp, 'repos', eventId, 'commits');
+  await fsp.mkdir(repoCommitsDir, { recursive: true });
+  await fsp.writeFile(path.join(repoCommitsDir, 'commit-001.json'), JSON.stringify({
+    schema_version: 2, event_id: eventId, sequence: 1,
+    received_at: '2026-04-15T10:00:00Z',
+    sender_domain: 'example.com',
+    trust_level: 'verified',
+    dkim: { signatures: [{ result: 'pass', domain: 'example.com', selector: 'gd1', algorithm: 'rsa-sha256', aligned: true }] },
+    spf: { result: 'pass' },
+    dmarc: { result: 'pass' },
+    arc: { result: 'none', chain_length: 0 },
+    raw_sha256: 'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    ots_proof_file: 'ots_proofs/commit-001.ots',
+  }));
+
+  const cookie = mintCookie('declowner@example.com');
+  const view = await get(`/manage/event/${eventId}`, cookie);
+  assert.equal(view.status, 200);
+  // Trust ladder is rendered, with the verified rung filled.
+  assert.match(view.body, /class="trust-ladder"/);
+  assert.match(view.body, /data-level="verified"[^>]*background:#3fb950/);
+  // Headline contains DKIM-VERIFIED + the sender domain.
+  assert.match(view.body, /DKIM-VERIFIED/);
+  assert.match(view.body, /@example\.com/);
+  // Receipt details are present and collapsed (a <details> element).
+  assert.match(view.body, /<details class="proof-details">/);
+  assert.match(view.body, /Cryptographic proof/);
+  assert.match(view.body, /gitdone-verify protestc1/);
+});
+
+test('GET /manage/event/:id (complete workflow) renders the trust strip + ladder + per-step trust pills', async () => {
+  const eventId = 'protestw1';
+  const event = {
+    id: eventId, type: 'event',
+    title: 'workflow-proof-render',
+    initiator: 'wfowner@example.com',
+    salt: 'salt-pw1',
+    activated_at: '2026-01-01T00:00:00Z',
+    steps: [
+      { id: 's1', name: 'First', participant: 's1@example.com', status: 'complete', commit_sequence: 1, completed_at: '2026-04-15T10:00:00Z', depends_on: [] },
+      { id: 's2', name: 'Second', participant: 's2@example.com', status: 'complete', commit_sequence: 2, completed_at: '2026-04-15T11:00:00Z', depends_on: [] },
+    ],
+    completion: { status: 'complete', completed_at: '2026-04-15T11:00:00Z', commit_sequence: 2 },
+  };
+  await fsp.mkdir(path.join(tmp, 'events'), { recursive: true });
+  await fsp.writeFile(path.join(tmp, 'events', `${eventId}.json`), JSON.stringify(event));
+  const repoCommitsDir = path.join(tmp, 'repos', eventId, 'commits');
+  await fsp.mkdir(repoCommitsDir, { recursive: true });
+  // Two completed-step commits with mixed trust: one verified, one forwarded.
+  await fsp.writeFile(path.join(repoCommitsDir, 'commit-001.json'), JSON.stringify({
+    schema_version: 2, event_id: eventId, step_id: 's1', sequence: 1,
+    received_at: '2026-04-15T10:00:00Z', sender_domain: 'a.example.com',
+    trust_level: 'verified',
+    dkim: { signatures: [{ result: 'pass', domain: 'a.example.com', selector: 'g1', algorithm: 'rsa-sha256', aligned: true }] },
+    spf: { result: 'pass' }, dmarc: { result: 'pass' }, arc: { result: 'none', chain_length: 0 },
+    raw_sha256: 'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    ots_proof_file: 'ots_proofs/commit-001.ots',
+  }));
+  await fsp.writeFile(path.join(repoCommitsDir, 'commit-002.json'), JSON.stringify({
+    schema_version: 2, event_id: eventId, step_id: 's2', sequence: 2,
+    received_at: '2026-04-15T11:00:00Z', sender_domain: 'b.example.com',
+    trust_level: 'forwarded',
+    dkim: { signatures: [{ result: 'pass', domain: 'forwarder.example.org', selector: 'fw', algorithm: 'rsa-sha256', aligned: false }] },
+    spf: { result: 'pass' }, dmarc: { result: 'pass' }, arc: { result: 'pass', chain_length: 1 },
+    raw_sha256: 'sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210',
+    ots_proof_file: 'ots_proofs/commit-002.ots',
+  }));
+
+  const cookie = mintCookie('wfowner@example.com');
+  const view = await get(`/manage/event/${eventId}`, cookie);
+  assert.equal(view.status, 200);
+  // Trust strip + ladder render above the steps table.
+  assert.match(view.body, /class="proof-strip"/);
+  assert.match(view.body, /class="trust-ladder"/);
+  // Aggregate counts in the strip.
+  assert.match(view.body, /1 verified/);
+  assert.match(view.body, /1 forwarded/);
+  // Inline trust pills appear next to step status cells.
+  assert.match(view.body, /trust-pill trust-verified/);
+  assert.match(view.body, /trust-pill trust-forwarded/);
+  // Per-step proof drawer rows are present (initially hidden).
+  assert.match(view.body, /<tr class="mg-proof-row" data-step="s1"/);
+  assert.match(view.body, /<tr class="mg-proof-row" data-step="s2"/);
+  // Weakest-link ladder caps at "forwarded" — the verified rung above
+  // is dimmed grey.
+  assert.match(view.body, /data-level="forwarded"[^>]*background:#58a6ff/);
+});

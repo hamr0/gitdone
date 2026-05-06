@@ -17,6 +17,7 @@
 
 const config = require('./config');
 const { buildRawMessage, sendmail } = require('./outbound');
+const proofRender = require('./web/proof-render');
 
 function stepReplyAddr(event, stepId) {
   return `event+${event.id}-${stepId}@${config.domain}`;
@@ -99,20 +100,28 @@ function declarationSignerBody({ event }) {
 
 // --- senders ---
 
-async function sendOne({ to, subject, body, event, replyTo, stepId }) {
+const { newMessageId } = require('./outbound');
+
+async function sendOne({ to, subject, body, event, replyTo, stepId, inReplyTo, references, messageId }) {
   const from = gitdoneFrom();
+  // Mint the Message-Id ourselves so the caller can persist it (proof
+  // email threading needs it for the OTS-anchored follow-up).
+  const mid = messageId || newMessageId(config.domain || 'git-done.com');
   const rawMessage = buildRawMessage({
     from,
     to,
     subject,
     body,
     replyTo,
+    inReplyTo,
+    references,
+    messageId: mid,
     autoSubmitted: 'auto-generated',
     domain: config.domain,
     extraHeaders: { 'X-GitDone-Event': event.id },
   });
   const result = await sendmail({ from, rawMessage, to: [to] });
-  return { to, ok: result.ok, reason: result.reason, code: result.code, step_id: stepId };
+  return { to, ok: result.ok, reason: result.reason, code: result.code, step_id: stepId, message_id: mid };
 }
 
 // Returns [{to, ok, reason?}] — caller logs per-recipient. Sends in
@@ -166,12 +175,80 @@ async function notifyWorkflowParticipants(event, { stepsOverride, reminder = fal
   return results;
 }
 
+// Per-step / per-reply receipt block for the proof email body. Returns
+// "" if no commits are available (e.g. dashboard-close before any
+// reply, attestation closed early). ASCII-only.
+function renderProofBlock(event, commits, { recipient } = {}) {
+  if (!Array.isArray(commits) || commits.length === 0) return '';
+  if (event.type === 'event') {
+    // One receipt per completed step. If the email is going to a step
+    // participant, surface their step first; otherwise just iterate.
+    const stepCommits = commits.filter((c) => c.step_id);
+    if (stepCommits.length === 0) return '';
+    const sections = stepCommits.map((c) => {
+      const step = (event.steps || []).find((s) => s.id === c.step_id);
+      const idx = (event.steps || []).findIndex((s) => s.id === c.step_id);
+      const stepLabel = step
+        ? `Step ${idx + 1}: ${step.name} (${c.sender_domain || 'unknown'})`
+        : `Reply ${c.sequence}`;
+      const dashes = '-'.repeat(Math.min(stepLabel.length, 60));
+      return [
+        stepLabel,
+        dashes,
+        proofRender.plainReceipt(c),
+      ].join('\n');
+    });
+    return sections.join('\n\n');
+  }
+  if (event.type === 'crypto' && event.mode === 'declaration') {
+    const c = commits[0];
+    if (!c) return '';
+    return [
+      'Cryptographic receipt',
+      '---------------------',
+      proofRender.plainReceipt(c),
+    ].join('\n');
+  }
+  if (event.type === 'crypto' && event.mode === 'attestation') {
+    const ag = proofRender.aggregateTrust(commits);
+    const lines = [
+      'Cryptographic receipt',
+      '---------------------',
+      `Replies counted   ${commits.length}`,
+      `Modal trust       ${ag.modal || 'unknown'}`,
+    ];
+    const c = ag.counts;
+    if (c.verified) lines.push(`Verified          ${c.verified}`);
+    if (c.forwarded) lines.push(`Forwarded         ${c.forwarded}`);
+    if (c.authorized) lines.push(`Authorized        ${c.authorized}`);
+    if (c.unverified) lines.push(`Unverified        ${c.unverified}`);
+    // Surface the recipient's own contribution if matched.
+    if (recipient) {
+      const own = commits.find((cm) => cm.sender_domain && recipient.toLowerCase().endsWith('@' + cm.sender_domain.toLowerCase()));
+      if (own) {
+        lines.push('');
+        lines.push('Your contribution');
+        lines.push('-----------------');
+        lines.push(proofRender.plainReceipt(own));
+      }
+    }
+    return lines.join('\n');
+  }
+  return '';
+}
+
 // Email everyone who contributed to an event + the initiator when the
 // event transitions to complete (all steps done, or organiser close,
 // or declaration signed). One email per distinct address. Plain text,
 // DKIM-signed via the MTA milter. Best-effort — failures don't block
 // the completion commit itself.
-async function notifyEventCompletion(event, { reason = 'all_steps_done', publicBaseUrl, completedStepId } = {}) {
+//
+// `commits` (optional) is the list of reply commits that count toward
+// the event's outcome — if provided, the email body embeds the
+// cryptographic receipt(s). When supplied, the message is the durable
+// PROOF email; the Message-Id is returned to the caller so the
+// OTS-anchored follow-up can thread to it.
+async function notifyEventCompletion(event, { reason = 'all_steps_done', publicBaseUrl, completedStepId, commits } = {}) {
   if (!event) return [];
   const completedAt = (event.completion && event.completion.completed_at) || new Date().toISOString();
   const finalStep = completedStepId && Array.isArray(event.steps)
@@ -187,7 +264,10 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
   } else if (event.type === 'crypto' && event.mode === 'declaration' && event.signer) {
     recipients.add(event.signer.toLowerCase());
   }
-  // Attestation: participants may be anonymous crowd; only notify initiator.
+  // Attestation: anonymous addresses are stored as salted hashes only —
+  // we never have plaintext to reach those repliers. The initiator
+  // gets the proof email and can verify offline; counted repliers got
+  // their per-reply ack at receive time.
 
   // Keep vocabulary in sync with the /manage hub pills: "completed"
   // means every step ran its full course; "closed early" means the
@@ -206,13 +286,42 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
     return `  ${i + 1}. ${s.name} — ${status}`;
   }).join('\n');
 
+  // ASCII-only middle dot replacement: receive.js outbound rule is
+  // strict. plainReceipt + the rest of this body have to stay 7-bit.
+  const proofBlock = renderProofBlock(event, commits, {});
+  // Bound the per-recipient receipt: organisers see all step receipts,
+  // participants see only their own step.
+  const receiptForParticipant = (participantEmail) => {
+    if (!commits) return '';
+    if (event.type !== 'event') return renderProofBlock(event, commits, { recipient: participantEmail });
+    const own = commits.filter((c) => {
+      const step = (event.steps || []).find((s) => s.id === c.step_id);
+      return step && step.participant && step.participant.toLowerCase() === participantEmail.toLowerCase();
+    });
+    return renderProofBlock(event, own, {});
+  };
+  const verifyHint = event.id
+    ? [
+        '',
+        'Verify offline:',
+        `  gitdone-verify ${event.id}`,
+      ].join('\n')
+    : '';
+
   const jobs = [...recipients].map((to) => {
     const isOrganiser = event.initiator && to === event.initiator.toLowerCase();
     let body;
     if (isOrganiser) {
+      const receipts = proofBlock
+        ? ['', proofBlock].join('\n')
+        : '';
       body = [
         `The event you organized has ${greetingParticiple}.`,
         ``,
+        commits ? 'This email is your durable proof of completion. Keep it forever -- it' : '',
+        commits ? 'verifies offline against the per-event git repository, even if gitdone' : '',
+        commits ? 'goes away.' : '',
+        commits ? '' : '',
         `Event: ${event.title}`,
         `Event ID: ${event.id}`,
         `${isClosedEarly ? 'Closed' : 'Completed'}: ${completedAt}`,
@@ -222,10 +331,13 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
         steps ? `Steps:` : '',
         steps,
         steps ? `` : '',
+        receipts,
+        verifyHint,
+        ``,
         `The full audit trail is stored as a git repository with one commit per`,
         `reply, DKIM keys archived, and OpenTimestamps proofs attached. Anyone`,
         `can verify it offline with the gitdone-verify CLI, even if gitdone itself`,
-        `goes away — the proofs outlive the service.`,
+        `goes away -- the proofs outlive the service.`,
         ``,
         repoHint,
         `  Organiser: ${event.initiator}`,
@@ -234,18 +346,26 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
       // Slim participant version. Do NOT leak the step table — that's
       // private to the organiser. Participants see only what they need:
       // the event closed, reason, and how to verify their own record.
+      const ownReceipt = receiptForParticipant(to);
       body = [
         `An event you contributed to has ${greetingParticiple}.`,
         ``,
+        commits ? 'This email is your durable proof of completion. Keep it forever -- it' : '',
+        commits ? "verifies offline against the event's git audit trail." : '',
+        commits ? '' : '',
         `Event: ${event.title}`,
         `Reason: ${reasonLabel}`,
+        ``,
+        ownReceipt,
+        ownReceipt ? '' : '',
+        verifyHint,
         ``,
         `Your reply is recorded in the event's git audit trail (DKIM-verified,`,
         `OpenTimestamped) and will stay verifiable offline even if gitdone`,
         `itself goes away.`,
         ``,
         `  Organised by ${event.initiator}`,
-      ].join('\n');
+      ].filter((l) => l !== '').join('\n');
     }
     // Workflow events get a [done/total] tag so the organiser sees at
     // a glance whether everything ran ([5/5] = full completion) or
@@ -256,9 +376,15 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
       const done = event.steps.filter((s) => s.status === 'complete').length;
       counterTag = ` [${done}/${event.steps.length}]`;
     }
+    // When commits are supplied the email IS the durable proof — say
+    // so in the subject. Workflow keeps [N/M] for at-a-glance
+    // completion state; crypto drops the counter.
+    const subject = commits
+      ? `[gitdone] proof — "${event.title}"${event.type === 'event' ? counterTag : ''}`
+      : `[gitdone] "${event.title}" — ${subjectVerb}${counterTag}`;
     return sendOne({
       to,
-      subject: `[gitdone] "${event.title}" — ${subjectVerb}${counterTag}`,
+      subject,
       body,
       event,
     });
@@ -363,6 +489,65 @@ async function notifyOrganiserOfStepProgress(event, { completedStepId, newlyActi
   });
 }
 
+// Email the proof recipients (initiator + signer/participants) when the
+// last pending OTS proof for an event is upgraded to a Bitcoin anchor.
+// Threaded via In-Reply-To/References to the original completion proof
+// email if event.proof_email_message_id is set; standalone otherwise.
+//
+// `anchorInfo` carries the upgrade summary {block_height?, anchored_at}
+// from the OTS-upgrade worker.
+async function notifyProofAnchored(event, { anchorInfo = {}, publicBaseUrl } = {}) {
+  if (!event) return [];
+  const recipients = new Set();
+  if (event.initiator) recipients.add(event.initiator.toLowerCase());
+  if (event.type === 'event' && Array.isArray(event.steps)) {
+    for (const s of event.steps) {
+      if (s && s.participant && s.status === 'complete') recipients.add(s.participant.toLowerCase());
+    }
+  } else if (event.type === 'crypto' && event.mode === 'declaration' && event.signer) {
+    recipients.add(event.signer.toLowerCase());
+  }
+  // Attestation: anonymous repliers — only the initiator gets the
+  // anchored email.
+
+  const blockLine = anchorInfo.block_height
+    ? `Block height   ${anchorInfo.block_height}`
+    : 'Block height   (anchored, height not parsed)';
+  const anchoredAt = anchorInfo.anchored_at || new Date().toISOString();
+  const proofPath = anchorInfo.proof_path
+    ? `Proof file     ${anchorInfo.proof_path}`
+    : `Proof file     ${event.id}/ots_proofs/`;
+  const body = [
+    `The cryptographic proof for "${event.title}" is now permanently anchored`,
+    `to the Bitcoin blockchain.`,
+    ``,
+    `Anchored`,
+    `--------`,
+    blockLine,
+    `Anchored at    ${anchoredAt}`,
+    proofPath,
+    ``,
+    `Combined with the DKIM signature on every reply (archived per-event)`,
+    `and the git commit chain, this gives you offline-verifiable proof`,
+    `that the contents existed at this point in time.`,
+    ``,
+    `Verify offline:`,
+    `  gitdone-verify ${event.id}`,
+  ].join('\n');
+
+  const inReplyTo = event.proof_email_message_id || null;
+  const references = event.proof_email_message_id || null;
+  const jobs = [...recipients].map((to) => sendOne({
+    to,
+    subject: `[gitdone] proof anchored — "${event.title}"`,
+    body,
+    event,
+    inReplyTo,
+    references,
+  }));
+  return Promise.all(jobs);
+}
+
 async function notifyDeclarationSigner(event) {
   if (!event || event.type !== 'crypto' || event.mode !== 'declaration' || !event.signer) {
     return [];
@@ -381,9 +566,11 @@ module.exports = {
   notifyWorkflowParticipants,
   notifyDeclarationSigner,
   notifyEventCompletion,
+  notifyProofAnchored,
   notifyOrganiserOfActivation,
   notifyOrganiserOfStepProgress,
   workflowStepBody,
   declarationSignerBody,
   renderOrganiserStepList,
+  renderProofBlock,
 };

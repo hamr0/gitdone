@@ -6,7 +6,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { workflowStepBody, declarationSignerBody, renderOrganiserStepList } = require('../../src/notifications');
+const { workflowStepBody, declarationSignerBody, renderOrganiserStepList, renderProofBlock } = require('../../src/notifications');
 
 test('workflowStepBody: names the step, position, reply-to, and organiser', () => {
   const body = workflowStepBody({
@@ -101,4 +101,62 @@ test('renderOrganiserStepList: completed status renders as DONE', () => {
   const out = renderOrganiserStepList(event, ['v']);
   assert.match(out, /1\. audio.*\[DONE\]/);
   assert.match(out, /▸ 2\. video.*\[pending\]/);
+});
+
+// --- proof receipt block ----------------------------------------------
+
+const sampleVerifiedCommit = {
+  schema_version: 2, sequence: 1, sender_domain: 'example.com',
+  trust_level: 'verified',
+  dkim: { signatures: [{ result: 'pass', domain: 'example.com', selector: 'gd1', algorithm: 'rsa-sha256', aligned: true }] },
+  spf: { result: 'pass' },
+  dmarc: { result: 'pass' },
+  arc: { result: 'none', chain_length: 0 },
+  raw_sha256: 'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+  ots_proof_file: 'ots_proofs/commit-001.ots',
+};
+
+test('renderProofBlock for declaration is ASCII-only and includes DKIM line', () => {
+  const event = { id: 'd1', type: 'crypto', mode: 'declaration', title: 'D' };
+  const block = renderProofBlock(event, [sampleVerifiedCommit]);
+  assert.match(block, /Cryptographic receipt/);
+  assert.match(block, /DKIM\s+pass/);
+  assert.match(block, /Trust\s+verified/);
+  // No middle dot (U+00B7) — outbound is ASCII-only.
+  assert.doesNotMatch(block, /·/);
+});
+
+test('renderProofBlock for workflow surfaces step name + sender domain per receipt', () => {
+  const event = {
+    id: 'w1', type: 'event', title: 'W',
+    steps: [
+      { id: 's1', name: 'First', participant: 'a@example.com' },
+      { id: 's2', name: 'Second', participant: 'b@example.com' },
+    ],
+  };
+  const block = renderProofBlock(event, [
+    { ...sampleVerifiedCommit, step_id: 's1', sender_domain: 'a.example.com', sequence: 1 },
+    { ...sampleVerifiedCommit, step_id: 's2', sender_domain: 'b.example.com', sequence: 2 },
+  ]);
+  assert.match(block, /Step 1: First \(a\.example\.com\)/);
+  assert.match(block, /Step 2: Second \(b\.example\.com\)/);
+});
+
+test('renderProofBlock for attestation summarises modal trust + counts', () => {
+  const event = { id: 'a1', type: 'crypto', mode: 'attestation', title: 'A', threshold: 3, replies: [] };
+  const block = renderProofBlock(event, [
+    { ...sampleVerifiedCommit, sequence: 1 },
+    { ...sampleVerifiedCommit, sequence: 2 },
+    { ...sampleVerifiedCommit, trust_level: 'forwarded', sequence: 3 },
+  ]);
+  assert.match(block, /Replies counted\s+3/);
+  assert.match(block, /Modal trust\s+verified/);
+  assert.match(block, /Verified\s+2/);
+  assert.match(block, /Forwarded\s+1/);
+});
+
+test('renderProofBlock returns "" when no commits provided', () => {
+  const event = { id: 'x', type: 'event', steps: [] };
+  assert.equal(renderProofBlock(event, []), '');
+  assert.equal(renderProofBlock(event, null), '');
 });

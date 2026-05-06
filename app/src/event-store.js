@@ -381,6 +381,26 @@ async function recordStepSendErrors(eventId, errorsByStepId) {
   });
 }
 
+// Persist the Message-Id of the completion proof email so the
+// OTS-anchored follow-up can thread to it (In-Reply-To/References).
+// Idempotent: a non-null existing value is left untouched (the FIRST
+// proof email is the canonical thread root). Returns the post-write
+// value.
+async function recordProofEmailMessageId(eventId, messageId) {
+  if (!messageId) return null;
+  return _serialize(eventId, async () => {
+    const event = await loadEvent(eventId);
+    if (!event) return null;
+    if (event.proof_email_message_id) return event.proof_email_message_id;
+    const next = { ...event, proof_email_message_id: messageId };
+    const file = path.join(config.dataDir, 'events', `${eventId}.json`);
+    const tmp = file + '.tmp';
+    await fs.writeFile(tmp, JSON.stringify(next, null, 2) + '\n');
+    await fs.rename(tmp, file);
+    return messageId;
+  });
+}
+
 module.exports = {
   loadEvent,
   findStep,
@@ -390,6 +410,7 @@ module.exports = {
   confirmActivationLink,
   editEvent,
   recordStepSendErrors,
+  recordProofEmailMessageId,
   generateEventId,
   generateEventSalt,
 };

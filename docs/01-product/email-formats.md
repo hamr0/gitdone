@@ -32,7 +32,7 @@ can reply normally.
 | 8 | Reply ack — event closed | Reply on a closed event | Participant |
 | 9 | Activation receipt | Organiser activates pending event | Organiser |
 | 10 | Step-progress update | Step completes, downstream(s) become active | Organiser |
-| 11 | Completion notice | Event reaches terminal state | Initiator + every contributor |
+| 11 | Completion proof | Event reaches terminal state | Initiator + every contributor |
 | 12 | Bounce alert | DSN arrives for a participant invite | Organiser |
 | 13 | Pending-activation reminder | Event sat unactivated >48h | Organiser |
 | 14 | Overdue nudge | Event past deadline with open steps | Organiser |
@@ -42,6 +42,7 @@ can reply normally.
 | 18 | Initiator command — close | Inbound to `close+<id>@` | Sender (initiator) |
 | 19 | Verify report | Inbound to `verify+<id>@` | Sender |
 | 20 | Re-verify report | Inbound to `reverify+<id>-<seq>@` | Sender |
+| 21 | Proof anchored (OTS) | Last pending OTS proof anchors to Bitcoin | Initiator + signers/participants |
 
 ## 1. Sign-in magic link
 

@@ -15,6 +15,43 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Cryptographic proof surfaced on every dashboard + durable proof emails
+
+The proof — DKIM verification, SPF/DMARC/ARC, raw email hash, OTS
+anchor — is the headline feature, and we were hiding it. Closed by:
+
+- **Crypto manage page (declaration + attestation)** now renders a
+  4-tier trust ladder (`unverified · authorized · forwarded · verified`)
+  with the achieved level filled and rungs below it outlined in their
+  own trust color (gradient signals "those would have also passed").
+  Below the ladder: a headline `DKIM-VERIFIED · @<domain> · <date>`,
+  then the secondary event details, then a collapsible
+  `Cryptographic proof ▾` receipt with DKIM/SPF/DMARC/ARC/OTS rows,
+  truncated raw hash, and the offline-verify command.
+- **Workflow manage page** now renders a trust strip and ladder above
+  the steps table summarizing the weakest-link trust level across all
+  completed steps; per-step trust pills sit inline next to each
+  completed step's status. Click a pill → expands the step's full
+  receipt as a drawer row.
+- **Proof email on completion.** When an event completes, every
+  participant who counted (initiator, declaration signer, workflow
+  participants, counted attestation repliers) receives a durable
+  proof email with the same receipt embedded as plain text. Subject
+  `[gitdone] proof — "<title>"`. Body verifies offline via
+  `gitdone-verify <id>` against the per-event git repo.
+- **Proof email on OTS anchored.** When the 6-hour upgrade cron flips
+  the *last* pending OTS proof for an event, every recipient of the
+  completion email gets a follow-up `[gitdone] proof anchored —
+  "<title>"` threaded as a reply. Body carries the Bitcoin block
+  height, anchor timestamp, and proof file path.
+- **New helper module** `app/src/web/proof-render.js` — `renderTrustLadder`,
+  `renderTrustPill`, `renderProofReceipt`, `aggregateTrust`,
+  `truncHash`. Used by both dashboards.
+- **Frozen design reference** at
+  `docs/01-product/design/proof-surfacing-v1.md`.
+- **Email-formats catalog** updated with verbatim subject + body
+  samples for the two new proof emails (entries #20 + #21).
+
 ### Attestation overhaul — dedup-derived trust, accumulating keeps counting, click-to-copy
 
 Attestation simplified to match its actual purpose ("share the

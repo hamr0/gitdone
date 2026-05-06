@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-06T17:52Z · `492b707` · Attestation overhaul: dedup-derived trust, accumulating keeps counting, click-to-copy
 - 2026-05-06T14:22Z · `12bd825` · Pending events accessible to signed-in initiator + crypto signer MX parity
 - 2026-05-06T12:42Z · `8f65bb9` · Crypto reply acks: type-aware subject + body, no "null" leak
 - 2026-05-06T12:36Z · `0e30e9f` · CHANGELOG: step delivery error resets on participant edit

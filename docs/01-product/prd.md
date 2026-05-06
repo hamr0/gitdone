@@ -822,6 +822,49 @@ For events where legal or regulatory weight matters (declarations, compliance at
 
 For low-stakes attestations (petitions, casual vouches), the default `authorized`-or-better threshold is sufficient.
 
+### 7.5 Proof surfacing — the receipt is the product
+
+The cryptographic proof must arrive at the user, not the user at the
+proof. Per §0.1.4 ("invisible beats correct"), gitdone surfaces the
+receipt in two places:
+
+**On the manage dashboard.** Every event page renders a 4-tier trust
+ladder (`unverified | authorized | forwarded | verified`) with the
+achieved level filled in its trust color, rungs below it outlined in
+their own color (signalling those would have also passed), rungs
+above dimmed grey. Crypto declaration + attestation get a hero
+headline (`DKIM-VERIFIED · @<domain> · <date>`) and a collapsible
+receipt block. Workflow events get a trust strip + ladder above the
+steps table and a per-step trust pill inline next to each completed
+status — click expands the step's full receipt. The dashboard
+matches what the recipient sees in email exactly: same colors, same
+key/value rows, same truncated hash format.
+
+**As durable email artifacts.** Two emails carry the proof outside
+the dashboard so it survives the service:
+
+- **Completion email** (`[gitdone] proof — "<title>"`) fires once the
+  event flips to `complete`. Recipients: initiator + declaration
+  signer / workflow participants who counted / attestation repliers
+  whose reply pushed the threshold. Body embeds the receipt as plain
+  text (DKIM, SPF, DMARC, ARC, OTS state, raw email hash, offline
+  verify command). Each recipient gets their *own* perspective —
+  workflow participants see their own step's receipt plus the event
+  summary; attestation repliers see their own contribution.
+- **OTS-anchored email** (`[gitdone] proof anchored — "<title>"`)
+  fires once per event when the 6-hour OTS upgrade cron flips the
+  *last* pending commit to anchored. One consolidated email per
+  event, threaded as a reply (same `In-Reply-To`) to the completion
+  email. Body carries the Bitcoin block height, anchor timestamp,
+  and proof file path. Recipients are the same set as the completion
+  email.
+
+Both emails verify offline via `gitdone-verify <id>` against the
+per-event git repository — the dashboard, the email, and the offline
+CLI all agree.
+
+Frozen UI reference: `docs/01-product/design/proof-surfacing-v1.md`.
+
 ---
 
 ## 8. Technical Architecture (v2)

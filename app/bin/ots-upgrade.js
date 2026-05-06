@@ -71,6 +71,19 @@ function otsUpgrade(file, { binary = OTS_BIN, timeoutMs = UPGRADE_TIMEOUT_MS } =
   };
 }
 
+// Walk an event repo's commits/ dir, returning the set of OTS proof
+// files still pending Bitcoin (i.e. ots verify says "calendar"-only).
+// Cheaper signal: just count how many .ots files exist that haven't
+// changed in this run. We don't shell out to `ots verify` — we trust
+// the upgrade-changed-the-file signal as the authoritative "anchored
+// in Bitcoin now" event.
+async function listOtsProofs(repoDir) {
+  const proofsDir = path.join(repoDir, 'ots_proofs');
+  let entries;
+  try { entries = await fsp.readdir(proofsDir); } catch { return []; }
+  return entries.filter((e) => e.endsWith('.ots'));
+}
+
 // Walk a single event repo: upgrade every .ots file, track which files
 // changed, make a single git commit with all upgrades if any.
 async function processRepo(repoDir, { binary = OTS_BIN, gitBin = GIT_BIN } = {}) {
@@ -88,6 +101,12 @@ async function processRepo(repoDir, { binary = OTS_BIN, gitBin = GIT_BIN } = {})
 
   const upgraded = [];
   const errors = [];
+  // pendingAfter — files that ots couldn't fully merge in this run
+  // (exit non-zero with no error). Used as the signal that the event
+  // hasn't fully anchored yet; if pendingAfter == 0 AND any file
+  // upgraded this run, the event just crossed the fully-anchored
+  // threshold and the proof-anchored email fires.
+  let pendingAfter = 0;
   for (const name of proofs) {
     const abs = path.join(proofsDir, name);
     const before = await fileStats(abs);
@@ -103,6 +122,10 @@ async function processRepo(repoDir, { binary = OTS_BIN, gitBin = GIT_BIN } = {})
         size_before: before.size,
         size_after: after.size,
       });
+    } else if (!result.error && result.exit !== 0) {
+      // ots upgrade returned non-zero with no spawn error → "still
+      // pending Bitcoin upgrade" per the comment below.
+      pendingAfter += 1;
     }
     // `ots upgrade` exits 1 when a proof is still pending Bitcoin and
     // nothing can be merged — that's NOT an error for our purposes, just
@@ -117,6 +140,7 @@ async function processRepo(repoDir, { binary = OTS_BIN, gitBin = GIT_BIN } = {})
     repo: repoDir,
     checked: proofs.length,
     upgraded: upgraded.length,
+    pending_after: pendingAfter,
     errors: errors.length,
   };
   if (upgraded.length === 0) {
@@ -144,8 +168,35 @@ async function processRepo(repoDir, { binary = OTS_BIN, gitBin = GIT_BIN } = {})
   return summary;
 }
 
+// Sentinel: per-event "fully-anchored proof email already sent". Once
+// this file exists, we never re-send. Lives next to ots_proofs/ so it
+// stays with the repo backup.
+const ANCHORED_NOTIFIED = '.anchored-notified';
+
+async function isAnchoredNotified(repoDir) {
+  try {
+    await fsp.access(path.join(repoDir, 'ots_proofs', ANCHORED_NOTIFIED));
+    return true;
+  } catch { return false; }
+}
+
+async function markAnchoredNotified(repoDir) {
+  const dir = path.join(repoDir, 'ots_proofs');
+  try { await fsp.mkdir(dir, { recursive: true }); } catch {}
+  await fsp.writeFile(path.join(dir, ANCHORED_NOTIFIED), new Date().toISOString() + '\n');
+}
+
+// Locate the event JSON for an event repo (path basename = event id).
+async function loadEventForRepo(dataDir, repoDir) {
+  const eventId = path.basename(repoDir);
+  try {
+    const raw = await fsp.readFile(path.join(dataDir, 'events', `${eventId}.json`), 'utf8');
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
 // Entry.
-async function run({ dataDir = config.dataDir, binary = OTS_BIN, gitBin = GIT_BIN } = {}) {
+async function run({ dataDir = config.dataDir, binary = OTS_BIN, gitBin = GIT_BIN, sendProofMail = true } = {}) {
   const started_at = new Date().toISOString();
   emit({ kind: 'ots_upgrade_start', started_at, data_dir: dataDir });
 
@@ -162,12 +213,45 @@ async function run({ dataDir = config.dataDir, binary = OTS_BIN, gitBin = GIT_BI
   let totalChecked = 0;
   let totalUpgraded = 0;
   let reposWithCommits = 0;
+  let proofMailsSent = 0;
   for (const repo of repos) {
     const r = await processRepo(repo, { binary, gitBin });
     emit({ kind: 'ots_upgrade_repo', ...r });
     totalChecked += r.checked || 0;
     totalUpgraded += r.upgraded || 0;
     if (r.git_commit) reposWithCommits++;
+    // Fully-anchored transition: this run upgraded one or more files,
+    // no files are still pending after, and the event hasn't been
+    // notified yet. Only the event-completion path is interesting —
+    // events still in flight (pending workflow steps) keep
+    // accumulating new proofs and aren't anchor-stable.
+    if (sendProofMail
+        && !r.skipped
+        && (r.upgraded || 0) > 0
+        && (r.pending_after || 0) === 0
+        && !(await isAnchoredNotified(repo))) {
+      const event = await loadEventForRepo(dataDir, repo);
+      const isComplete = event && event.completion && event.completion.status === 'complete';
+      if (event && isComplete) {
+        try {
+          // Lazy require — keeps the script lean when running without
+          // sendmail (tests) and matches the established pattern.
+          const { notifyProofAnchored } = require('../src/notifications');
+          const lastUpgrade = (r.upgraded_files && r.upgraded_files[0]) || null;
+          const results = await notifyProofAnchored(event, {
+            anchorInfo: {
+              anchored_at: new Date().toISOString(),
+              proof_path: lastUpgrade ? `${event.id}/${lastUpgrade.file}` : null,
+            },
+          });
+          await markAnchoredNotified(repo);
+          proofMailsSent += results.length;
+          emit({ kind: 'ots_proof_anchored_notified', event_id: event.id, recipients: results.map((x) => ({ to: x.to, ok: x.ok })) });
+        } catch (err) {
+          emit({ kind: 'ots_proof_anchored_error', event_id: event && event.id, reason: err.message || String(err) });
+        }
+      }
+    }
   }
 
   const finished_at = new Date().toISOString();
@@ -179,6 +263,7 @@ async function run({ dataDir = config.dataDir, binary = OTS_BIN, gitBin = GIT_BI
     proofs_checked: totalChecked,
     proofs_upgraded: totalUpgraded,
     repos_committed: reposWithCommits,
+    proof_mails_sent: proofMailsSent,
   };
   emit(summary);
   return summary;
@@ -193,4 +278,12 @@ if (require.main === module) {
   });
 }
 
-module.exports = { processRepo, otsUpgrade, run, fileStats };
+module.exports = {
+  processRepo,
+  otsUpgrade,
+  run,
+  fileStats,
+  isAnchoredNotified,
+  markAnchoredNotified,
+  loadEventForRepo,
+};
