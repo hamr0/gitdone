@@ -313,6 +313,12 @@ function validateCryptoEvent(form) {
   if (mode === 'declaration') {
     const signer = validateEmail(form.signer);
     if (!signer.ok) errors.push(`signer: ${signer.reason}`);
+    // The whole point of a declaration is that someone OTHER than the
+    // requester signs it — a self-signature has no third-party value.
+    if (signer.ok && initiator.ok
+        && signer.value.toLowerCase() === initiator.value.toLowerCase()) {
+      errors.push('signer must be different from the requester (you can\'t self-sign a declaration)');
+    }
     if (errors.length) return { ok: false, errors };
     return {
       ok: true,

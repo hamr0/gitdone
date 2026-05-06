@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-06T12:04Z · `ba36413` · Mobile responsive pass: landing, create form, dashboard
 - 2026-05-04T20:37Z · `792f9b8` · close+: two-step confirm with 30-min token (email path only)
 - 2026-05-04T20:21Z · `dae9348` · remind+: tag participant subject as reminder, unify command receipts
 - 2026-05-04T20:17Z · `9230c3f` · Stats command: [N/M] step-done subject + email-formats.md catalog

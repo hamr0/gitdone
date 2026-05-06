@@ -159,6 +159,17 @@ test('POST /crypto declaration without signer returns 422', async () => {
   assert.match(r.body, /signer/i);
 });
 
+test('POST /crypto declaration with signer == initiator returns 422', async () => {
+  const r = await post('/crypto', {
+    mode: 'declaration',
+    title: 't',
+    initiator: 'Amr@x.com',
+    signer: 'amr@x.com',          // same address, different case → still rejected
+  });
+  assert.equal(r.status, 422);
+  assert.match(r.body, /signer must be different|self-sign/i);
+});
+
 test('POST /crypto attestation with bogus threshold or dedup returns 422', async () => {
   const r1 = await post('/crypto', {
     mode: 'attestation', title: 't', initiator: 'a@b.com',
