@@ -15,6 +15,21 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Step delivery error resets on participant edit
+
+A failed delivery (DSN bounce, sendmail error) pinned
+`step.last_send_error` to the step. Editing the participant email is
+the organiser's fix attempt, but the stale error stayed until the
+renotify either succeeded (cleared it) or failed (rewrote the
+timestamp). Either way the dashboard read "delivery failed" the whole
+time, so "did my fix land?" was indistinguishable from "did the new
+send fail too?". `editEvent` now drops `last_send_error` inline when
+a participant field changes — the re-notify that fires next either
+keeps it cleared (success) or records a fresh error with a new
+timestamp (failure). Edits to other fields (deadline, attachment,
+details) leave the error untouched: those don't change who's being
+mailed.
+
 ### Crypto pending-activation parity, dated 72h auto-delete, typed manage title
 
 Crypto events go through the same pending-activation pipeline as

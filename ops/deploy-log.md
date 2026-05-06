@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-06T12:35Z · `ccf7000` · editEvent: clear step.last_send_error on participant change
 - 2026-05-06T12:32Z · `431b0b5` · Docs: CHANGELOG sweep + PRD close-2step + README links
 - 2026-05-06T12:26Z · `61e12cf` · Crypto pending-activation parity + dated 72h warning + typed manage title
 - 2026-05-06T12:20Z · `2bde554` · Crypto declaration: reject signer == initiator (no self-sign)
