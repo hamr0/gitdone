@@ -1477,6 +1477,21 @@ const MANAGE_HUB_CSS = `
 .mh-pill.pending-activation { background:#0d1117; color:#ffb000; border-color:#ffb000; }
 .mh-pill.archived { background:#0d1117; color:#6e7681; border-color:#6e7681; }
 .mh .list .row .sub .muted { color: #6e7681; }
+.mh-top { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; margin: 0 0 0.4rem; }
+.mh-filter { display: flex; gap: 0.4rem; }
+.mh-filter-pill { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.7rem;
+                  border: 1px solid #30363d; color: #8b949e; font-size: 0.78em; text-decoration: none;
+                  text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; border-radius: 999px;
+                  background: #0d1117; transition: color .12s, border-color .12s, background .12s; }
+.mh-filter-pill:hover { color: #c9d1d9; border-color: #8b949e; }
+.mh-filter-pill .n { color: #6e7681; font-weight: 700; font-size: 0.92em; }
+.mh-filter-pill.active { color: #0d1117; background: #3fb950; border-color: #3fb950; }
+.mh-filter-pill.active .n { color: #0d1117; }
+.mh-filter-pill:focus-visible { outline: 2px solid #3fb950; outline-offset: 2px; }
+@media (max-width: 480px) {
+  .mh-top { flex-direction: column; align-items: flex-start; }
+  .mh-filter-pill { padding: 0.2rem 0.55rem; font-size: 0.72em; }
+}
 `;
 
 // Derive a single display status for the /manage hub rows so the
@@ -1516,13 +1531,14 @@ function summariseEvent(ev) {
   return { status, pillClass, progress, terminal, completed, closed, archived, pending };
 }
 
-async function renderSessionHub({ handle, auth, flash, showArchived = false }) {
+async function renderSessionHub({ handle, auth, flash, showArchived = false, typeFilter = null }) {
   const findEventsByHandle = createEventFinder((email) => auth.deriveHandle(email));
   const all = await findEventsByHandle(handle);
   // Summarise once so both the top strip and row rendering see the
   // same derived status. Stash it on the event for simplicity.
   for (const ev of all) ev._summary = summariseEvent(ev);
   const counts = { active: 0, completed: 0, closed: 0, archived: 0, pending: 0 };
+  const typeCounts = { event: 0, crypto: 0 };
   for (const ev of all) {
     const s = ev._summary;
     if (s.completed) counts.completed++;
@@ -1530,10 +1546,18 @@ async function renderSessionHub({ handle, auth, flash, showArchived = false }) {
     else if (s.archived) counts.archived++;
     else if (s.pending) counts.pending++;
     else counts.active++;
+    if (ev.type === 'crypto') typeCounts.crypto++;
+    else typeCounts.event++;
   }
   const active = all.filter((ev) => !ev._summary.archived);
   const archived = all.filter((ev) => ev._summary.archived);
-  const events = showArchived ? all : active;
+  let events = showArchived ? all : active;
+  // Type filter — pills in the hub header. typeFilter ∈ {null, 'event', 'crypto'}.
+  // Counts in the strip stay over the whole portfolio; only the row
+  // list narrows.
+  if (typeFilter === 'event' || typeFilter === 'crypto') {
+    events = events.filter((ev) => (ev.type === 'crypto' ? 'crypto' : 'event') === typeFilter);
+  }
   const renderRow = (ev) => {
     const kind = ev.type === 'crypto' ? 'crypto' : 'event';
     const s = ev._summary;
@@ -1601,11 +1625,31 @@ async function renderSessionHub({ handle, auth, flash, showArchived = false }) {
     : (showArchived
         ? html`<p class="hint" style="margin:0.4rem 0 1rem"><a href="/manage" style="color:#8b949e">← hide archived</a></p>`
         : html`<p class="hint" style="margin:0.4rem 0 1rem"><a href="/manage?show=archived" style="color:#8b949e">show ${String(archived.length)} archived</a></p>`);
+  // Pills preserve ?show=archived. Toggle off by clicking the active
+  // pill (link to the unfiltered URL). Built only when the user has at
+  // least one of each type — otherwise the filter is meaningless.
+  const baseQS = showArchived ? 'show=archived' : '';
+  const pillHref = (t) => {
+    const parts = [baseQS, `type=${t}`].filter(Boolean);
+    return parts.length ? `/manage?${parts.join('&')}` : '/manage';
+  };
+  const clearHref = baseQS ? `/manage?${baseQS}` : '/manage';
+  const filterPills = (typeCounts.event > 0 && typeCounts.crypto > 0)
+    ? html`<div class="mh-filter">
+        <a class="mh-filter-pill ${typeFilter === 'event' ? 'active' : ''}"
+           href="${typeFilter === 'event' ? clearHref : pillHref('event')}">events <span class="n">${String(typeCounts.event)}</span></a>
+        <a class="mh-filter-pill ${typeFilter === 'crypto' ? 'active' : ''}"
+           href="${typeFilter === 'crypto' ? clearHref : pillHref('crypto')}">crypto <span class="n">${String(typeCounts.crypto)}</span></a>
+      </div>`
+    : raw('');
   return html`
     <style>${raw(MANAGE_HUB_CSS)}</style>
     <div class="mh">
-      <p style="margin:0 0 0.4rem"><a href="/" style="color:#8b949e;font-size:0.88em">← back</a></p>
-      <p style="margin:0 0 1rem;color:#8b949e;font-size:0.9em">Every event and crypto you've organised. Open one to send reminders, view replies, or close it.</p>
+      <div class="mh-top">
+        <p style="margin:0"><a href="/" style="color:#8b949e;font-size:0.88em">← back</a></p>
+        ${filterPills}
+      </div>
+      <p style="margin:0.4rem 0 1rem;color:#8b949e;font-size:0.9em">Every event and crypto you've organised. Open one to send reminders, view replies, or close it.</p>
       ${flash ? html`<div class="flash">${flash}</div>` : raw('')}
       ${countsStrip}
       ${rows}
@@ -1648,7 +1692,14 @@ router.get('/manage', async (req, res) => {
       : null;
     res.end(layout({
       title: 'your events — gitdone',
-      body: await renderSessionHub({ handle, auth, flash, showArchived: /[?&]show=archived\b/.test(req.url || '') }),
+      body: await renderSessionHub({
+        handle, auth, flash,
+        showArchived: /[?&]show=archived\b/.test(req.url || ''),
+        typeFilter: (() => {
+          const t = u.searchParams.get('type');
+          return t === 'event' || t === 'crypto' ? t : null;
+        })(),
+      }),
     }));
   } else {
     const u = new URL(req.url || '/', 'http://localhost');

@@ -15,6 +15,24 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Manage hub: events / crypto type-filter pills
+
+The hub at `/manage` now renders two pill-shaped clickable filters in
+the top-right of the header — `events <N>` and `crypto <N>` — when
+the user has at least one of each type. Clicking a pill narrows the
+list to that event type via a `?type=event` / `?type=crypto` query
+string; clicking the active pill again clears the filter. The
+existing `?show=archived` parameter is preserved across pill clicks.
+
+- Pills follow the terminal theme: outlined when inactive, solid CRT
+  green `#3fb950` when active. Each carries the per-type count.
+- Counts in the existing summary strip (active / completed / closed
+  / pending / archived) stay over the whole portfolio — they're a
+  status legend, not a per-filter breakdown.
+- Mobile-responsive: pills stack below the back link below 480px.
+- Hidden when the user only has one event type; no point offering a
+  filter that does nothing.
+
 ### QA deferred items — DKIM fixture, overrides smoke test, byte-strict pin, EADDRINUSE guard
 
 Closing out the four deferred items from the QA review:
