@@ -11,8 +11,10 @@ const {
   TRUST_COLOR,
   aggregateTrust,
   truncHash,
+  formatBytes,
   renderTrustLadder,
   renderTrustPill,
+  renderAttachmentPill,
   renderProofReceipt,
   plainReceipt,
   otsStatusLabel,
@@ -152,6 +154,72 @@ test('otsStatusLabel surfaces anchored when ots_anchored set', () => {
     otsStatusLabel({ ots_archive: { error: 'ots not found' } }),
     'error: ots not found',
   );
+});
+
+test('renderProofReceipt surfaces attachment filenames + truncated hashes when present', () => {
+  const commit = {
+    raw_sha256: 'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    trust_level: 'verified',
+    dkim: { signatures: [{ result: 'pass', domain: 'example.com', selector: 'gd1', algorithm: 'rsa-sha256', aligned: true }] },
+    spf: { result: 'pass' }, dmarc: { result: 'pass' }, arc: { result: 'none' },
+    attachments: [
+      { filename: 'contract.pdf', sha256: 'sha256:aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff66667777888899990000', size: 102400 },
+      { filename: 'photo.jpg', sha256: 'sha256:1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff', size: 524288 },
+    ],
+  };
+  const html = renderProofReceipt(commit, 'abc123').html;
+  assert.match(html, /Attachments/);
+  assert.match(html, /contract\.pdf/);
+  assert.match(html, /photo\.jpg/);
+  assert.match(html, /sha256:aaaa…0000/);
+  assert.match(html, /sha256:1111…ffff/);
+});
+
+test('renderProofReceipt omits attachment block when none recorded', () => {
+  const commit = {
+    raw_sha256: 'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    trust_level: 'verified',
+    dkim: { signatures: [{ result: 'pass', domain: 'example.com' }] },
+    spf: { result: 'pass' }, dmarc: { result: 'pass' }, arc: { result: 'none' },
+    attachments: [],
+  };
+  const html = renderProofReceipt(commit, 'abc123').html;
+  assert.doesNotMatch(html, /Attachments/);
+});
+
+test('renderAttachmentPill renders green paperclip + count, hidden when count is zero', () => {
+  const empty = renderAttachmentPill({ count: 0, stepId: 's1' }).html;
+  assert.equal(empty, '');
+  const pill = renderAttachmentPill({ count: 3, stepId: 's1' }).html;
+  assert.match(pill, /attach-pill/);
+  assert.match(pill, /📎 3/);
+  assert.match(pill, /color:#3fb950/);
+  assert.match(pill, /data-step="s1"/);
+});
+
+test('formatBytes returns human-readable sizes', () => {
+  assert.equal(formatBytes(0), '');
+  assert.equal(formatBytes(512), '512 B');
+  assert.equal(formatBytes(2048), '2.0 KB');
+  assert.equal(formatBytes(1024 * 1024 * 3), '3.0 MB');
+});
+
+test('plainReceipt appends an Attachments section when present, ASCII-only', () => {
+  const commit = {
+    raw_sha256: 'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    trust_level: 'verified',
+    dkim: { signatures: [{ result: 'pass', domain: 'example.com', selector: 'gd1', algorithm: 'rsa-sha256', aligned: true }] },
+    spf: { result: 'pass' }, dmarc: { result: 'pass' }, arc: { result: 'none' },
+    ots_proof_file: 'ots_proofs/commit-001.ots',
+    attachments: [
+      { filename: 'contract.pdf', sha256: 'sha256:aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff66667777888899990000', size: 102400 },
+    ],
+  };
+  const txt = plainReceipt(commit);
+  assert.doesNotMatch(txt, /·/);
+  assert.match(txt, /Attachments/);
+  assert.match(txt, /contract\.pdf/);
+  assert.match(txt, /sha256:aaaa…0000/);
 });
 
 test('plainReceipt is ASCII-only', () => {

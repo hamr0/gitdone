@@ -1,6 +1,8 @@
 # Proof Surfacing v1 — trust ladder + receipts on every dashboard
 
-**Frozen:** 2026-05-06.
+**Frozen:** 2026-05-06. Updated 2026-05-06 with optional attachment surfacing
+(per-row 📎 indicators on both layouts; filenames + truncated `sha256` inside
+the receipt block).
 
 **Origin:** Design Lab winners — variant C3 ("proof headline") for crypto
 events, variant W2 ("trust strip") for workflow events. Tokens shared
@@ -58,6 +60,9 @@ both modes.
 │    ARC                                           │
 │    OTS     pending Bitcoin upgrade               │
 │    Raw hash sha256:2a30…c4c0                     │
+│    Attachments (only if present)                 │
+│      contract.pdf  sha256:aaaa…0000  · 100.0 KB  │
+│      photo.jpg     sha256:1111…ffff  · 512.0 KB  │
 │    $ gitdone-verify <event-id>                   │
 └──────────────────────────────────────────────────┘
 ```
@@ -72,6 +77,10 @@ both modes.
   - `<MODAL> · <count> of <threshold> · complete <date>` (locking,
     completed).
   Trust tiles below the headline show non-zero counts per class.
+- **Per-reply ledger rows** — each row shows `domain · date · TRUST`. When
+  the reply carried attachments, a green `📎 N` pill renders before the
+  trust label and a sub-row lists `<filename>  sha256:head…tail` for each
+  attachment. Rows without attachments stay single-line.
 - **Pre-completion** — no commit yet → ladder dimmed, headline reads
   `PENDING SIGNATURE` (declaration) / `PENDING REPLIES` (attestation).
   The receipt `<details>` is omitted.
@@ -107,6 +116,14 @@ proof receipt (DKIM/SPF/DMARC/ARC/OTS/hash). Toggle is JS-only; the
 HTML server-renders both the pill and the (initially hidden) drawer
 row, so JS-disabled clients still see the trust pill colour.
 
+When the step's reply carried attachments, a second pill `📎 N` renders
+in CRT green (`#3fb950`) immediately to the right of the trust pill.
+It carries the same `data-step` hook, so clicking either pill toggles
+the same drawer. The drawer's receipt block now also lists each
+attachment's filename + truncated `sha256` (humans glance, verifiers
+clone the bundle). Step rows without attachments only show the trust
+pill — the attach pill is purely additive.
+
 ## Helper module — `app/src/web/proof-render.js`
 
 Pure HTML helpers; no I/O. Consumed by both the management dashboard
@@ -116,7 +133,8 @@ and the proof-email composers.
 |---|---|
 | `renderTrustLadder({ achieved })` | 4-rung HTML ladder with the gradient rules above. |
 | `renderTrustPill({ level })` | Inline pill `[ <TRUST_LABEL> ]` coloured by level. |
-| `renderProofReceipt(commit, eventId)` | Full key/value receipt + offline-verify command. |
+| `renderAttachmentPill({ count, stepId })` | Green `📎 N` pill; same `data-step` hook as the trust pill. |
+| `renderProofReceipt(commit, eventId)` | Full key/value receipt + offline-verify command (includes attachments when present). |
 | `aggregateTrust(items)` | Returns `{ counts, modal, weakest }` for a list of commits/replies. |
 | `truncHash(sha)` | `sha256:head4…tail4` shorthand. |
 | `plainReceipt(commit)` | ASCII-only receipt block for proof emails. |
