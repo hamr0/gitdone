@@ -15,6 +15,56 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Attachment fingerprints surfaced + status legend on /manage hub
+
+The dashboard already recorded `attachments[].sha256` per commit
+(used by `gitdone-verify` to match forwarded `.eml` candidates), but
+they were invisible in the UI. Now surfaced wherever they're useful:
+
+- **Workflow steps** — completed step rows render a green `📎 N`
+  pill immediately to the right of the trust pill (`DKIM-VERIFIED`
+  etc.) when the counted reply carried files. Both pills carry the
+  same `data-step` hook, so clicking either expands the proof
+  drawer. The drawer's receipt block now lists every attachment as
+  `<filename>  sha256:head4…tail4  (size)`.
+- **Crypto per-reply ledger** — each row in the attestation
+  ledger now shows the same `📎 N` indicator before the trust label
+  when present, with an indented sub-row enumerating filenames +
+  truncated hashes. Single-attachment replies stay one line; rows
+  without attachments are unchanged.
+- **Proof emails** — `plainReceipt` (used in completion + anchored
+  proof emails) appends an ASCII `Attachments` section listing the
+  same fields, so the durable email artifact shows what was
+  fingerprinted without opening the bundle.
+- **Privacy unchanged.** GitDone still does not store attachment
+  bytes — only the SHA-256 fingerprint is in the commit JSON. The
+  organiser's inbox remains the attachment archive (PRD §0.1.10);
+  this surface is a verification index, not a download link. The
+  proof bundle (`.tar.gz`) carries the fingerprints inside
+  `commits/commit-NNN.json`; `gitdone-verify` matches against them
+  when the user supplies the original file via `verify+`.
+
+`/manage` hub got a small but related upgrade:
+
+- **Status legend.** The count strip at the top of the hub
+  (`13 active · 2 completed · 2 closed early · 7 pending activation`)
+  now renders each non-zero bucket as a small outlined box in its
+  lifecycle colour — same palette as §6.5's lifecycle table:
+  `active` blue, `completed` green, `closed early` amber,
+  `pending activation` CRT-amber, `archived` grey. Doubles as a
+  legend for the row pills, so organisers can read the palette at
+  a glance instead of cross-referencing.
+
+Frozen design ref updated:
+`docs/01-product/design/proof-surfacing-v1.md` documents the
+`renderAttachmentPill` helper and the receipt-block format.
+PRD §6.2 updated with the dashboard attachment-surfacing bullet
+and the hub legend description.
+
+464 tests pass (367 unit + 97 integration). Five new unit tests
+in `proof-render.test.js` cover the pill, the receipt block, the
+ASCII attachment lines in `plainReceipt`, and `formatBytes`.
+
 ### QA review fixes — mutex parity, accumulating OTS email, click-to-copy a11y
 
 A code review of the recent proof-surfacing + bundle-download work

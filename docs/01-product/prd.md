@@ -548,6 +548,11 @@ domains.
 Single self-serve path: knowless-backed sessions. The initiator hub
 at `/manage` shows the sign-in form when no session exists, otherwise
 a dashboard listing every event/crypto record they've ever organized.
+The hub's count strip doubles as a colour legend for the row pills:
+each non-zero status bucket renders in its lifecycle colour
+(`active` blue, `completed` green, `closed early` amber,
+`pending activation` CRT-amber, `archived` grey — same palette as
+§6.5's lifecycle table).
 
 **Sign-in flow.** GET `/manage` with no session → email form. POST
 `/manage` → knowless `auth.login` mints a 15-minute single-use magic
@@ -582,6 +587,13 @@ Max-Age. Sign-out deletes the session row.
 - Step table: step name, participant, `depends_on`, per-step status
   (complete / pending / waiting-on-deps)
 - Timeline — commits with Message-ID, DKIM status, OTS anchor state
+- Attachment fingerprints (filename + truncated SHA-256) surface
+  inline whenever a counted reply carried files. Workflow rows show
+  a green `📎 N` pill next to the trust pill; crypto attestation
+  ledger rows show the same pill, with a per-attachment list inside
+  the receipt drawer. The PDFs themselves are NOT stored — only the
+  hashes — so this is a verification index, not a download link
+  (use the proof bundle + `verify+` for byte-level recovery).
 - "Send reminders" button → `executeRemind`
 - "Close event" button → `executeClose` + `commitCompletion`
 - Email-fallback footer listing `stats+/remind+/close+` addresses
