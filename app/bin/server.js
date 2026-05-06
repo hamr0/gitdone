@@ -2032,7 +2032,7 @@ router.post('/manage/event/:id/close', async (req, res, params) => {
   }
   const r = executeClose(event, { receivedAt: new Date().toISOString() });
   if (!r.wasAlreadyComplete) {
-    await updateEventAtomic(params.id, () => r.newEvent);
+    await updateEventAtomic(params.id, () => r.newEvent, { syncMessage: 'event closed from dashboard' });
     await commitCompletion(params.id, r.newEvent, {
       completedAt: r.newEvent.completion.completed_at,
       triggeringSequence: null,

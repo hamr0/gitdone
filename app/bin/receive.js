@@ -483,7 +483,7 @@ async function main() {
       closeOutcome = r;
       if (r.kind === 'committed') {
         try {
-          await updateEventAtomic(cmdTag.eventId, () => r.newEvent);
+          await updateEventAtomic(cmdTag.eventId, () => r.newEvent, { syncMessage: 'event closed by initiator' });
           const cc = await commitCompletion(cmdTag.eventId, r.newEvent, {
             completedAt: receivedAtCmd,
             triggeringSequence: null,
@@ -516,7 +516,7 @@ async function main() {
         // First-stage: persist the pending intent so the second reply
         // can verify it. No completion commit yet.
         try {
-          await updateEventAtomic(cmdTag.eventId, () => r.newEvent);
+          await updateEventAtomic(cmdTag.eventId, () => r.newEvent, { syncMessage: 'close request: awaiting confirmation' });
           cmdOutcome.pending_close_expires_at = r.expiresAt;
         } catch (err) {
           cmdOutcome.close_error = err.message || String(err);
@@ -754,10 +754,12 @@ async function main() {
       };
       let applied = null;
       let didCascade = false;
+      const seqStr = String(gitCommit.sequence).padStart(3, '0');
+      const stepLabel = tag.stepId ? ` step ${tag.stepId}` : '';
       const { event: nextEvent, changed } = await updateEventAtomic(tag.eventId, (current) => {
         applied = applyReply(current, commitSummary, { now: receivedAt });
         return applied && applied.applied ? applied.event : null;
-      });
+      }, { syncMessage: `reply ${seqStr} counted:${stepLabel || ' attestation'}` });
       completion = {
         applied: applied ? applied.applied : false,
         decision: applied ? applied.decision : null,

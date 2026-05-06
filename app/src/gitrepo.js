@@ -479,6 +479,44 @@ async function appendEditCommit(eventId, editCtx, event) {
   };
 }
 
+// Sync the per-event repo's working-tree event.json with the master
+// `data/events/<id>.json`. The repo IS the proof artifact (PRD §0.1):
+// once an event is activated and a repo exists, every state transition
+// on the master JSON must also land in the repo — otherwise the
+// offline verifier reads a stale snapshot.
+//
+// Behaviour:
+//   - No repo yet (event never activated, never received a reply): no-op.
+//   - File contents identical to HEAD's working-tree event.json: no-op
+//     (the `git add` results in nothing staged → skip the commit).
+//   - Otherwise: write event.json, `git add`, `git commit` with the
+//     supplied message.
+//
+// Callers are responsible for serialising against other writers to the
+// same repo (per-event mutex in event-store.js, pipe-transport
+// serialisation for receive.js).
+async function syncEventJson(eventId, event, message) {
+  if (!EVENT_ID_RE.test(eventId)) throw new Error(`invalid eventId: ${eventId}`);
+  const root = repoPath(eventId);
+  const gitDir = path.join(root, '.git');
+  if (!await dirExists(gitDir)) return { synced: false, reason: 'no_repo' };
+
+  const file = path.join(root, 'event.json');
+  await fs.writeFile(file, JSON.stringify(event, null, 2) + '\n');
+  const git = simpleGit(root);
+  await git.add('event.json');
+  const status = await git.status();
+  // `staged` lists files added/modified/deleted relative to HEAD.
+  // If event.json was byte-identical to HEAD's version, nothing is
+  // staged — skip the commit (avoids empty / no-op commits in the
+  // ledger).
+  if (!status.staged.includes('event.json')) {
+    return { synced: false, reason: 'no_change' };
+  }
+  const commitRes = await git.commit(message || 'event state update');
+  return { synced: true, sha: commitRes.commit || null };
+}
+
 // Public random salt for a new event. 32 bytes of entropy, hex-encoded.
 // Used by buildCommitMetadata to salt sender_hash so the same address
 // hashes differently across events (prevents bulk correlation).
@@ -502,4 +540,5 @@ module.exports = {
   nextReverifySequence,
   commitReverify,
   commitCompletion,
+  syncEventJson,
 };

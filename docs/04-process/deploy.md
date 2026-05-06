@@ -237,6 +237,32 @@ deliberately doesn't automate (initial install, Node major upgrades,
 DKIM rotations, certificate renewal). Use it when you're touching the
 host itself, not just the application.
 
+## One-time migrations
+
+### Repo `event.json` backfill (post bug-fix)
+
+Pre-fix, every per-event git repo's working-tree `event.json` was
+written ONCE on repo init and never updated. State transitions
+(activation, edits, completion, archive) only landed in the master
+`data/events/<id>.json` — leaving the repo (which IS the proof
+artifact per PRD §0.1) carrying a stale snapshot. The offline
+verifier read the wrong state.
+
+Fix landed: every master-JSON write now also calls
+`gitrepo.syncEventJson()` so the repo stays current.
+
+After the fix deploys, run the one-shot backfill on prod ONCE to
+sync existing repos with their masters:
+
+```bash
+ssh -i "$HOME/.ssh/gitdone_federver" gitdone@104.129.2.254 \
+  'sudo -u gitdone node /opt/gitdone/app/bin/backfill-event-json.js'
+```
+
+Output is per-event `synced` / `up-to-date` / `no repo` lines plus a
+summary tally. Idempotent — re-running is safe and reports
+`up-to-date` for everything once the migration has run.
+
 ## Periodic hygiene
 
 Quarterly (or whenever a security advisory fires), run from `app/`:

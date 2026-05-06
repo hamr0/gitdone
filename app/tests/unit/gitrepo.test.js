@@ -249,3 +249,78 @@ test('commitReverify: produces an OTS proof path (even if stamping fails gracefu
   // At least one of these is true:
   assert.ok(body.ots_proof_file || (body.ots_archive && body.ots_archive.error));
 });
+
+
+// syncEventJson — the proof-artifact-stays-fresh helper
+
+test('syncEventJson: no-op when repo does not exist', async () => {
+  const { syncEventJson } = require('../../src/gitrepo');
+  const r = await syncEventJson('neverActivated', { id: 'neverActivated', title: 'X' }, 'msg');
+  assert.equal(r.synced, false);
+  assert.equal(r.reason, 'no_repo');
+});
+
+test('syncEventJson: no commit when event.json bytes match HEAD', async () => {
+  const { initRepoIfNeeded, syncEventJson, repoPath } = require('../../src/gitrepo');
+  const event = { id: 'syncA', title: 'Sync A', steps: [] };
+  await initRepoIfNeeded('syncA', event);
+  const simpleGit = require('simple-git');
+  const before = (await simpleGit(repoPath('syncA')).log()).total;
+
+  // Same event object — bytes will match what initRepoIfNeeded wrote.
+  const r = await syncEventJson('syncA', event, 'no-change attempt');
+  assert.equal(r.synced, false);
+  assert.equal(r.reason, 'no_change');
+
+  const after = (await simpleGit(repoPath('syncA')).log()).total;
+  assert.equal(after, before, 'no new commit when content unchanged');
+});
+
+test('syncEventJson: commits when event content changes', async () => {
+  const { initRepoIfNeeded, syncEventJson, repoPath } = require('../../src/gitrepo');
+  const event = { id: 'syncB', title: 'Sync B', steps: [] };
+  await initRepoIfNeeded('syncB', event);
+  const simpleGit = require('simple-git');
+  const before = (await simpleGit(repoPath('syncB')).log()).total;
+
+  const updated = { ...event, title: 'Sync B (updated)', activated_at: '2026-05-06T00:00:00Z' };
+  const r = await syncEventJson('syncB', updated, 'event activated');
+  assert.equal(r.synced, true);
+  assert.match(r.sha, /^[0-9a-f]+$/);
+
+  // event.json on disk reflects the update
+  const onDisk = JSON.parse(await fs.readFile(path.join(repoPath('syncB'), 'event.json'), 'utf8'));
+  assert.equal(onDisk.title, 'Sync B (updated)');
+  assert.equal(onDisk.activated_at, '2026-05-06T00:00:00Z');
+
+  // Git log gained exactly one new commit with the supplied message
+  const log = await simpleGit(repoPath('syncB')).log();
+  assert.equal(log.total, before + 1);
+  assert.match(log.latest.message, /event activated/);
+});
+
+test('syncEventJson: reflects deeply-nested completion mutations', async () => {
+  const { initRepoIfNeeded, syncEventJson, repoPath } = require('../../src/gitrepo');
+  const event = { id: 'syncC', title: 'Sync C', type: 'crypto', mode: 'declaration',
+    signer: 'witness@ex.com', steps: [] };
+  await initRepoIfNeeded('syncC', event);
+
+  const completed = {
+    ...event,
+    completion: { status: 'complete', completed_at: '2026-05-06T12:00:00Z', commit_sequence: 1 },
+  };
+  const r = await syncEventJson('syncC', completed, 'reply 001 counted: declaration');
+  assert.equal(r.synced, true);
+
+  const onDisk = JSON.parse(await fs.readFile(path.join(repoPath('syncC'), 'event.json'), 'utf8'));
+  assert.equal(onDisk.completion.status, 'complete');
+  assert.equal(onDisk.completion.commit_sequence, 1);
+});
+
+test('syncEventJson: rejects bad event ids (path-traversal guard)', async () => {
+  const { syncEventJson } = require('../../src/gitrepo');
+  await assert.rejects(
+    () => syncEventJson('../bad', { id: '../bad' }, 'msg'),
+    /invalid eventId/
+  );
+});

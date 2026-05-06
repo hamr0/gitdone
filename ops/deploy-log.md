@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-06T19:51Z · `8f1e1ac` · deploy.md: periodic hygiene + active-overrides table
 - 2026-05-06T19:49Z · `1376d3e` · CHANGELOG: knowless bump + npm audit cleanup notes
 - 2026-05-06T19:47Z · `f19a297` · Fold deploy-log entries from e12744b + 0d8611c
 - 2026-05-06T19:34Z · `e12744b` · Bump knowless 1.1.1 -> 1.1.3

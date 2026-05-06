@@ -190,6 +190,14 @@ async function activateEvent(eventId, { now = new Date().toISOString() } = {}) {
     const tmp = file + '.tmp';
     await fs.writeFile(tmp, JSON.stringify(next, null, 2) + '\n');
     await fs.rename(tmp, file);
+    // Repo doesn't exist yet on activation (init happens on first
+    // reply or first audit-trail commit), so syncEventJson no-ops here
+    // — but if a future code path pre-creates the repo on activation,
+    // this call ensures the repo's event.json reflects activated_at.
+    try {
+      const gitrepo = require('./gitrepo');
+      await gitrepo.syncEventJson(eventId, next, 'event activated');
+    } catch { /* sync failure shouldn't block activation */ }
     return { event: next, alreadyActive: false };
   });
 }
@@ -322,13 +330,20 @@ async function editEvent(eventId, patch, { now = new Date().toISOString(), organ
 
     let commitSequence = null;
     if (event.activated_at) {
-      const { appendEditCommit } = require('./gitrepo');
+      const { appendEditCommit, syncEventJson } = require('./gitrepo');
       const result = await appendEditCommit(eventId, {
         edited_at: now,
         organiser_handle: organiserHandle,
         changes,
       }, next);
       commitSequence = result.sequence;
+      // Mirror the post-edit master state into the repo's event.json
+      // so the proof artifact reflects the new participant list /
+      // deadline / title alongside the audit-trail commit.
+      const summary = changes.map((c) => c.field).filter(Boolean).join(', ') || 'edit';
+      try {
+        await syncEventJson(eventId, next, `event edited: ${summary}`);
+      } catch { /* sync failure shouldn't undo the edit */ }
     }
 
     return { event: next, prev: event, changes, commitSequence };

@@ -46,11 +46,22 @@ async function listDir(dir) {
   catch (err) { if (err.code === 'ENOENT') return []; throw err; }
 }
 
-async function atomicWriteEvent(eventId, event) {
+async function atomicWriteEvent(eventId, event, syncMessage) {
   const file = path.join(config.dataDir, 'events', `${eventId}.json`);
   const tmp = file + '.tmp';
   await fs.writeFile(tmp, JSON.stringify(event, null, 2) + '\n');
   await fs.rename(tmp, file);
+  // Mirror state-relevant transitions (archive / unarchive) into the
+  // per-event repo. Bookkeeping flips (nudge timestamps) also flow
+  // through here — they no-op on the commit step when nothing
+  // material changed in event.json bytes anyway, but skip the sync
+  // call entirely when no message was supplied to keep the ledger
+  // tidy.
+  if (!syncMessage) return;
+  try {
+    const { syncEventJson } = require('./gitrepo');
+    await syncEventJson(eventId, event, syncMessage);
+  } catch { /* sync failure shouldn't undo the master write */ }
 }
 
 // The reference clock for overdue/archive decisions. Returns a ms
@@ -188,7 +199,7 @@ async function archiveStale({ now = Date.now(), archiveDays = config.archiveDays
     if (daysOver < archiveDays) continue;
     const stamp = new Date(now).toISOString();
     const next = { ...ev, archived_at: stamp, archive_reason: 'auto_stale' };
-    if (!dryRun) await atomicWriteEvent(id, next);
+    if (!dryRun) await atomicWriteEvent(id, next, 'event archived: auto_stale');
     archived.push({ id, title: ev.title, initiator: ev.initiator, days_idle: Math.floor(daysOver) });
   }
   return archived;
@@ -201,7 +212,7 @@ async function unarchive(eventId) {
   const next = { ...ev };
   delete next.archived_at;
   delete next.archive_reason;
-  await atomicWriteEvent(eventId, next);
+  await atomicWriteEvent(eventId, next, 'event unarchived');
   return next;
 }
 

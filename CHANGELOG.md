@@ -15,6 +15,40 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Repo `event.json` now reflects current state (offline-verifier fix)
+
+The per-event git repo at `data/repos/<id>/` is the canonical proof
+artifact (PRD §0.1 "proofs verify offline without the gitdone
+service"). Until now its `event.json` was written **once** on repo
+init and never updated — every state transition (activate, edit,
+close, archive, complete-via-reply) updated only the master JSON at
+`data/events/<id>.json`. The repo's copy was stale: it lacked
+`completion`, `archived_at`, current step status, attestation
+`replies[]`, etc. Offline verifiers reading the repo (correctly)
+reported the wrong state.
+
+- New helper `gitrepo.syncEventJson(id, event, message)` writes the
+  current state into the repo's `event.json` and commits it as a
+  separate audit-trail commit. No-op when there's no repo yet
+  (pre-activation events) or when the file hasn't changed (idempotent
+  via `git status` check).
+- Wired through every state-relevant write site:
+  `event-store.activateEvent`, `event-store.editEvent`,
+  `completion.updateEventAtomic` (covers reply commits + dashboard
+  close + email-path close), `sweep.archiveEvent` /
+  `unarchiveEvent`. Operational bookkeeping (nudges, send errors,
+  proof-email message-id) does NOT sync — keeps the proof ledger
+  free of noise.
+- Reply commits add `reply NNN counted: <step|declaration|attestation>`
+  audit-trail commits to the repo so the per-event git history
+  becomes a durable state log.
+- New one-shot script `app/bin/backfill-event-json.js` to retrofit
+  existing prod repos. Runs idempotently. Documented in
+  `docs/04-process/deploy.md` under "One-time migrations".
+- Bundle download (the `.tar.gz` of the repo) and `gitdone-verify`
+  now both see the canonical state — no code changes there, just
+  Working Correctly™ once the backfill runs.
+
 ### Dependency hygiene — knowless 1.1.3, npm audit clean
 
 - **`knowless` bumped 1.1.1 → 1.1.3**. Two patch versions of the
