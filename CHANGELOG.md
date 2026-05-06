@@ -15,6 +15,38 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Pending events accessible to the signed-in initiator + crypto signer MX parity
+
+Two related fixes to the activation flow.
+
+- **Per-event magic-link click is no longer required when the
+  initiator is already signed in.** Previously, GET
+  `/manage/event/<id>` for a pending event with no
+  `activation_link_clicked_at` rendered the check-your-inbox view
+  even when the requester held a Mode-B session whose handle matched
+  the event initiator. POST `/manage/event/<id>/activate` enforced
+  the same gate server-side with `?activate_blocked=1`. Result: an
+  initiator who created an event months ago (and never opened the
+  per-event activation email) couldn't recover it from the
+  dashboard. Since a Mode-B session is itself minted via a knowless
+  magic-link click, it is already proof of email ownership — the
+  per-event click was redundant. Both gates removed; the
+  handle-matches-initiator check on every route stays as the
+  security boundary. Sign in at `/manage` → click the pending event
+  → Activate / Edit / Close work normally.
+- **Crypto declaration signer is now MX-checked at create time.**
+  Workflow events have always run an MX / null-MX / A-fallback check
+  on every participant address (so a typo like `you@gmaicom`
+  surfaces inline rather than silently bouncing on activation). POST
+  `/crypto` was only running that check on the initiator, leaving
+  the declaration signer (the recipient) unchecked. Now declaration
+  mode runs `checkInitiatorMx` on the signer too — same helper, same
+  rules. Attestation has no recipient at creation time so nothing
+  changes there.
+- **PRD §6.1 updated** to drop the stale "same-session shortcut"
+  bullet (removed in an earlier change but never reflected in the
+  spec) and document the Mode-B-pending-access behavior.
+
 ### Crypto reply acks — type-aware subject + body
 
 Crypto event replies (`event+<id>@`) were going through the workflow

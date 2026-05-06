@@ -232,7 +232,7 @@ test('GET /manage/event/:id (pending, link clicked) renders the read-only create
   assert.doesNotMatch(view.body, /class="vf-submit"/);
 });
 
-test('GET /manage/event/:id (pending, link not clicked) renders check-your-inbox', async () => {
+test('GET /manage/event/:id (pending, link not clicked) still renders the dashboard for the signed-in initiator', async () => {
   await post('/events', {
     title: 'inbox-gated', initiator: 'inboxgate@example.com',
     step_name: ['a'],
@@ -242,18 +242,33 @@ test('GET /manage/event/:id (pending, link not clicked) renders check-your-inbox
   const ev = await latestEventFor('inboxgate@example.com');
   assert.ok(ev);
   const cookie = mintCookie('inboxgate@example.com');
-  // No /confirmed click — even though we're signed in as the
-  // initiator, the dashboard refuses to show the Activate button until
-  // the magic link has been clicked.
+  // No /confirmed click. The Mode-B session itself proves email
+  // ownership (knowless requires a magic-link click to mint it), so the
+  // dashboard renders with Activate / Edit / Close available — no
+  // separate per-event email round-trip required.
   const view = await get(`/manage/event/${ev.id}`, cookie);
   assert.equal(view.status, 200);
-  assert.match(view.body, /Confirm via email/);
-  assert.match(view.body, /Click the gitdone sign-in link/);
-  assert.match(view.body, /1 step queued/);
-  // The check-your-inbox page mentions "press Activate" in the
-  // numbered flow, so we can't grep for the verb alone — instead
-  // assert there's no submit button to /activate.
-  assert.doesNotMatch(view.body, /class="mg-activate"/);
+  assert.doesNotMatch(view.body, /Confirm via email/);
+  assert.match(view.body, />Activate</);
+  assert.match(view.body, />Edit</);
+  assert.match(view.body, />Close event</);
+});
+
+test('POST /manage/event/:id/activate works for a signed-in initiator without the magic-link click', async () => {
+  await post('/events', {
+    title: 'unclicked-activate', initiator: 'unclicked@example.com',
+    step_name: ['a'],
+    step_participant: ['a@x.com'],
+    step_depends_on: [''],
+  });
+  const ev = await latestEventFor('unclicked@example.com');
+  assert.ok(ev);
+  assert.ok(!ev.activation_link_clicked_at);
+  const cookie = mintCookie('unclicked@example.com');
+  const r = await post(`/manage/event/${ev.id}/activate`, {}, cookie);
+  assert.equal(r.status, 303);
+  const after = await latestEventFor('unclicked@example.com');
+  assert.ok(after.activated_at, 'activated despite no /confirmed click');
 });
 
 test('POST /events: organiser email with no MX is rejected with form error', async () => {
@@ -286,6 +301,26 @@ test('POST /events: participant email with no MX is rejected with form error', a
     });
     assert.equal(r.status, 422);
     assert.match(r.body, /participant email &quot;someone@gmaicom\.invalid&quot;/);
+    assert.match(r.body, /domain does not resolve|no MX record/);
+    const ev = await latestEventFor('org@example.com');
+    assert.equal(ev, null);
+  } finally {
+    process.env.GITDONE_SKIP_MX_CHECK = '1';
+  }
+});
+
+test('POST /crypto: declaration signer with no MX is rejected with form error', async () => {
+  // Same recipient-MX gate as workflow participants — the signer is a
+  // recipient and a typoed domain would silently bounce on activation.
+  delete process.env.GITDONE_SKIP_MX_CHECK;
+  try {
+    const r = await post('/crypto', {
+      mode: 'declaration', title: 'sig-mxcheck',
+      initiator: 'org@example.com',
+      signer: 'someone@gmaicom.invalid',
+    });
+    assert.equal(r.status, 422);
+    assert.match(r.body, /signer email &quot;someone@gmaicom\.invalid&quot;/);
     assert.match(r.body, /domain does not resolve|no MX record/);
     const ev = await latestEventFor('org@example.com');
     assert.equal(ev, null);
@@ -360,25 +395,6 @@ test('GET /events preview boldens the organiser email', async () => {
   // Email rendered with emphasis + the "double-check" hint.
   assert.match(r.body, /pv@example\.com/);
   assert.match(r.body, /double-check this/);
-});
-
-test('POST /manage/event/:id/activate refuses without the magic-link click', async () => {
-  await post('/events', {
-    title: 'gate-bypass-attempt', initiator: 'gatebypass@example.com',
-    step_name: ['a'],
-    step_participant: ['a@x.com'],
-    step_depends_on: [''],
-  });
-  const ev = await latestEventFor('gatebypass@example.com');
-  assert.ok(ev);
-  const cookie = mintCookie('gatebypass@example.com');
-  const r = await postEmpty(`/manage/event/${ev.id}/activate`, cookie);
-  // 303 to dashboard with the activate_blocked flag — no activation
-  // happened, no participants notified.
-  assert.equal(r.status, 303);
-  assert.match(r.headers.location, /activate_blocked=1/);
-  const after = JSON.parse(await fsp.readFile(path.join(tmp, 'events', `${ev.id}.json`), 'utf8'));
-  assert.equal(after.activated_at, null);
 });
 
 test('GET /manage/event/:id surfaces last_send_error as a delivery-failed row', async () => {

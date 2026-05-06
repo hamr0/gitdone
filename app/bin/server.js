@@ -1298,16 +1298,26 @@ router.post('/crypto', async (req, res) => {
       body: renderCryptoForm({ values: body, errors: v.errors }),
     }));
   }
-  // Pre-flight MX check on the organiser email — see POST /events.
+  // Pre-flight MX check on the organiser email — see POST /events. For
+  // declaration mode, also MX-check the signer; an unreachable signer
+  // address is the same typo class as an unreachable workflow
+  // participant and we reject both at create time.
   const mxCheck = await checkInitiatorMx(v.value.initiator);
-  if (!mxCheck.ok) {
+  const signerMxCheck = (v.value.mode === 'declaration')
+    ? await checkInitiatorMx(v.value.signer)
+    : { ok: true };
+  if (!mxCheck.ok || !signerMxCheck.ok) {
+    const errors = [];
+    if (!mxCheck.ok) {
+      errors.push(`organiser email "${v.value.initiator}" — ${mxCheck.reason}. Did you mean a different domain?`);
+    }
+    if (!signerMxCheck.ok) {
+      errors.push(`signer email "${v.value.signer}" — ${signerMxCheck.reason}. Did you mean a different domain?`);
+    }
     res.writeHead(422, { 'content-type': 'text/html; charset=utf-8' });
     return res.end(layout({
       title: 'fix errors — gitdone',
-      body: renderCryptoForm({
-        values: body,
-        errors: [`organiser email "${v.value.initiator}" — ${mxCheck.reason}. Did you mean a different domain?`],
-      }),
+      body: renderCryptoForm({ values: body, errors }),
     }));
   }
   // Same pending-activation gate as workflow events: no signer invite
@@ -1708,20 +1718,11 @@ router.get('/manage/event/:id', async (req, res, params) => {
     res.writeHead(403); return res.end('forbidden');
   }
 
-  // Pending events that haven't had the activation magic-link clicked
-  // yet render the check-your-inbox view, NOT the live dashboard. This
-  // is the "behind the email magic link" gate: typing /manage/event/:id
-  // immediately after Confirm doesn't bypass the email round-trip even
-  // for a signed-in initiator. Once the magic link is clicked, the
-  // /confirmed route flips activation_link_clicked_at and we fall
-  // through to the normal dashboard render.
-  if (!event.activated_at && !event.activation_link_clicked_at && !event.archived_at) {
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    return res.end(layout({
-      title: 'check your inbox — gitdone',
-      body: renderCheckYourInboxPage({ event, kind: event.type === 'crypto' ? 'crypto' : 'event' }),
-    }));
-  }
+  // A signed-in session whose handle matches the initiator (verified
+  // above) is itself proof of email ownership — knowless requires a
+  // magic-link click to mint that session. So we render the live
+  // dashboard for pending events too: the user can Activate / Edit /
+  // Close without re-clicking the per-event activation link.
 
   // Activation is opt-in: the dashboard renders a 'pending' state with a
   // confirm button, and POST /manage/event/:id/activate fires the
@@ -1920,14 +1921,6 @@ router.post('/manage/event/:id/activate', async (req, res, params) => {
   const finalised = (event.completion && event.completion.status === 'complete') || !!event.archived_at;
   if (finalised || event.activated_at) {
     res.writeHead(303, { location: `/manage/event/${params.id}` });
-    return res.end();
-  }
-  // Activation gate: refuse without the magic-link click. Belt-and-
-  // braces with the dashboard hiding the Activate button — without
-  // this server-side check, a forged POST from a signed-in initiator
-  // would still bypass the email round-trip.
-  if (!event.activation_link_clicked_at) {
-    res.writeHead(303, { location: `/manage/event/${params.id}?activate_blocked=1` });
     return res.end();
   }
   const { event: activated, alreadyActive } = await activateEvent(params.id);

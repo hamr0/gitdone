@@ -462,7 +462,9 @@ sides.
 
 **Activation (email-ownership proof).** Events are created in a
 `pending_activation` state (`event.activated_at === null`). Until the
-initiator clicks the magic link, no participant invitations go out,
+initiator presses Activate (after either clicking the magic link or
+signing in via `/manage` as the initiator), no participant
+invitations go out,
 and replies to any step's reply-to address commit for the audit trail
 but do not count toward completion. This closes the impersonation
 vector where anyone could type a victim's address as initiator and
@@ -484,10 +486,18 @@ immediately blast real notifications to real participants.
   previews each step's deadline / dependencies / one-line brief so
   the organiser can decide whether to activate before signing in;
   signing in just opens the dashboard for review.
-- **Same-session shortcut.** If the requester is already signed in
-  as the initiator (current handle === `auth.deriveHandle(initiator)`),
-  POST /events / POST /crypto skips the email round-trip and 303s
-  straight to the dashboard.
+- **No same-session shortcut on creation.** POST /events and POST
+  /crypto always send the activation magic-link email, even when the
+  requester already holds a session whose handle matches the
+  initiator. The email artifact is part of the activation gate.
+- **Pending events stay accessible to the signed-in initiator.** A
+  Mode-B session — itself minted via a knowless magic-link click —
+  is sufficient proof of email ownership. So GET `/manage/event/<id>`
+  and POST `/manage/event/<id>/activate` are NOT gated on a separate
+  per-event link click: the initiator can return weeks later, sign
+  in via `/manage`, and Activate / Edit / Close any pending event
+  they own. The handle === `auth.deriveHandle(initiator)` check on
+  every route is the security boundary.
 - **Completion engine gate:** `shouldCountWorkflow / Declaration /
   Attestation` short-circuit with `reason: 'event not activated'`
   when `activated_at` is null. Receive.js sends the replier a
