@@ -84,8 +84,13 @@ can reply normally.
 ## 4–8. Reply acknowledgements
 
 All sent by `app/bin/receive.js` after classifying an inbound reply.
-Reply-To is the same per-step address the inbound was sent to so the
-participant's MUA threads correctly.
+Reply-To is the same address the inbound was sent to so the
+participant's MUA threads correctly. Subjects and bodies branch on
+event type — the workflow `<step> [<idx>/<total>]` shape doesn't apply
+to crypto, where there's only one logical reply per signer / per
+attestation slot.
+
+### Workflow events
 
 | # | Reason | Subject |
 |---|--------|---------|
@@ -93,11 +98,70 @@ participant's MUA threads correctly.
 | 5 | `missing_attachment` | `[gitdone] Attachment required — <title> — <step> [<idx>/<total>]` |
 | 6 | `event archived` | `[gitdone] Event archived — <title>` |
 | 7 | `event not activated` | `[gitdone] Event not yet activated — <title>` |
-| 8 | event closed | `[gitdone] Event closed — <title>` |
+| 8 | `event closed` | `[gitdone] Event closed — <title>` |
 
 Bodies all open with "Thanks — we received your reply for "<step>" on
 event "<title>".", then explain the specific outcome and the audit
 trail guarantee.
+
+### Crypto declaration
+
+Same five reasons; subject + body adapted so they don't reference
+"step" or `[N/M]` (declarations don't have steps), and they call the
+event a **Crypto Declaration** in body copy.
+
+| # | Reason | Subject |
+|---|--------|---------|
+| 4d | accepted | `[gitdone] Signed — <title>` |
+| 5d | `missing_attachment` | `[gitdone] Attachment required — <title>` |
+| 6d | `event archived` | `[gitdone] Crypto Declaration archived — <title>` |
+| 7d | `event not activated` | `[gitdone] Crypto Declaration not yet activated — <title>` |
+| 8d | `event closed` | `[gitdone] Crypto Declaration closed — <title>` |
+
+Accepted body:
+
+```
+Your signature on Crypto Declaration "<title>" was accepted.
+The reply is DKIM-verified, OpenTimestamped, and committed to the
+event's git audit trail.
+
+The declaration is now final and the audit trail is sealed. Thank you.
+
+Requester: <initiator>
+```
+
+### Crypto attestation
+
+| # | Reason | Subject |
+|---|--------|---------|
+| 4a-partial | accepted, threshold not yet reached | `[gitdone] Attestation reply recorded — <title>` |
+| 4a-final | accepted, this reply hits the threshold | `[gitdone] Attestation complete — <title>` |
+| 5a | `missing_attachment` | `[gitdone] Attachment required — <title>` |
+| 6a | `event archived` | `[gitdone] Crypto Attestation archived — <title>` |
+| 7a | `event not activated` | `[gitdone] Crypto Attestation not yet activated — <title>` |
+| 8a | `event closed` | `[gitdone] Crypto Attestation closed — <title>` |
+
+Accepted body (partial):
+
+```
+Your reply to Crypto Attestation "<title>" was recorded.
+It's DKIM-verified, OpenTimestamped, and committed to the event's
+git audit trail.
+
+Replies so far: <K>/<threshold>. The attestation stays open until the
+threshold is met.
+
+Requester: <initiator>
+```
+
+When the reply that lands tips the count to threshold, the body
+swaps to:
+
+```
+…
+Threshold reached (<threshold>). The audit trail is sealed.
+…
+```
 
 ## 9. Activation receipt
 

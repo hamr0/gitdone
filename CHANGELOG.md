@@ -15,6 +15,36 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Crypto reply acks — type-aware subject + body
+
+Crypto event replies (`event+<id>@`) were going through the workflow
+ack template, which expects a step name + `[N/M]` counter. Since
+crypto events have no steps, the subject came out as
+`[gitdone] Accepted — <title> — null` and the body opened with
+`Your reply for "null" on event "<title>" was accepted.`. Five branches
+(accepted, `missing_attachment`, `event archived`, `event not
+activated`, `event closed`) all need to know whether they're handling
+a workflow or crypto event.
+
+- **Declaration accepted.** Subject `[gitdone] Signed — <title>`;
+  body says "Your signature on Crypto Declaration "<title>" was
+  accepted… The declaration is now final and the audit trail is
+  sealed."
+- **Attestation accepted (partial).** Subject `[gitdone] Attestation
+  reply recorded — <title>`; body shows
+  `Replies so far: <K>/<threshold>` so the signer knows where the
+  count stands.
+- **Attestation accepted (threshold).** Subject `[gitdone]
+  Attestation complete — <title>`; body confirms
+  `Threshold reached (<threshold>). The audit trail is sealed.`
+- **Rejection paths** (`missing_attachment`, archived, not-activated,
+  closed) drop the step + counter, swap "this event" / "the event"
+  copy for the right Crypto Declaration / Crypto Attestation label,
+  and use `Requester` instead of `Organiser` where appropriate.
+- **`docs/01-product/email-formats.md`** entries 4–8 split into
+  workflow / declaration / attestation tables with the new subject
+  templates and a verbatim accepted-body sample for each crypto mode.
+
 ### Step delivery error resets on participant edit
 
 A failed delivery (DSN bounce, sendmail error) pinned

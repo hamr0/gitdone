@@ -739,18 +739,56 @@ async function main() {
       || reason === 'event archived';
     const to = handled ? (envelope.sender || from.address || null) : null;
     if (to) {
-      const fromAddr = `event+${tag.eventId}-${tag.stepId}@${config.domain}`;
-      const step = completion.decision.step || (event.steps || []).find((s) => s.id === tag.stepId);
-      const stepName = step ? step.name : tag.stepId;
-      // [N/M] tag for workflow events lets the organiser see at a glance
-      // which step is being acknowledged ('Accepted — wedding — video [2/5]').
-      const stepIdx = (event.steps || []).findIndex((s) => s.id === tag.stepId);
+      // Crypto reply addresses are event+<id>@ (no step suffix); workflow
+      // is event+<id>-<step>@. Synthesise the right reply-back address.
+      const isCrypto = event.type === 'crypto';
+      const fromAddr = isCrypto
+        ? `event+${tag.eventId}@${config.domain}`
+        : `event+${tag.eventId}-${tag.stepId}@${config.domain}`;
+      // Workflow-only step labels — undefined for crypto. Avoids the
+      // "null" leak that surfaced in subjects/bodies when crypto events
+      // went through the workflow ack template.
+      const step = !isCrypto ? (completion.decision.step || (event.steps || []).find((s) => s.id === tag.stepId)) : null;
+      const stepName = step ? step.name : null;
+      const stepIdx = !isCrypto ? (event.steps || []).findIndex((s) => s.id === tag.stepId) : -1;
       const stepCounter = stepIdx >= 0 && (event.steps || []).length
         ? ` [${stepIdx + 1}/${event.steps.length}]`
         : '';
+      const cryptoLabel = isCrypto
+        ? (event.mode === 'declaration' ? 'Crypto Declaration' : 'Crypto Attestation')
+        : null;
       let subject;
       let body;
-      if (accepted) {
+      if (accepted && isCrypto && event.mode === 'declaration') {
+        subject = `[gitdone] Signed — ${event.title}`;
+        body = [
+          `Your signature on Crypto Declaration "${event.title}" was accepted.`,
+          `The reply is DKIM-verified, OpenTimestamped, and committed to the`,
+          `event's git audit trail.`,
+          ``,
+          `The declaration is now final and the audit trail is sealed. Thank you.`,
+          ``,
+          `Requester: ${event.initiator}`,
+        ].join('\n');
+      } else if (accepted && isCrypto && event.mode === 'attestation') {
+        const counted = (event.replies || []).length;
+        const reachedThreshold = !!completion.completed_event;
+        subject = reachedThreshold
+          ? `[gitdone] Attestation complete — ${event.title}`
+          : `[gitdone] Attestation reply recorded — ${event.title}`;
+        const tail = reachedThreshold
+          ? `Threshold reached (${event.threshold}). The audit trail is sealed.`
+          : `Replies so far: ${counted}/${event.threshold}. The attestation stays open until the threshold is met.`;
+        body = [
+          `Your reply to Crypto Attestation "${event.title}" was recorded.`,
+          `It's DKIM-verified, OpenTimestamped, and committed to the event's`,
+          `git audit trail.`,
+          ``,
+          tail,
+          ``,
+          `Requester: ${event.initiator}`,
+        ].join('\n');
+      } else if (accepted) {
         subject = `[gitdone] Accepted — ${event.title} — ${stepName}${stepCounter}`;
         const tail = completion.completed_event
           ? `All steps are now complete; the event is marked completed. Thank you.`
@@ -765,13 +803,18 @@ async function main() {
           `Organiser: ${event.initiator}`,
         ].join('\n');
       } else if (reason === 'missing_attachment') {
-        subject = `[gitdone] Attachment required — ${event.title} — ${stepName}${stepCounter}`;
+        subject = isCrypto
+          ? `[gitdone] Attachment required — ${event.title}`
+          : `[gitdone] Attachment required — ${event.title} — ${stepName}${stepCounter}`;
+        const lede = isCrypto
+          ? `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`
+          : `Thanks — we received your reply for "${stepName}" on event "${event.title}".`;
         body = [
-          `Thanks — we received your reply for "${stepName}" on event "${event.title}".`,
+          lede,
           ``,
-          `This step requires an attachment, and we didn't find one on your reply.`,
-          `Your message is recorded in the event's audit trail, but the step will`,
-          `stay pending until a reply arrives with a file attached.`,
+          `${isCrypto ? 'This event' : 'This step'} requires an attachment, and we didn't find one on your reply.`,
+          `Your message is recorded in the event's audit trail, but ${isCrypto ? 'it will not count' : 'the step will\nstay pending'}`,
+          `until a reply arrives with a file attached.`,
           ``,
           `Please reply again to this address with the document attached:`,
           `  ${fromAddr}`,
@@ -779,37 +822,46 @@ async function main() {
           `If you believe this is a mistake, reach out to ${event.initiator}.`,
         ].join('\n');
       } else if (reason === 'event archived') {
-        subject = `[gitdone] Event archived — ${event.title}`;
+        subject = `[gitdone] ${isCrypto ? cryptoLabel + ' archived' : 'Event archived'} — ${event.title}`;
+        const lede = isCrypto
+          ? `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`
+          : `Thanks — we received your reply for "${stepName}" on event "${event.title}".`;
         body = [
-          `Thanks — we received your reply for "${stepName}" on event "${event.title}".`,
+          lede,
           ``,
-          `This event has been archived (either by the organiser, or automatically`,
+          `This ${isCrypto ? cryptoLabel : 'event'} has been archived (either by the organiser, or automatically`,
           `after a long period of inactivity past its deadline). Your reply was not`,
           `counted toward completion, but is still recorded in the event's audit`,
           `trail.`,
           ``,
           `If this is unexpected, reach out to ${event.initiator} — they can`,
-          `un-archive the event from their dashboard and your reply will become`,
+          `un-archive ${isCrypto ? 'it' : 'the event'} from their dashboard and your reply will become`,
           `valid on resend.`,
         ].join('\n');
       } else if (reason === 'event not activated') {
-        subject = `[gitdone] Event not yet activated — ${event.title}`;
+        subject = `[gitdone] ${isCrypto ? cryptoLabel + ' not yet activated' : 'Event not yet activated'} — ${event.title}`;
+        const lede = isCrypto
+          ? `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`
+          : `Thanks — we received your reply for "${stepName}" on event "${event.title}".`;
         body = [
-          `Thanks — we received your reply for "${stepName}" on event "${event.title}".`,
+          lede,
           ``,
-          `This event hasn't been activated by the organiser yet, so your reply`,
+          `This ${isCrypto ? cryptoLabel : 'event'} hasn't been activated by the ${isCrypto ? 'requester' : 'organiser'} yet, so your reply`,
           `was not counted. Your message is still recorded in the event's audit`,
-          `trail. Once the organiser activates the event, you'll get the normal`,
-          `invitation; please reply again then so the step can be marked complete.`,
+          `trail. Once ${isCrypto ? 'they' : 'the organiser'} activate${isCrypto ? '' : 's'} the event, you'll get the normal`,
+          `${isCrypto ? 'invitation; please reply again then so it can be marked complete.' : 'invitation; please reply again then so the step can be marked complete.'}`,
           ``,
           `If this is unexpected, reach out to ${event.initiator}.`,
         ].join('\n');
       } else {
-        subject = `[gitdone] Event closed — ${event.title}`;
+        subject = `[gitdone] ${isCrypto ? cryptoLabel + ' closed' : 'Event closed'} — ${event.title}`;
+        const lede = isCrypto
+          ? `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`
+          : `Thanks — we received your reply for "${stepName}" on event "${event.title}".`;
         body = [
-          `Thanks — we received your reply for "${stepName}" on event "${event.title}".`,
+          lede,
           ``,
-          `This event has already been closed, so your reply was not counted`,
+          `This ${isCrypto ? cryptoLabel : 'event'} has already been closed, so your reply was not counted`,
           `toward completion. Your message is still recorded in the event's`,
           `audit trail for posterity.`,
           ``,
