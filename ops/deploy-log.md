@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-06T19:49Z · `1376d3e` · CHANGELOG: knowless bump + npm audit cleanup notes
 - 2026-05-06T19:47Z · `f19a297` · Fold deploy-log entries from e12744b + 0d8611c
 - 2026-05-06T19:34Z · `e12744b` · Bump knowless 1.1.1 -> 1.1.3
 - 2026-05-06T19:30Z · `6c776c3` · Proof bundle download + verify-tool crypto support + README rewrite + attestation cap 50

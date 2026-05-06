@@ -236,3 +236,34 @@ The expanded runbook in `deployment.md §11` covers things the script
 deliberately doesn't automate (initial install, Node major upgrades,
 DKIM rotations, certificate renewal). Use it when you're touching the
 host itself, not just the application.
+
+## Periodic hygiene
+
+Quarterly (or whenever a security advisory fires), run from `app/`:
+
+```bash
+npm outdated
+npm audit
+npm view mailauth dependencies
+```
+
+### Active overrides — remove when upstream catches up
+
+`app/package.json` carries `overrides` to pin the following transitive
+deps of `mailauth` past advisories that mailauth itself hadn't fixed:
+
+| Override | Pinned to | Reason |
+|---|---|---|
+| `fast-xml-parser` | `^5.7.3` | entity-expansion bypass (CVE-2026-26278 incomplete fix), CDATA injection |
+| `nodemailer` | `^8.0.7` | SMTP CRLF injection in `envelope.size` and EHLO/HELO |
+| `undici` | `^7.23.0` | WebSocket length overflow, `upgrade` CRLF injection, deduplication-handler memory DoS |
+
+Watch for: a mailauth release whose `dependencies` (per `npm view
+mailauth dependencies`) list versions that meet or exceed all three
+pins above. When that lands, **delete the `overrides` block** in
+`app/package.json` and run `npm install && npm audit && npm test`. If
+audit stays clean, ship the cleanup as a one-line commit.
+
+Carrying overrides past the point where upstream has caught up risks
+behavior drift (we'd be running version combinations mailauth wasn't
+tested against). The pin is a temporary measure, not a permanent fork.
