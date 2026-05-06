@@ -15,6 +15,24 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Dependency hygiene — knowless 1.1.3, npm audit clean
+
+- **`knowless` bumped 1.1.1 → 1.1.3**. Two patch versions of the
+  in-house auth lib released between deploys; pulled forward to keep
+  app and lib aligned. No app-code changes required.
+- **`npm audit` cleaned to zero advisories** via `overrides` in
+  `app/package.json`. `mailauth 4.13.2` still ships old transitive
+  versions (`fast-xml-parser 5.4.2`, `nodemailer 8.0.1`, `undici
+  7.22.0`) flagged for entity-expansion bypass / SMTP CRLF injection
+  / WebSocket length overflow respectively. Pinned to fixed
+  versions: `fast-xml-parser ^5.7.3`, `nodemailer ^8.0.7`, `undici
+  ^7.23.0`. Side benefit: `nodemailer` deduped to one copy (8.0.7)
+  across `knowless`, `mailauth`, `mailparser`.
+- **Maintenance note:** revisit the overrides whenever `mailauth`
+  releases a version whose own transitives meet or exceed the pinned
+  versions; remove the overrides then to stay aligned with upstream.
+  Quarterly check: `npm view mailauth dependencies && npm outdated`.
+
 ### Proof bundle download + verify-tool covers crypto + README rewrite + attestation cap 50
 
 - **Proof bundle download.** Every event's manage page now has a
