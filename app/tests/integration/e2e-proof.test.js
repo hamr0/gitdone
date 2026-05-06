@@ -11,18 +11,18 @@
 // envelope shim used by every other integration test.
 //
 // Notes on trust:
-//   We pipe an UNSIGNED reply (no DKIM signature). That's why the event
-//   is created with min_trust_level: 'unverified' and the verifier is
-//   spawned with --min-trust unverified — the completion check needs
-//   to accept a trust-level=unverified reply. The verifier's archived-
-//   DKIM-keys check returns WARN (not PASS) under those conditions
-//   because no commit carries an archived key; overall stays non-fail
-//   (exit 0) because WARN is acceptable. If/when a DKIM-signed test
-//   fixture is wired up, switch min_trust to 'verified' and the
-//   archived-keys check will flip to PASS.
+//   We pipe a DKIM-SIGNED reply with a stub DNS resolver: signing key
+//   served from tests/fixtures/dkim/, DMARC record served from a
+//   per-test JSON file referenced by GITDONE_TEST_DNS_FILE. This
+//   produces DKIM pass + aligned + DMARC pass → trust='verified'.
+//   The event is created with min_trust_level: 'verified' and the
+//   verifier is spawned with --min-trust verified. Archived DKIM keys
+//   check is asserted PASS (an archived public PEM exists). Overall
+//   must be PASS — WARN is rejected.
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const http = require('node:http');
@@ -31,6 +31,11 @@ const path = require('node:path');
 const querystring = require('node:querystring');
 const { spawn, spawnSync } = require('node:child_process');
 const { mintSessionCookie, TEST_SECRET } = require('../helpers/mint-session');
+const { signDkim } = require('../helpers/dkim-sign');
+
+const DKIM_DOMAIN = 'test.example.com';
+const DKIM_SELECTOR = 'test1';
+const DKIM_PRIV_PATH = path.join(__dirname, '..', 'fixtures', 'dkim', `${DKIM_DOMAIN}.private.pem`);
 
 const RECEIVE = path.join(__dirname, '..', '..', 'bin', 'receive.js');
 const VERIFY = path.join(__dirname, '..', '..', '..', 'tools', 'gitdone-verify', 'gitdone-verify.js');
@@ -38,8 +43,26 @@ const VERIFY = path.join(__dirname, '..', '..', '..', 'tools', 'gitdone-verify',
 // Strip ANSI color escapes so verifier output can be regex-matched.
 const stripAnsi = (s) => s.replace(/\x1B\[[0-9;]*m/g, '');
 
-let tmp, server, port, captureDir, fakeSendmail;
+let tmp, server, port, captureDir, fakeSendmail, dnsStubPath;
 const mintCookie = (email) => mintSessionCookie({ email, dataDir: tmp });
+
+// Build the DNS-stub JSON file from the fixture private key. The DKIM
+// public key is derived from the private key on demand so we never
+// commit redundant material.
+function writeDnsStub(filePath, domain, selector) {
+  const priv = fs.readFileSync(DKIM_PRIV_PATH, 'utf8');
+  const pubB64 = crypto
+    .createPublicKey(crypto.createPrivateKey(priv))
+    .export({ type: 'spki', format: 'der' })
+    .toString('base64');
+  const map = {
+    [`${selector}._domainkey.${domain}`]: `v=DKIM1; k=rsa; p=${pubB64}`,
+    // p=none + relaxed alignment so DMARC passes as long as the From
+    // domain shares an organizational domain with the DKIM signer.
+    [`_dmarc.${domain}`]: 'v=DMARC1; p=none; adkim=r; aspf=r',
+  };
+  fs.writeFileSync(filePath, JSON.stringify(map));
+}
 
 function makeFakeSendmail(rootTmp) {
   const dir = path.join(rootTmp, 'captures');
@@ -115,6 +138,7 @@ function pipeReply(emlBuffer, envelopeArgs) {
       GITDONE_OTS_BIN: '/nonexistent/ots',
       GITDONE_LOG_FILE: '',
       GITDONE_LOG_STDOUT: 'true',
+      GITDONE_TEST_DNS_FILE: dnsStubPath,
     };
     const proc = spawn('node', [RECEIVE, ...envelopeArgs], { env });
     let stdout = '', stderr = '';
@@ -134,6 +158,8 @@ before(async () => {
   const sm = makeFakeSendmail(tmp);
   fakeSendmail = sm.fake;
   captureDir = sm.dir;
+  dnsStubPath = path.join(tmp, 'dns-stub.json');
+  writeDnsStub(dnsStubPath, DKIM_DOMAIN, DKIM_SELECTOR);
   process.env.GITDONE_DATA_DIR = tmp;
   process.env.GITDONE_SENDMAIL_BIN = fakeSendmail;
   process.env.GITDONE_PUBLIC_URL = 'http://localhost:3001';
@@ -174,15 +200,18 @@ after(async () => {
 
 test('end-to-end proof flow: create -> activate -> reply -> bundle -> offline verify', async (t) => {
   const initiator = 'owner@example.com';
-  const participant = 'doer@example.com';
+  // Participant must live under the DKIM signing domain so DKIM
+  // alignment + DMARC pass, yielding trust='verified'.
+  const participant = `doer@${DKIM_DOMAIN}`;
 
-  await t.test('POST /events creates an unverified-trust workflow event', async () => {
+  await t.test('POST /events creates a verified-trust workflow event', async () => {
     const r = await post('/events', {
       title: 'E2E proof',
       initiator,
-      // Test reply is unsigned, so the event has to accept unverified
-      // trust for completion. See the file header for context.
-      min_trust_level: 'unverified',
+      // Reply is DKIM-signed against test.example.com (stub DNS), so
+      // we tighten the gate to verified trust. The verifier likewise
+      // runs with --min-trust verified below.
+      min_trust_level: 'verified',
       step_name: 'Sign off',
       step_participant: participant,
       step_deadline: '',
@@ -223,17 +252,30 @@ test('end-to-end proof flow: create -> activate -> reply -> bundle -> offline ve
   });
 
   await t.test('participant reply via receive.js completes the event', async () => {
-    const eml = buildEml([
+    const unsigned = buildEml([
       `From: ${participant}`,
       `To: event+${eventId}-sign-off@git-done.com`,
       'Subject: done',
+      `Date: ${new Date().toUTCString()}`,
+      `Message-ID: <e2e-reply-${eventId}@${DKIM_DOMAIN}>`,
     ]);
+    const eml = await signDkim(unsigned, {
+      domain: DKIM_DOMAIN,
+      selector: DKIM_SELECTOR,
+      privateKeyPem: fs.readFileSync(DKIM_PRIV_PATH, 'utf8'),
+    });
     const r = await pipeReply(eml, [
-      '1.2.3.4', 'example.com', participant,
+      '1.2.3.4', DKIM_DOMAIN, participant,
       `event+${eventId}-sign-off@git-done.com`,
     ]);
     assert.equal(r.code, 0, r.stderr);
     const out = JSON.parse(r.stdout.trim());
+    // Sanity: the receive log records trust='verified' before the
+    // completion engine consumes it. If this flips, the verifier
+    // assertions below will also fail — but failing here points
+    // straight at the DKIM/DMARC pipeline instead.
+    assert.equal(out.trust_level, 'verified',
+      `expected verified trust, got ${out.trust_level}: ${JSON.stringify(out.dkim)} ${JSON.stringify(out.dmarc)}`);
     assert.equal(out.completion.applied, true, JSON.stringify(out.completion));
     assert.equal(out.completion.completed_event, true);
   });
@@ -293,7 +335,7 @@ test('end-to-end proof flow: create -> activate -> reply -> bundle -> offline ve
   await t.test('offline verifier accepts the per-event repo (--no-ots)', async () => {
     const repo = path.join(tmp, 'repos', eventId);
     const r = await new Promise((resolve, reject) => {
-      const proc = spawn('node', [VERIFY, repo, '--no-ots', '--min-trust', 'unverified'], {
+      const proc = spawn('node', [VERIFY, repo, '--no-ots', '--min-trust', 'verified'], {
         env: { ...process.env },
       });
       let stdout = '', stderr = '';
@@ -306,18 +348,14 @@ test('end-to-end proof flow: create -> activate -> reply -> bundle -> offline ve
     // Exit 0 is the load-bearing signal: the verifier exits non-zero
     // only on hard failures.
     assert.equal(r.code, 0, `verifier failed:\n${clean}\n${r.stderr}`);
-    // Each named check must show PASS.
+    // Every named check must show PASS — DKIM-signed reply means there
+    // is no acceptable fallback to WARN here.
     assert.match(clean, /Structure\s+PASS/, clean);
     assert.match(clean, /Git integrity\s+PASS/, clean);
     assert.match(clean, /Schema \(v2\)\s+PASS/, clean);
     assert.match(clean, /Event completion\s+PASS/, clean);
-    // Archived DKIM keys is WARN under unsigned mail (no archived
-    // PEM to validate). When a DKIM-signed fixture lands, this and
-    // the assertions above can flip to PASS overall.
-    assert.match(clean, /Archived DKIM keys\s+(PASS|WARN)/, clean);
-    // Overall is PASS when all checks pass; WARN is the accepted
-    // fallback for unsigned-only repos. FAIL is forbidden.
-    assert.match(clean, /Overall: (PASS|WARN)/, clean);
-    assert.doesNotMatch(clean, /Overall: FAIL/, clean);
+    assert.match(clean, /Archived DKIM keys\s+PASS/, clean);
+    assert.match(clean, /Overall: PASS/, clean);
+    assert.doesNotMatch(clean, /Overall: (WARN|FAIL)/, clean);
   });
 });

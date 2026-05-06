@@ -2820,6 +2820,22 @@ async function handle(req, res) {
 
 if (require.main === module) {
   const server = http.createServer(handle);
+  // Attach the error listener BEFORE listen() so we catch synchronous
+  // EADDRINUSE — otherwise the throw from listen() would land on the
+  // process default handler and exit with a Node stack trace that
+  // buries the actionable bit (which port, what to kill).
+  server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      process.stderr.write(
+        `port ${LISTEN_PORT} is already in use — another gitdone-web is running. ` +
+        `find it with: lsof -ti:${LISTEN_PORT}  or  ps aux | grep 'node bin/server.js'. ` +
+        `kill it, then retry.\n`
+      );
+      process.exit(1);
+    }
+    process.stderr.write(`gitdone-web failed: ${err && err.stack || err}\n`);
+    process.exit(1);
+  });
   server.listen(LISTEN_PORT, LISTEN_HOST, () => {
     process.stdout.write(JSON.stringify({
       kind: 'web_started',

@@ -41,6 +41,29 @@ function readStdin() {
   });
 }
 
+// Test-only DNS stub. When GITDONE_TEST_DNS_FILE points at a JSON map
+// of `{ "name": "TXT-record-string", ... }`, use that as the resolver
+// for both mailauth's authenticate() and the DKIM key archiver. Lets
+// integration tests produce DKIM-aligned + DMARC-passing replies
+// without touching the network or wiring up a fake DNS server.
+//
+// In production GITDONE_TEST_DNS_FILE is unset and this returns null,
+// so authenticate() and fetchDkimKey() use the real DNS resolver.
+function loadTestDnsResolver() {
+  const f = process.env.GITDONE_TEST_DNS_FILE;
+  if (!f) return null;
+  try {
+    // Lazy-require so tests/helpers/ never gets loaded in production.
+    const { buildStubResolver } = require(require('node:path').resolve(
+      __dirname, '..', 'tests', 'helpers', 'stub-dns.js'
+    ));
+    return buildStubResolver(f);
+  } catch (err) {
+    process.stderr.write(`receive: failed to load test DNS stub from ${f}: ${err.message}\n`);
+    return null;
+  }
+}
+
 function sha256(buf) {
   return 'sha256:' + crypto.createHash('sha256').update(buf).digest('hex');
 }
@@ -111,6 +134,8 @@ async function main() {
 
   const envelope = parseEnvelope(process.argv);
 
+  const testDnsResolver = loadTestDnsResolver();
+
   const [auth, parsed] = await Promise.all([
     authenticate(raw, {
       trustReceived: false,
@@ -118,6 +143,7 @@ async function main() {
       helo: envelope.clientHelo || undefined,
       mta: config.mtaHostname,
       sender: envelope.sender || undefined,
+      resolver: testDnsResolver || undefined,
     }),
     simpleParser(raw),
   ]);
@@ -696,7 +722,11 @@ async function main() {
   let dkimArchive = null;
   const sigToArchive = pickSignatureToArchive(auth);
   if (sigToArchive && sigToArchive.signingDomain && sigToArchive.selector) {
-    dkimArchive = await fetchDkimKey(sigToArchive.signingDomain, sigToArchive.selector);
+    dkimArchive = await fetchDkimKey(
+      sigToArchive.signingDomain,
+      sigToArchive.selector,
+      testDnsResolver ? { resolver: testDnsResolver } : {}
+    );
   }
 
   // 1.C: write per-event git commit for accepted replies that resolved to

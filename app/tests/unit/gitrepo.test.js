@@ -324,3 +324,47 @@ test('syncEventJson: rejects bad event ids (path-traversal guard)', async () => 
     /invalid eventId/
   );
 });
+
+// Byte-strict no-diff invariant. The no-change check inside syncEventJson
+// uses `git status` against the working-tree file — that's BYTE strict.
+// JSON.stringify is order-stable in JS (V8 preserves insertion order),
+// so two events with the same keys in the same order serialize to the
+// same bytes. But keys inserted in a DIFFERENT order serialize to
+// different bytes — and we WANT that to produce a commit so a future
+// refactor that reorders keys (or changes indent) does not silently
+// pollute the ledger. The test below pins both directions:
+//   - identical bytes → no_change (already covered above)
+//   - reordered keys  → bytes differ → commit fires
+// If either direction regresses, the proof ledger drifts. The fix is
+// either (a) put back stable serialization or (b) replace the
+// byte-strict check with a content-strict one.
+test('syncEventJson: byte-strict — reordered keys serialize differently and commit', async () => {
+  const { initRepoIfNeeded, syncEventJson, repoPath } = require('../../src/gitrepo');
+  const simpleGit = require('simple-git');
+  // Build two objects with the same content but different insertion order.
+  const eventAB = { id: 'syncOrder', title: 'Order Test', steps: [] };
+  const eventBA = { title: 'Order Test', id: 'syncOrder', steps: [] };
+  await initRepoIfNeeded('syncOrder', eventAB);
+  const before = (await simpleGit(repoPath('syncOrder')).log()).total;
+
+  // Sanity: the two objects ARE byte-different when serialized.
+  const sA = JSON.stringify(eventAB, null, 2) + '\n';
+  const sB = JSON.stringify(eventBA, null, 2) + '\n';
+  assert.notEqual(sA, sB,
+    'V8 stopped preserving insertion order — invariant assumption violated');
+
+  // Re-syncing with identical bytes is a no-op.
+  const same = await syncEventJson('syncOrder', eventAB, 'identical');
+  assert.equal(same.synced, false);
+  assert.equal(same.reason, 'no_change');
+
+  // Re-syncing with reordered keys produces a commit. This is the
+  // load-bearing assertion: it pins the byte-strict behaviour so a
+  // future change that switches to content-equal comparison must
+  // either preserve this invariant explicitly or update this test.
+  const reordered = await syncEventJson('syncOrder', eventBA, 'reordered keys');
+  assert.equal(reordered.synced, true,
+    'reordered keys should produce a new commit under byte-strict check');
+  const after = (await simpleGit(repoPath('syncOrder')).log()).total;
+  assert.equal(after, before + 1, 'exactly one new commit for the reorder');
+});

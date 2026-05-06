@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-06T20:46Z · `5f54827` · Tests + frozen design ref for the QA-fix render changes
 - 2026-05-06T20:09Z · `1b2df94` · Sync repo event.json on every state transition (offline-verifier fix)
 - 2026-05-06T19:51Z · `8f1e1ac` · deploy.md: periodic hygiene + active-overrides table
 - 2026-05-06T19:49Z · `1376d3e` · CHANGELOG: knowless bump + npm audit cleanup notes

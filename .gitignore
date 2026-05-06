@@ -56,6 +56,11 @@ Thumbs.db
 *._domainkey*
 **/default.txt
 **/default.private
+# EXCEPTION: test-only DKIM keypair fixture used by the e2e proof
+# test. The private key here is bound to test.example.com (a domain
+# we don't operate) and is NEVER served from prod DNS, so it has no
+# operational value to an attacker.
+!app/tests/fixtures/dkim/*.private.pem
 
 # Dev mode artifacts (not shipped)
 /data-dev/

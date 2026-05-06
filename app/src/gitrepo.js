@@ -502,6 +502,16 @@ async function syncEventJson(eventId, event, message) {
   if (!await dirExists(gitDir)) return { synced: false, reason: 'no_repo' };
 
   const file = path.join(root, 'event.json');
+  // INVARIANT: every writer of event.json (this function and
+  // initRepoIfNeeded) MUST use `JSON.stringify(event, null, 2) + '\n'`.
+  // The no-diff check below is BYTE-STRICT — git status only reports
+  // `event.json` as staged when its bytes differ from HEAD. Any drift
+  // in serialization (different indent, key order, missing trailing
+  // newline) would generate spurious commits that bloat the ledger
+  // without semantic change. Stable serialization is enforced by
+  // convention; the unit test in tests/unit/gitrepo.test.js asserts
+  // that an identical event re-synced is a no-op AND that a key-order
+  // re-shuffle DOES produce a commit (proving the byte-strict pin).
   await fs.writeFile(file, JSON.stringify(event, null, 2) + '\n');
   const git = simpleGit(root);
   await git.add('event.json');

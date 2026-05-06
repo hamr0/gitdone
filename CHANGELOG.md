@@ -15,6 +15,43 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### QA deferred items — DKIM fixture, overrides smoke test, byte-strict pin, EADDRINUSE guard
+
+Closing out the four deferred items from the QA review:
+
+- **DKIM-signed test fixture.** New helper
+  `app/tests/helpers/dkim-sign.js` produces a relaxed/relaxed
+  rsa-sha256 DKIM-Signature for a raw `.eml`. New
+  `app/tests/helpers/stub-dns.js` + a test-only seam in
+  `bin/receive.js` (gated on `GITDONE_TEST_DNS_FILE`) stub
+  `mailauth`'s authenticator and the DKIM-archive resolver so tests
+  can produce `trust_level: 'verified'` replies without touching
+  the network. Test-only RSA keypair under
+  `app/tests/fixtures/dkim/` (gitignore exception added with a
+  warning comment so a real prod key never lands there).
+- **e2e test now strict.** `app/tests/integration/e2e-proof.test.js`
+  builds a DKIM-signed reply, asserts `trust_level === 'verified'`,
+  creates the event with `min_trust_level: 'verified'`, and runs
+  `gitdone-verify --min-trust verified`. `Archived DKIM keys` line
+  is now `PASS`, `Overall: PASS`.
+- **npm overrides smoke test.**
+  `app/tests/unit/dep-overrides.test.js` reads
+  `require('fast-xml-parser/package.json').version` (and the other
+  two pinned deps) and fails LOUDLY if any falls below the security
+  floor. Catches the case where someone removes the overrides
+  block before mailauth catches up.
+- **`syncEventJson` byte-strict invariant pinned.** Comment in
+  `app/src/gitrepo.js` documents the contract (every writer goes
+  through `JSON.stringify(event, null, 2) + '\n'`) plus a unit test
+  in `gitrepo.test.js` proves the no-diff detection skips
+  byte-identical writes and commits otherwise.
+- **EADDRINUSE guard on dev server.** `bin/server.js` now installs
+  an `'error'` listener before `.listen()`. On `EADDRINUSE` it
+  prints a clear "another gitdone-web is on this port — find it
+  with `lsof -ti:<port>`" and exits 1, instead of failing silently.
+
+506 tests pass (371 unit + 97 integration + 38 verify-tool).
+
 ### Attachment fingerprints surfaced + status legend on /manage hub
 
 The dashboard already recorded `attachments[].sha256` per commit
