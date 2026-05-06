@@ -1105,9 +1105,13 @@ function renderCheckYourInboxPage({ event, kind }) {
               : 'make the reply address live')}.</li>
       </ol>
       ${stepsBlock}
-      <p style="margin-top:1.2rem;color:#8b949e;font-size:0.88em">
-        If you don't sign in within 72 hours, the ${noun} is deleted automatically — no record kept.
-      </p>
+      ${(() => {
+        const expiresAtMs = new Date(event.created_at).getTime() + 72 * 3600 * 1000;
+        const expiresLabel = new Date(expiresAtMs).toISOString().slice(0, 16).replace('T', ' ') + 'Z';
+        return html`<p style="margin-top:1.2rem;color:#8b949e;font-size:0.88em">
+          If you don't sign in by <strong>${expiresLabel}</strong> (72h from creation), the ${noun} is auto-deleted — no record kept.
+        </p>`;
+      })()}
       <p style="margin-top:1rem"><a href="/">← home</a> &middot; <a href="/manage">your events</a></p>
     </div>
   `;
@@ -1750,9 +1754,15 @@ router.get('/manage/event/:id', async (req, res, params) => {
       }
     }
   }
+  // Page title differentiates by type so the browser tab + the
+  // page-header line (auto-derived from title) read clearly when the
+  // organiser has multiple events open.
+  const kindWord = event.type === 'event'
+    ? 'event'
+    : (event.mode === 'declaration' ? 'declaration' : 'attestation');
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
-    title: `manage — ${event.title}`,
+    title: `manage ${kindWord} — ${event.title}`,
     body: renderManagementDashboard({ eventId: params.id, initiatorEmail: event.initiator, event, flash, stepAttempts }),
   }));
 });
@@ -2272,9 +2282,11 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
     bodyMiddle = html`
       <h2>Declaration</h2>
       <div class="mg-section">
-        <p class="mg-meta">Signer: <code>${event.signer}</code></p>
-        <p class="mg-meta">Reply address: <code>event+${event.id}@${config.domain}</code></p>
-        <p class="mg-meta">Status: ${complete ? html`signed on <code>${event.completion.completed_at}</code>` : html`awaiting signature`}</p>
+        <p class="mg-meta">Signer: <code>${event.signer}</code>${pendingActivation ? raw(' — <em style="color:#8b949e;font-style:normal">will be invited on Activate</em>') : raw('')}</p>
+        <p class="mg-meta">Reply address${pendingActivation ? raw(' <em style="color:#8b949e;font-style:normal">(goes live on Activate)</em>') : raw('')}: <code>event+${event.id}@${config.domain}</code></p>
+        ${pendingActivation
+          ? raw('')
+          : html`<p class="mg-meta">Status: ${complete ? html`signed on <code>${event.completion.completed_at}</code>` : html`awaiting signature`}</p>`}
       </div>
     `;
   } else {
@@ -2282,9 +2294,11 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
     bodyMiddle = html`
       <h2>Attestation</h2>
       <div class="mg-section">
-        <p class="mg-meta">Reply address: <code>event+${event.id}@${config.domain}</code></p>
+        <p class="mg-meta">Reply address${pendingActivation ? raw(' <em style="color:#8b949e;font-style:normal">(goes live on Activate)</em>') : raw('')}: <code>event+${event.id}@${config.domain}</code></p>
         <p class="mg-meta">Threshold: <strong>${String(event.threshold)}</strong> · Dedup: <code>${event.dedup}</code> · Anonymous: ${event.allow_anonymous ? 'allowed' : 'not allowed'}</p>
-        <p class="mg-meta">Replies received: <strong>${String(counted)}</strong>${complete ? html` · completed <code>${event.completion.completed_at}</code>` : raw('')}</p>
+        ${pendingActivation
+          ? raw('')
+          : html`<p class="mg-meta">Replies received: <strong>${String(counted)}</strong>${complete ? html` · completed <code>${event.completion.completed_at}</code>` : raw('')}</p>`}
       </div>
     `;
   }
@@ -2294,13 +2308,20 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
     <p style="margin:0 0 0.5rem"><a href="/manage" style="color:#8b949e;font-size:0.88em">← back</a></p>
     <p class="mg-meta">Signed in as <code>${initiatorEmail}</code> · Event <code>${event.id}</code> · ${pill}</p>
     ${flash ? html`<div class="mg-flash">${flash}</div>` : raw('')}
-    ${pendingActivation ? html`<div class="mg-pending-activation">
-        <span class="title">Pending activation</span>
-        Participants haven't been invited yet. Review the details below, then click <strong>Activate</strong>
-        to send invitations${event.type === 'crypto' && event.mode === 'attestation' ? raw(' and make the reply address live') : raw('')}.
-        Nothing leaves the server until you do. To delete this event without sending anything,
-        click <strong>Close event</strong>; or just ignore — it lapses on its own at 72h.
-      </div>` : raw('')}
+    ${pendingActivation ? (() => {
+        // Auto-delete window: 72h from creation. Show the absolute
+        // timestamp so the organiser knows exactly when it lapses, not
+        // just "in 72h".
+        const expiresAtMs = new Date(event.created_at).getTime() + 72 * 3600 * 1000;
+        const expiresLabel = new Date(expiresAtMs).toISOString().slice(0, 16).replace('T', ' ') + 'Z';
+        return html`<div class="mg-pending-activation">
+          <span class="title">Pending activation</span>
+          Participants haven't been invited yet. Review the details below, then click <strong>Activate</strong>
+          to send invitations${event.type === 'crypto' && event.mode === 'attestation' ? raw(' and make the reply address live') : raw('')}.
+          Nothing leaves the server until you do. To delete this event without sending anything,
+          click <strong>Close event</strong>; or just ignore — <strong>auto-deleted ${expiresLabel}</strong> if not activated.
+        </div>`;
+      })() : raw('')}
     ${archived ? html`<div class="mg-archived-banner">
         <strong>Archived${event.archive_reason === 'auto_stale' ? ' automatically' : ''} on <code>${String(event.archived_at).slice(0,10)}</code></strong>
         Replies to the reply addresses still land in the audit trail but don't count toward completion.
