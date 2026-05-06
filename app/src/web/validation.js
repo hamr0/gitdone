@@ -289,8 +289,11 @@ const VALID_DEDUP_RULES = ['unique', 'latest', 'accumulating'];
 const MAX_THRESHOLD = 10000;
 
 // Crypto event validator — PRD §4.2. Branches on mode:
-//   declaration: { title, initiator, signer }
-//   attestation: { title, initiator, threshold, dedup, allow_anonymous }
+//   declaration: { title, initiator, signer, min_trust_level }
+//   attestation: { title, initiator, threshold, dedup }
+// Note: attestation has no min_trust_level or allow_anonymous knob —
+// trust policy is derived from the dedup rule (unique/latest require
+// DKIM-verified; accumulating counts both verified and unverified).
 // Returns { ok, value?, errors? } in the same shape as validateWorkflowEvent.
 function validateCryptoEvent(form) {
   const errors = [];
@@ -307,7 +310,11 @@ function validateCryptoEvent(form) {
   const initiator = validateEmail(form.initiator);
   if (!initiator.ok) errors.push(`initiator: ${initiator.reason}`);
 
-  const trust = validateTrustLevel(form.min_trust_level, 'verified');
+  // min_trust_level still applies to declaration; attestation derives
+  // trust from dedup rule (see shouldCountAttestation).
+  const trust = mode === 'declaration'
+    ? validateTrustLevel(form.min_trust_level, 'verified')
+    : { ok: true, value: null };
   if (!trust.ok) errors.push(trust.reason);
 
   if (mode === 'declaration') {
@@ -346,9 +353,6 @@ function validateCryptoEvent(form) {
   if (!VALID_DEDUP_RULES.includes(dedup)) {
     errors.push(`dedup must be one of ${VALID_DEDUP_RULES.join(', ')}`);
   }
-  const allowAnonymous = form.allow_anonymous === 'on'
-    || form.allow_anonymous === 'true'
-    || form.allow_anonymous === true;
 
   if (errors.length) return { ok: false, errors };
   return {
@@ -358,10 +362,8 @@ function validateCryptoEvent(form) {
       mode: 'attestation',
       title: title.value,
       initiator: initiator.value,
-      min_trust_level: trust.value,
       threshold,
       dedup,
-      allow_anonymous: allowAnonymous,
       replies: [],
     },
   };

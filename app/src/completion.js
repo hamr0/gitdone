@@ -19,14 +19,23 @@
 //       matches event.signer (same sender_hash — salt is per-event so this
 //       comparison is safe)
 //     - event completes on the first counting reply
-//   attestation (crypto)
-//     - reply counts iff trust_level ≥ min_trust_level OR event.allow_anonymous
-//     - appended to replies[]; dedup applied on count:
-//         unique        — distinct sender_hash
-//         latest        — distinct sender_hash (count same as unique, but
-//                         replies[] keeps only the latest per sender)
-//         accumulating  — every reply counts
-//     - event completes when counted ≥ threshold
+//   attestation (crypto) — trust policy is dedup-derived; the initiator
+//     is never counted (self-replies stay in the audit trail as proof
+//     they tried, but don't push the threshold)
+//         unique        — DKIM-verified required (trust_level === 'verified');
+//                         reject sender == initiator. Locks at threshold.
+//         latest        — DKIM-verified required; reject sender == initiator.
+//                         Locks at threshold.
+//         accumulating  — no trust gate (counts both DKIM-verified and
+//                         unverified); reject sender == initiator. Past
+//                         threshold, count keeps growing — completion is
+//                         only set on explicit close. Crossing threshold
+//                         stamps event.threshold_reached_at /
+//                         event.threshold_reached_count as the proof anchor.
+//     - replies[] dedup:
+//         unique        — keep all replies (audit trail), count distinct senders
+//         latest        — keep one reply per sender (most recent), count = senders
+//         accumulating  — keep all replies, count = replies.length
 //
 // Commits that don't count are still written to the per-event git repo
 // by commitReply (accept-with-flag per §7.4.x); they just don't change
@@ -68,6 +77,16 @@ function hashSender(sender, salt) {
 function senderMatchesSigner(commit, event) {
   if (!event.signer || !event.salt) return false;
   const expected = hashSender(event.signer, event.salt);
+  return expected != null && expected === commit.sender_hash;
+}
+
+// Same compare against event.initiator. Used by attestation to drop
+// initiator self-replies from the count (they still commit to the
+// audit trail). Same spirit as declaration's create-time signer ≠
+// initiator check.
+function senderIsInitiator(commit, event) {
+  if (!event.initiator || !event.salt) return false;
+  const expected = hashSender(event.initiator, event.salt);
   return expected != null && expected === commit.sender_hash;
 }
 
@@ -132,15 +151,35 @@ function shouldCountDeclaration(event, commit) {
 }
 
 function shouldCountAttestation(event, commit) {
-  // Attestation events stay open past completion (audit trail continues),
-  // but counting-for-completion stops. Keep committing; stop counting.
+  // Attestation events stay open past completion (audit trail continues).
+  // Trust policy is derived from the dedup rule:
+  //   unique / latest → DKIM-verified required
+  //   accumulating    → no trust gate
+  // Initiator self-replies never count (still committed). For unique +
+  // latest, completion is sticky (locks at threshold). For accumulating,
+  // there is no "complete" gate from threshold — explicit close only.
   if (!event.activated_at) return { count: false, reason: 'event not activated' };
   if (event.archived_at) return { count: false, reason: 'event archived' };
-  if (isComplete(event)) return { count: false, reason: 'event already complete' };
-  const trustOk = meetsTrust(commit, event);
-  if (!trustOk && !event.allow_anonymous) {
-    return { count: false, reason: 'trust below min_trust_level (anonymous not allowed)' };
+  const dedup = event.dedup || 'unique';
+  // Only unique/latest lock at threshold. Accumulating keeps counting
+  // forever (completion comes from explicit close, not threshold).
+  if (dedup !== 'accumulating' && isComplete(event)) {
+    return { count: false, reason: 'event already complete' };
   }
+  // Even accumulating respects organiser-initiated close.
+  if (dedup === 'accumulating' && isComplete(event)) {
+    return { count: false, reason: 'event already complete' };
+  }
+  if (senderIsInitiator(commit, event)) {
+    return { count: false, reason: 'sender is the event initiator (self-reply)' };
+  }
+  if (dedup !== 'accumulating') {
+    // unique/latest: require DKIM-verified
+    if (commit.trust_level !== 'verified') {
+      return { count: false, reason: `${dedup} dedup requires DKIM-verified reply` };
+    }
+  }
+  // accumulating: no trust gate (both DKIM-verified and unverified count)
   return { count: true };
 }
 
@@ -218,16 +257,49 @@ function applyReply(event, commit, { now = new Date().toISOString() } = {}) {
       trust_level: commit.trust_level,
     };
     const all = [...(event.replies || []), newReply];
-    const { replies, count } = applyDedup(all, event.dedup || 'unique');
-    const done = count >= (event.threshold || 0);
+    const dedup = event.dedup || 'unique';
+    const { replies, count } = applyDedup(all, dedup);
+    const threshold = event.threshold || 0;
+    const reachedThreshold = count >= threshold;
+
+    if (dedup === 'accumulating') {
+      // Stamp threshold_reached_at on the first crossing only. Past
+      // threshold, replies[] keeps extending and count keeps growing,
+      // but completion stays open (organiser closes explicitly).
+      const firstCrossing = reachedThreshold && !event.threshold_reached_at;
+      const updated = {
+        ...event,
+        replies,
+        completion: event.completion || { status: 'open', completed_at: null, commit_sequence: null },
+      };
+      if (firstCrossing) {
+        updated.threshold_reached_at = now;
+        updated.threshold_reached_count = count;
+        updated.threshold_reached_sequence = commit.sequence;
+      }
+      return {
+        event: updated,
+        applied: true,
+        decision,
+        countedReplies: count,
+        // For accumulating, "completedEvent" signals threshold-was-just-crossed
+        // (first time). Callers use this for ack subjects/bodies. The
+        // event itself is NOT marked complete.
+        completedEvent: firstCrossing,
+        thresholdReached: reachedThreshold,
+        thresholdJustCrossed: firstCrossing,
+      };
+    }
+
+    // unique / latest: lock at threshold (current behaviour)
     const updated = {
       ...event,
       replies,
-      completion: done
+      completion: reachedThreshold
         ? { status: 'complete', completed_at: now, commit_sequence: commit.sequence, reached_threshold_at: count }
         : (event.completion || { status: 'open', completed_at: null, commit_sequence: null }),
     };
-    return { event: updated, applied: true, decision, countedReplies: count, completedEvent: done };
+    return { event: updated, applied: true, decision, countedReplies: count, completedEvent: reachedThreshold };
   }
 
   return { event, applied: false, decision: { count: false, reason: 'unreachable' } };
@@ -261,6 +333,7 @@ module.exports = {
   meetsTrust,
   hashSender,
   senderMatchesSigner,
+  senderIsInitiator,
   updateEventAtomic,
   TRUST_ORDER,
 };

@@ -15,6 +15,38 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Attestation overhaul — dedup-derived trust, accumulating keeps counting, click-to-copy
+
+Attestation simplified to match its actual purpose ("share the
+address, anyone can sign, count to threshold").
+
+- **`allow_anonymous` checkbox dropped from the form.** Trust policy
+  is now derived from the dedup rule:
+  - `unique` and `latest` require DKIM-verified replies.
+  - `accumulating` counts both DKIM-verified and unverified; the
+    proof archive marks each.
+- **`min_trust_level` knob dropped from the attestation form**
+  (workflow + declaration unchanged — they still expose it).
+- **Send-reminders button removed from attestation dashboards.**
+  Email-path `remind+<id>@` now replies with the reply address and a
+  "share it however you like" prompt instead of fake-success.
+- **Initiator self-replies don't count.** Replies whose verified
+  DKIM sender matches the event initiator still commit to the audit
+  trail but never push the threshold. Same spirit as declaration's
+  create-time `signer ≠ initiator` check.
+- **Accumulating events keep counting past threshold.** Crossing
+  threshold stamps `event.threshold_reached_at` /
+  `threshold_reached_count` / `threshold_reached_sequence` (the
+  proof anchor); replies past that point still extend `replies[]`
+  and the dashboard counter keeps growing. The event closes only on
+  explicit `close+<id>@` or the dashboard button. Unique + latest
+  retain the lock-at-threshold behaviour.
+- **Click-to-copy on every email/address token across manage
+  pages** — reply addresses, command addresses (`stats+`, `remind+`,
+  `close+`), participant/signer/initiator emails. Click → clipboard,
+  brief inline "copied" toast.
+- **PRD §4.2.2 dedup table updated** to encode the trust policy.
+
 ### Pending events accessible to the signed-in initiator + crypto signer MX parity
 
 Two related fixes to the activation flow.

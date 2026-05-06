@@ -150,6 +150,12 @@ th { color: #8b949e; font-weight: 500; text-transform: uppercase; font-size: 0.7
 .page-header.home .name { font-size: 1em; font-weight: 700; color: #c9d1d9; letter-spacing: -0.01em; }
 .page-header.home .tagline { font-size: 0.95em; }
 ::selection { background: rgba(63,185,80,.28); color: #c9d1d9; }
+.copyable { cursor: pointer; position: relative; }
+.copyable:hover { background: #1f2630; }
+.copyable.copied::after { content: 'copied'; position: absolute; left: 100%; top: 50%;
+  transform: translateY(-50%); margin-left: 0.4rem; padding: 0.1em 0.4em;
+  background: #3fb950; color: #0d1117; font-size: 0.72em; letter-spacing: 0.06em;
+  border-radius: 0; pointer-events: none; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -161,6 +167,29 @@ ${(body && body[RAW_MARK]) ? body.html : escapeHTML(body || '')}
 ${dev ? ' &middot; <strong style="color:#ffb000">DEV MODE</strong>' : ''}
 </div>
 ${dev && devHUD ? devHUD : ''}
+<script>
+(function(){
+  function copyText(el){
+    var t = (el.textContent || '').trim();
+    if (!t) return;
+    function flash(){ el.classList.add('copied'); setTimeout(function(){ el.classList.remove('copied'); }, 1000); }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(t).then(flash, function(){});
+    } else {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+        document.body.removeChild(ta); flash();
+      } catch(e) {}
+    }
+  }
+  document.addEventListener('click', function(e){
+    var c = e.target.closest && e.target.closest('.copyable');
+    if (c) copyText(c);
+  });
+})();
+</script>
 </body>
 </html>
 `;

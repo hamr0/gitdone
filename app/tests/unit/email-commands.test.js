@@ -99,15 +99,16 @@ test('cryptoStatsBody declaration: names signer', () => {
 test('cryptoStatsBody attestation: threshold + dedup + reply count', () => {
   const body = cryptoStatsBody({
     id: 'eva', type: 'crypto', mode: 'attestation',
-    title: 'Vouchers', threshold: 10, dedup: 'unique', allow_anonymous: true,
-    min_trust_level: 'verified',
+    title: 'Vouchers', threshold: 10, dedup: 'unique',
     replies: [{ sender_hash: 'a' }, { sender_hash: 'b' }, { sender_hash: 'a' }],
   });
   assert.match(body, /Type: attestation/);
   assert.match(body, /Threshold: 10/);
   assert.match(body, /Dedup: unique/);
-  assert.match(body, /Anonymous: allowed/);
-  assert.match(body, /Replies received: 3/);
+  // allow_anonymous is gone from attestation — trust is dedup-derived
+  assert.doesNotMatch(body, /Anonymous/);
+  // unique dedup: 3 replies, 2 distinct senders
+  assert.match(body, /Replies received: 2/);
 });
 
 test('statsBody: dispatches based on event.type', () => {

@@ -262,13 +262,19 @@ Multiple DKIM-verified emails from distinct signers. Count-based completion.
 
 **Completion rule:** N distinct senders have replied (where N is the configured threshold).
 
-**Dedup rule (optional):** how to handle multiple emails from the same sender.
+**Dedup rule (required):** how to handle multiple emails from the same
+sender. The dedup rule also encodes the trust policy — there is no
+separate `allow_anonymous` knob.
 
-| Dedup rule | Behavior | Best for |
-|---|---|---|
-| **unique** (default) | One email per sender. Duplicates ignored. | Vouching, petitions, peer review quorum |
-| **latest** | Same sender can submit multiple times. Only the most recent counts. | Revisable reviews, status updates, revocable consent |
-| **accumulating** | Every email from same sender counts separately. | Supply chain checkpoints, multi-stage attestations, progress logs |
+| Dedup rule | Behavior | Trust policy | Best for |
+|---|---|---|---|
+| **unique** (default) | One reply per sender. Duplicates ignored. | DKIM-verified required. | Vouching, petitions, peer review quorum |
+| **latest** | Same sender can submit multiple times. Only the most recent counts. | DKIM-verified required. | Revisable reviews, status updates, revocable consent |
+| **accumulating** | Every email counts. Past threshold, count keeps growing. | None. Both DKIM-verified and unverified count; the proof archive marks each. | Supply chain checkpoints, multi-stage attestations, progress logs |
+
+Replies whose sender matches the event initiator never count toward
+the threshold (they still commit to the audit trail). Same spirit as
+declaration's create-time signer ≠ initiator check.
 
 **Example schema:**
 ```json
@@ -280,7 +286,6 @@ Multiple DKIM-verified emails from distinct signers. Count-based completion.
   "initiator": "hamr@example.com",
   "threshold": 10,
   "dedup": "unique",
-  "allow_anonymous": true,
   "replies": []
 }
 ```

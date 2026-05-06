@@ -102,7 +102,8 @@ test('GET /crypto/new renders the crypto form', async () => {
   assert.match(r.body, /name="signer"/);
   assert.match(r.body, /name="threshold"/);
   assert.match(r.body, /name="dedup"/);
-  assert.match(r.body, /name="allow_anonymous"/);
+  // allow_anonymous and min_trust_level dropped from attestation form
+  assert.doesNotMatch(r.body, /name="allow_anonymous"/);
 });
 
 test('POST /crypto declaration mode creates an event with signer', async () => {
@@ -133,7 +134,6 @@ test('POST /crypto attestation mode creates event with threshold + dedup', async
     initiator: 'chair@example.com',
     threshold: '7',
     dedup: 'latest',
-    allow_anonymous: 'on',
   });
   assert.equal(r.status, 200);
   assert.match(r.body, /Check chair@example\.com/);
@@ -143,7 +143,10 @@ test('POST /crypto attestation mode creates event with threshold + dedup', async
   assert.equal(ev.mode, 'attestation');
   assert.equal(ev.threshold, 7);
   assert.equal(ev.dedup, 'latest');
-  assert.equal(ev.allow_anonymous, true);
+  // allow_anonymous and min_trust_level no longer apply to attestation —
+  // trust policy is dedup-derived.
+  assert.equal(ev.allow_anonymous, undefined);
+  assert.equal(ev.min_trust_level, undefined);
   assert.deepEqual(ev.replies, []);
   // attestation must not leak a signer field
   assert.equal(ev.signer, undefined);

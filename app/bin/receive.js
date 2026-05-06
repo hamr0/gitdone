@@ -461,9 +461,17 @@ async function main() {
       // loaded (rejected commands, unknown ids).
       let subjectStr = `[gitdone] ${cmdTag.command} · ${cmdTag.eventId}`;
       if (cmdEvent) {
-        const verb = cmdTag.command === 'remind'
-          ? 'reminded'
-          : (cmdTag.command === 'close' ? 'closed' : 'stats');
+        // Attestation has no participant list, so remind+ doesn't actually
+        // remind anyone — the body explains how to share the reply
+        // address. Use a different verb so the subject doesn't pretend
+        // reminders were sent.
+        const isAttestationRemind = cmdTag.command === 'remind'
+          && cmdEvent.type === 'crypto' && cmdEvent.mode === 'attestation';
+        const verb = isAttestationRemind
+          ? 'share'
+          : (cmdTag.command === 'remind'
+              ? 'reminded'
+              : (cmdTag.command === 'close' ? 'closed' : 'stats'));
         if (cmdEvent.type === 'event') {
           const total = (cmdEvent.steps || []).length;
           const done = (cmdEvent.steps || []).filter((s) => s.status === 'complete').length;
@@ -771,14 +779,36 @@ async function main() {
           `Requester: ${event.initiator}`,
         ].join('\n');
       } else if (accepted && isCrypto && event.mode === 'attestation') {
-        const counted = (event.replies || []).length;
-        const reachedThreshold = !!completion.completed_event;
-        subject = reachedThreshold
+        const dedup = event.dedup || 'unique';
+        const replies = event.replies || [];
+        // Compute count using the same dedup rules as the engine.
+        let counted;
+        if (dedup === 'unique') {
+          const seen = new Set();
+          for (const r of replies) if (r.sender_hash) seen.add(r.sender_hash);
+          counted = seen.size;
+        } else {
+          counted = replies.length;
+        }
+        const lockingDedup = dedup !== 'accumulating';
+        // For unique/latest, threshold-reach completes the event (locking).
+        // For accumulating, threshold is the proof anchor but the event
+        // stays open and keeps counting — never use the "complete" subject.
+        const reachedThreshold = lockingDedup
+          ? !!completion.completed_event
+          : (!!event.threshold_reached_at);
+        subject = (lockingDedup && reachedThreshold)
           ? `[gitdone] Attestation complete — ${event.title}`
           : `[gitdone] Attestation reply recorded — ${event.title}`;
-        const tail = reachedThreshold
-          ? `Threshold reached (${event.threshold}). The audit trail is sealed.`
-          : `Replies so far: ${counted}/${event.threshold}. The attestation stays open until the threshold is met.`;
+        let tail;
+        if (lockingDedup && reachedThreshold) {
+          tail = `Threshold reached (${event.threshold}). The audit trail is sealed.`;
+        } else if (!lockingDedup && reachedThreshold) {
+          const dateStr = String(event.threshold_reached_at).slice(0, 10);
+          tail = `Replies so far: ${counted} (threshold of ${event.threshold} reached on ${dateStr}). The attestation keeps counting; only the organiser can close it.`;
+        } else {
+          tail = `Replies so far: ${counted}/${event.threshold}. The attestation stays open until the threshold is met.`;
+        }
         body = [
           `Your reply to Crypto Attestation "${event.title}" was recorded.`,
           `It's DKIM-verified, OpenTimestamped, and committed to the event's`,

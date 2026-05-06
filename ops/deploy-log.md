@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-06T14:22Z · `12bd825` · Pending events accessible to signed-in initiator + crypto signer MX parity
 - 2026-05-06T12:42Z · `8f65bb9` · Crypto reply acks: type-aware subject + body, no "null" leak
 - 2026-05-06T12:36Z · `0e30e9f` · CHANGELOG: step delivery error resets on participant edit
 - 2026-05-06T12:35Z · `ccf7000` · editEvent: clear step.last_send_error on participant change

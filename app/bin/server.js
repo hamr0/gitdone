@@ -984,6 +984,16 @@ function buildEventActivationBody(event) {
   ].join('\n'));
 }
 
+// Plain-English one-liner per dedup rule. Used in the activation email
+// and on the manage dashboard so the organiser sees what the rule does
+// in their own words, not just the rule name.
+function dedupDescription(rule) {
+  if (rule === 'unique') return 'one DKIM-verified reply per sender counts';
+  if (rule === 'latest') return 'latest DKIM-verified reply per sender counts';
+  if (rule === 'accumulating') return 'every reply counts, DKIM-verified or not';
+  return '';
+}
+
 // Build the magic-link email body for a crypto event (declaration or
 // attestation). Same validation constraints as buildEventActivationBody.
 function buildCryptoActivationBody(event) {
@@ -998,7 +1008,7 @@ function buildCryptoActivationBody(event) {
       ]
     : [
         `Mode: attestation - ${event.threshold} distinct signers needed (${event.dedup} dedup).`,
-        `Anonymous replies: ${event.allow_anonymous ? 'allowed' : 'not allowed'}`,
+        `Dedup rule: ${event.dedup} - ${dedupDescription(event.dedup)}`,
         `Share the reply address below however you like - social, email, QR.`,
       ];
   return ({ url }) => ([
@@ -1159,7 +1169,6 @@ const CRYPTO_FORM_CSS = `
 function renderCryptoForm({ values = {}, errors = [] } = {}) {
   const mode = values.mode === 'declaration' ? 'declaration' : 'attestation';
   const dedup = values.dedup || 'unique';
-  const allowAnon = values.allow_anonymous === 'on' || values.allow_anonymous === true;
   const dedupOpts = VALID_DEDUP_RULES.map((d) => html`
     <option value="${d}" ${dedup === d ? raw('selected') : ''}>${d === 'unique'
       ? 'unique — one per sender'
@@ -1219,11 +1228,6 @@ function renderCryptoForm({ values = {}, errors = [] } = {}) {
           <span>Dedup rule</span>
           <select name="dedup">${dedupOpts}</select>
         </label>
-
-        <label class="checkbox ${attDim}">
-          <input type="checkbox" name="allow_anonymous" value="on" ${allowAnon ? raw('checked') : ''}>
-          <span>Allow anonymous replies<br><small style="color:#6e7681">count replies from anyone, not just pre-specified signers</small></span>
-        </label>
       </div>
 
       <div class="actions">
@@ -1237,13 +1241,12 @@ function renderCryptoForm({ values = {}, errors = [] } = {}) {
         var signerLabel = form.querySelector('input[name="signer"]').closest('label');
         var threshLabel = form.querySelector('input[name="threshold"]').closest('label');
         var dedupLabel  = form.querySelector('select[name="dedup"]').closest('label');
-        var anonLabel   = form.querySelector('input[name="allow_anonymous"]').closest('label');
         var note = document.querySelector('.cf .head .mode-note');
         var hint = document.querySelector('.cf .mode-row .hint');
         function setMode(m){
           var isDec = m === 'declaration';
           signerLabel.classList.toggle('dim', !isDec);
-          [threshLabel, dedupLabel, anonLabel].forEach(function(el){
+          [threshLabel, dedupLabel].forEach(function(el){
             el.classList.toggle('dim', isDec);
             el.classList.toggle('att', isDec);
           });
@@ -1272,7 +1275,6 @@ router.get('/crypto/new', async (req, res) => {
     signer: sp.get('signer') || '',
     threshold: sp.get('threshold') || '',
     dedup: sp.get('dedup') || 'unique',
-    allow_anonymous: sp.get('allow_anonymous') || '',
   };
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
@@ -2187,7 +2189,7 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
           <tr>
             <td>${String(i + 1)}</td>
             <td data-label="Step"><strong>${s.name}</strong></td>
-            <td data-label="Participant"><code>${s.participant}</code></td>
+            <td data-label="Participant"><code class="copyable">${s.participant}</code></td>
             ${anyDeadlines ? html`<td data-label="Deadline">${s.deadline ? html`<code>${s.deadline.slice(0, 10)}</code>` : raw('—')}</td>` : raw('')}
             ${anyAtt ? html`<td class="col-att-flag" data-label="Attachment">${s.requires_attachment ? html`<span title="attachment required">📎</span>` : raw('—')}</td>` : raw('')}
             <td data-label="Depends on">${raw(depsLabel === '—' ? '—' : 'after ' + depsLabel)}</td>
@@ -2275,23 +2277,53 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
     bodyMiddle = html`
       <h2>Declaration</h2>
       <div class="mg-section">
-        <p class="mg-meta">Signer: <code>${event.signer}</code>${pendingActivation ? raw(' — <em style="color:#8b949e;font-style:normal">will be invited on Activate</em>') : raw('')}</p>
-        <p class="mg-meta">Reply address${pendingActivation ? raw(' <em style="color:#8b949e;font-style:normal">(goes live on Activate)</em>') : raw('')}: <code>event+${event.id}@${config.domain}</code></p>
+        <p class="mg-meta">Signer: <code class="copyable">${event.signer}</code>${pendingActivation ? raw(' — <em style="color:#8b949e;font-style:normal">will be invited on Activate</em>') : raw('')}</p>
+        <p class="mg-meta">Reply address${pendingActivation ? raw(' <em style="color:#8b949e;font-style:normal">(goes live on Activate)</em>') : raw('')}: <code class="copyable">event+${event.id}@${config.domain}</code></p>
         ${pendingActivation
           ? raw('')
           : html`<p class="mg-meta">Status: ${complete ? html`signed on <code>${event.completion.completed_at}</code>` : html`awaiting signature`}</p>`}
       </div>
     `;
   } else {
-    const counted = (event.replies || []).length;
+    const replies = event.replies || [];
+    const dedup = event.dedup || 'unique';
+    const verified = replies.filter((r) => r.trust_level === 'verified').length;
+    const unverified = replies.length - verified;
+    // For accumulating, count = replies.length. For unique, count =
+    // distinct senders. For latest, replies[] is already pruned to one
+    // per sender, so count = replies.length.
+    let count;
+    if (dedup === 'unique') {
+      const seen = new Set();
+      for (const r of replies) if (r.sender_hash) seen.add(r.sender_hash);
+      count = seen.size;
+    } else {
+      count = replies.length;
+    }
+    const thresholdReachedAt = event.threshold_reached_at;
+    const accumulatingPastThreshold = dedup === 'accumulating' && thresholdReachedAt;
+    let progressLine;
+    if (pendingActivation) {
+      progressLine = raw('');
+    } else if (accumulatingPastThreshold) {
+      const dateStr = String(thresholdReachedAt).slice(0, 10);
+      progressLine = html`<p class="mg-meta"><strong>${String(count)}</strong> received · threshold of <strong>${String(event.threshold)}</strong> reached on <code>${dateStr}</code></p>
+        <p class="mg-meta" style="color:#8b949e;font-size:0.88em"><strong>${String(count)}</strong> total (<strong>${String(verified)}</strong> DKIM-verified, <strong>${String(unverified)}</strong> unverified)</p>`;
+    } else if (complete) {
+      const dateStr = String(event.completion.completed_at).slice(0, 10);
+      progressLine = html`<p class="mg-meta"><strong>${String(count)}</strong> of <strong>${String(event.threshold)}</strong> — completed <code>${dateStr}</code></p>`;
+    } else if (dedup === 'accumulating') {
+      progressLine = html`<p class="mg-meta">Replies received: <strong>${String(count)}</strong> of threshold <strong>${String(event.threshold)}</strong></p>
+        <p class="mg-meta" style="color:#8b949e;font-size:0.88em"><strong>${String(count)}</strong> total (<strong>${String(verified)}</strong> DKIM-verified, <strong>${String(unverified)}</strong> unverified)</p>`;
+    } else {
+      progressLine = html`<p class="mg-meta">Replies received: <strong>${String(count)}</strong> of threshold <strong>${String(event.threshold)}</strong></p>`;
+    }
     bodyMiddle = html`
       <h2>Attestation</h2>
       <div class="mg-section">
-        <p class="mg-meta">Reply address${pendingActivation ? raw(' <em style="color:#8b949e;font-style:normal">(goes live on Activate)</em>') : raw('')}: <code>event+${event.id}@${config.domain}</code></p>
-        <p class="mg-meta">Threshold: <strong>${String(event.threshold)}</strong> · Dedup: <code>${event.dedup}</code> · Anonymous: ${event.allow_anonymous ? 'allowed' : 'not allowed'}</p>
-        ${pendingActivation
-          ? raw('')
-          : html`<p class="mg-meta">Replies received: <strong>${String(counted)}</strong>${complete ? html` · completed <code>${event.completion.completed_at}</code>` : raw('')}</p>`}
+        <p class="mg-meta">Reply address${pendingActivation ? raw(' <em style="color:#8b949e;font-style:normal">(goes live on Activate)</em>') : raw('')}: <code class="copyable">event+${event.id}@${config.domain}</code></p>
+        <p class="mg-meta">Threshold: <strong>${String(event.threshold)}</strong> · Dedup: <code>${dedup}</code> — ${dedupDescription(dedup)}</p>
+        ${progressLine}
       </div>
     `;
   }
@@ -2299,7 +2331,7 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
   return html`
     <style>${raw(MANAGE_CSS)}</style>
     <p style="margin:0 0 0.5rem"><a href="/manage" style="color:#8b949e;font-size:0.88em">← back</a></p>
-    <p class="mg-meta">Signed in as <code>${initiatorEmail}</code> · Event <code>${event.id}</code> · ${pill}</p>
+    <p class="mg-meta">Signed in as <code class="copyable">${initiatorEmail}</code> · Event <code>${event.id}</code> · ${pill}</p>
     ${flash ? html`<div class="mg-flash">${flash}</div>` : raw('')}
     ${pendingActivation ? (() => {
         // Auto-delete window: 72h from creation. Show the absolute
@@ -2328,9 +2360,11 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
     <div class="mg-actions">
       ${pendingActivation
         ? html`<button type="button" class="mg-activate" data-confirm-trigger="activate">Activate</button>`
-        : html`<form method="POST" action="/manage/event/${eventId}/remind" style="margin:0">
-            <button type="submit" class="mg-remind" ${complete || archived ? raw('disabled') : ''}>Send reminders</button>
-          </form>`}
+        : (event.type === 'crypto' && event.mode === 'attestation'
+            ? raw('')
+            : html`<form method="POST" action="/manage/event/${eventId}/remind" style="margin:0">
+                <button type="submit" class="mg-remind" ${complete || archived ? raw('disabled') : ''}>Send reminders</button>
+              </form>`)}
       ${event.type === 'event' ? html`<a href="/manage/event/${eventId}/edit" class="mg-edit-btn ${complete || archived ? raw('mg-disabled') : ''}">Edit</a>` : raw('')}
       <button type="button" class="mg-close" ${complete || archived ? raw('disabled') : ''} data-confirm-trigger="close">Close event</button>
     </div>
@@ -2369,13 +2403,13 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
     `)}</script>
 
     <div class="mg-email-cmds">
-      <p style="margin:0 0 0.4rem">Prefer email? Send a short message from <code>${initiatorEmail}</code> (DKIM-verified) to any of these:</p>
+      <p style="margin:0 0 0.4rem">Prefer email? Send a short message from <code class="copyable">${initiatorEmail}</code> (DKIM-verified) to any of these:</p>
       <dl class="mg-email-cmd-list">
-        <dt><code>stats+${event.id}@${config.domain}</code></dt>
+        <dt><code class="copyable">stats+${event.id}@${config.domain}</code></dt>
         <dd>get current progress back as a reply (which steps are done, pending, or waiting on deps)</dd>
-        <dt><code>remind+${event.id}@${config.domain}</code></dt>
+        <dt><code class="copyable">remind+${event.id}@${config.domain}</code></dt>
         <dd>re-notify everyone whose step is still pending</dd>
-        <dt><code>close+${event.id}@${config.domain}</code></dt>
+        <dt><code class="copyable">close+${event.id}@${config.domain}</code></dt>
         <dd>close the event early — writes a completion commit to the repo, cannot be undone</dd>
       </dl>
       <p style="margin:0.5rem 0 0;color:#6e7681;font-size:0.82em">The subject and body can be anything; the address tag is the command. Authentication is DKIM + envelope-sender == event organizer, so only you can trigger these from your own inbox.</p>

@@ -45,8 +45,9 @@ function mkDeclaration(overrides = {}) {
 
 function mkAttestation(overrides = {}) {
   return {
-    id: 'ev3', type: 'crypto', mode: 'attestation', min_trust_level: 'verified',
-    threshold: 3, dedup: 'unique', allow_anonymous: false, replies: [],
+    id: 'ev3', type: 'crypto', mode: 'attestation',
+    initiator: 'organiser@x.com',
+    threshold: 3, dedup: 'unique', replies: [],
     salt: 'c'.repeat(64),
     activated_at: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -239,24 +240,83 @@ test('attestation latest: replies[] pruned to one per sender', () => {
   assert.equal(ev.replies[0].sequence, 4);
 });
 
-test('attestation accumulating: every reply counts, no threshold dedup', () => {
+test('attestation accumulating: every reply counts; threshold stamps anchor but does not lock', () => {
   let ev = mkAttestation({ threshold: 3, dedup: 'accumulating' });
   for (let i = 0; i < 3; i++) {
     const r = applyReply(ev, mkCommit({ sender_hash: 'same', step_id: null, sequence: i + 1 }));
     ev = r.event;
   }
-  assert.equal(isComplete(ev), true);
+  // Accumulating does NOT lock at threshold — completion stays open.
+  assert.equal(isComplete(ev), false);
+  // ...but the proof anchor is stamped on first crossing.
+  assert.ok(ev.threshold_reached_at, 'threshold_reached_at stamped');
+  assert.equal(ev.threshold_reached_count, 3);
   assert.equal(ev.replies.length, 3);
 });
 
-test('attestation: low trust rejected unless allow_anonymous', () => {
-  const strict = mkAttestation({ allow_anonymous: false });
-  const r1 = applyReply(strict, mkCommit({ trust_level: 'unverified', step_id: null }));
-  assert.equal(r1.applied, false);
+test('attestation accumulating: late reply past threshold still counts and extends replies[]', () => {
+  let ev = mkAttestation({ threshold: 2, dedup: 'accumulating' });
+  for (let i = 0; i < 2; i++) {
+    const r = applyReply(ev, mkCommit({ sender_hash: 's' + i, step_id: null, sequence: i + 1 }));
+    ev = r.event;
+  }
+  const stampedAt = ev.threshold_reached_at;
+  assert.ok(stampedAt, 'first crossing stamped');
+  // Late reply past threshold
+  const r = applyReply(ev, mkCommit({ sender_hash: 's2', step_id: null, sequence: 3 }));
+  assert.equal(r.applied, true, 'late reply still counts for accumulating');
+  ev = r.event;
+  assert.equal(ev.replies.length, 3, 'late reply extends replies[]');
+  assert.equal(ev.threshold_reached_at, stampedAt, 'threshold_reached_at NOT re-stamped');
+  assert.equal(ev.threshold_reached_count, 2, 'threshold_reached_count is the value at first crossing');
+  assert.equal(isComplete(ev), false);
+});
 
-  const loose = mkAttestation({ allow_anonymous: true });
-  const r2 = applyReply(loose, mkCommit({ trust_level: 'unverified', step_id: null }));
-  assert.equal(r2.applied, true);
+test('attestation accumulating: threshold_reached_at stamped on first crossing only', () => {
+  let ev = mkAttestation({ threshold: 1, dedup: 'accumulating' });
+  const r1 = applyReply(ev, mkCommit({ sender_hash: 'a', step_id: null, sequence: 1 }), { now: '2026-05-01T00:00:00Z' });
+  ev = r1.event;
+  assert.equal(ev.threshold_reached_at, '2026-05-01T00:00:00Z');
+  const r2 = applyReply(ev, mkCommit({ sender_hash: 'b', step_id: null, sequence: 2 }), { now: '2026-05-02T00:00:00Z' });
+  ev = r2.event;
+  assert.equal(ev.threshold_reached_at, '2026-05-01T00:00:00Z', 'not re-stamped on later replies');
+});
+
+test('attestation unique: post-threshold reply rejected with already complete', () => {
+  let ev = mkAttestation({ threshold: 1, dedup: 'unique' });
+  const r1 = applyReply(ev, mkCommit({ sender_hash: 's1', step_id: null, sequence: 1 }));
+  ev = r1.event;
+  assert.equal(isComplete(ev), true);
+  const r2 = applyReply(ev, mkCommit({ sender_hash: 's2', step_id: null, sequence: 2 }));
+  assert.equal(r2.applied, false);
+  assert.match(r2.decision.reason, /already complete/);
+});
+
+test('attestation: initiator self-reply rejected for all three dedup rules', () => {
+  for (const dedup of ['unique', 'latest', 'accumulating']) {
+    const ev = mkAttestation({ dedup });
+    const sigHash = require('../../src/completion').hashSender(ev.initiator, ev.salt);
+    const r = applyReply(ev, mkCommit({ sender_hash: sigHash, step_id: null, sequence: 1 }));
+    assert.equal(r.applied, false, `dedup=${dedup}: initiator self-reply must not count`);
+    assert.match(r.decision.reason, /initiator|self-reply/, `dedup=${dedup}: reason mentions initiator`);
+  }
+});
+
+test('attestation unique/latest: low trust rejected; accumulating accepts', () => {
+  // Trust policy is now dedup-derived. unique/latest require DKIM-verified;
+  // accumulating counts both verified and unverified.
+  const uniq = mkAttestation({ dedup: 'unique' });
+  const r1 = applyReply(uniq, mkCommit({ trust_level: 'unverified', step_id: null, sender_hash: 's1' }));
+  assert.equal(r1.applied, false);
+  assert.match(r1.decision.reason, /DKIM-verified/);
+
+  const latest = mkAttestation({ dedup: 'latest' });
+  const r2 = applyReply(latest, mkCommit({ trust_level: 'unverified', step_id: null, sender_hash: 's1' }));
+  assert.equal(r2.applied, false);
+
+  const accum = mkAttestation({ dedup: 'accumulating' });
+  const r3 = applyReply(accum, mkCommit({ trust_level: 'unverified', step_id: null, sender_hash: 's1' }));
+  assert.equal(r3.applied, true);
 });
 
 test('attestation: replies after completion still commit but do not re-count', () => {

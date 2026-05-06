@@ -217,15 +217,18 @@ test('declaration: reply from wrong sender does not complete', async () => {
   }
 });
 
-test('attestation unique: two distinct senders reach threshold=2 and complete', async () => {
+test('attestation accumulating: two replies reach threshold=2 and stamp anchor (no lock)', async () => {
+  // Trust policy is dedup-derived: accumulating counts both DKIM-verified
+  // and unverified replies, so test mail (unverified) flows through. The
+  // event does NOT lock at threshold — completion stays open and only an
+  // explicit close finishes it.
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-j-att-'));
   try {
     const { fake } = makeFakeSendmail(tmp);
     await fs.mkdir(path.join(tmp, 'events'));
     await fs.writeFile(path.join(tmp, 'events', 'evatt01.json'), JSON.stringify({
       id: 'evatt01', type: 'crypto', mode: 'attestation',
-      min_trust_level: 'unverified',
-      allow_anonymous: true, threshold: 2, dedup: 'unique', replies: [],
+      threshold: 2, dedup: 'accumulating', replies: [],
       initiator: 'chair@ex.com', salt: 'salt-att-01',
       activated_at: '2026-01-01T00:00:00Z',
     }));
@@ -248,24 +251,38 @@ test('attestation unique: two distinct senders reach threshold=2 and complete', 
     const r2 = await sendFrom('voucher2@ex.com');
     const out2 = JSON.parse(r2.stdout.trim());
     assert.equal(out2.completion.applied, true);
+    // For accumulating, completed_event signals the FIRST threshold crossing
+    // (so the ack subject can adapt) — but the event itself stays open.
     assert.equal(out2.completion.completed_event, true);
 
     const ev = await readEvent(tmp, 'evatt01');
     assert.equal(ev.replies.length, 2);
-    assert.equal(ev.completion.status, 'complete');
+    // Threshold-reached anchor stamped, completion NOT set.
+    assert.ok(ev.threshold_reached_at);
+    assert.notEqual(ev.completion && ev.completion.status, 'complete');
+
+    // Late reply past threshold still counts and extends replies[].
+    const r3 = await sendFrom('voucher3@ex.com');
+    const out3 = JSON.parse(r3.stdout.trim());
+    assert.equal(out3.completion.applied, true);
+    const ev3 = await readEvent(tmp, 'evatt01');
+    assert.equal(ev3.replies.length, 3);
+    assert.equal(ev3.threshold_reached_at, ev.threshold_reached_at, 'anchor not re-stamped');
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }
 });
 
-test('attestation: duplicate sender does not advance threshold (unique dedup)', async () => {
+test('attestation unique: unsigned (unverified) reply rejected', async () => {
+  // unique dedup requires DKIM-verified replies. Test mail is unverified,
+  // so the engine must reject — the audit-trail commit still happens (via
+  // commitReply), but the event's replies[] doesn't grow.
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-j-att2-'));
   try {
     const { fake } = makeFakeSendmail(tmp);
     await fs.mkdir(path.join(tmp, 'events'));
     await fs.writeFile(path.join(tmp, 'events', 'evatt02.json'), JSON.stringify({
       id: 'evatt02', type: 'crypto', mode: 'attestation',
-      min_trust_level: 'unverified', allow_anonymous: true,
       threshold: 2, dedup: 'unique', replies: [],
       initiator: 'c@ex.com', salt: 'salt-att-02',
       activated_at: '2026-01-01T00:00:00Z',
@@ -278,9 +295,13 @@ test('attestation: duplicate sender does not advance threshold (unique dedup)', 
       ['1.2.3.4', 'ex.com', 'same@ex.com', 'event+evatt02@git-done.com'],
       { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
 
-    await send(); await send(); await send();
+    const r = await send();
+    const out = JSON.parse(r.stdout.trim());
+    assert.equal(out.completion.applied, false);
+    assert.match(out.completion.decision.reason, /DKIM-verified/);
+
     const ev = await readEvent(tmp, 'evatt02');
-    assert.equal(ev.replies.length, 3, 'unique dedup keeps audit trail');
+    assert.equal(ev.replies.length, 0, 'unverified reply did not enter event.replies');
     assert.notEqual(ev.completion && ev.completion.status, 'complete');
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });

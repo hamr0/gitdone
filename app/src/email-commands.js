@@ -82,14 +82,30 @@ function cryptoStatsBody(event) {
   const lines = [];
   lines.push(`Event: ${event.title}`);
   lines.push(`ID: ${event.id}`);
-  lines.push(`Type: ${event.mode}   Minimum trust: ${event.min_trust_level}`);
+  if (event.mode === 'declaration') {
+    lines.push(`Type: ${event.mode}   Minimum trust: ${event.min_trust_level}`);
+  } else {
+    lines.push(`Type: ${event.mode}`);
+  }
   lines.push(`Status: ${isComplete(event) ? 'complete' : 'open'}`);
   if (event.mode === 'declaration') {
     lines.push(`Signer: ${event.signer}`);
   } else {
-    const counted = (event.replies || []).length;
-    lines.push(`Threshold: ${event.threshold} · Dedup: ${event.dedup} · Anonymous: ${event.allow_anonymous ? 'allowed' : 'no'}`);
-    lines.push(`Replies received: ${counted}`);
+    const replies = event.replies || [];
+    const dedup = event.dedup || 'unique';
+    let count;
+    if (dedup === 'unique') {
+      const seen = new Set();
+      for (const r of replies) if (r.sender_hash) seen.add(r.sender_hash);
+      count = seen.size;
+    } else {
+      count = replies.length;
+    }
+    lines.push(`Threshold: ${event.threshold} · Dedup: ${dedup}`);
+    lines.push(`Replies received: ${count}`);
+    if (event.threshold_reached_at) {
+      lines.push(`Threshold reached at: ${event.threshold_reached_at}`);
+    }
   }
   if (isComplete(event) && event.completion && event.completion.completed_at) {
     lines.push(`Completed at: ${event.completion.completed_at}`);
@@ -131,7 +147,13 @@ async function executeRemind(event) {
     results = await notifyDeclarationSigner(event);
   } else if (event.type === 'crypto' && event.mode === 'attestation') {
     return {
-      body: 'Attestation events have no participant list — share the reply address manually.',
+      body: [
+        'Attestation has no participant list — anyone with the reply address below can sign.',
+        '',
+        `Reply to: event+${event.id}@${config.domain}`,
+        '',
+        'Share that address however you like — email, social, QR.',
+      ].join('\n'),
       sentTo: [],
     };
   }
