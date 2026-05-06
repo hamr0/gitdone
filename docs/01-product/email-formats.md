@@ -43,6 +43,7 @@ can reply normally.
 | 19 | Verify report | Inbound to `verify+<id>@` | Sender |
 | 20 | Re-verify report | Inbound to `reverify+<id>-<seq>@` | Sender |
 | 21 | Proof anchored (OTS) | Last pending OTS proof anchors to Bitcoin | Initiator + signers/participants |
+| 22 | Initiator command — bundle | Inbound to `bundle+<id>@` | Sender (initiator) |
 
 ## 1. Sign-in magic link
 
@@ -331,6 +332,50 @@ A second DKIM-authenticated reply within the TTL, containing
 - **Sent by.** `app/bin/receive.js`.
 - **Subject.** `[gitdone] re-verification report for <eventId> commit-<NNN>`
 - **Body.** Same shape as #19, scoped to the one commit.
+
+## 22. Initiator command — bundle
+
+The artifact handoff. PRD §0.1.4 / §7.5: proofs outlive the service,
+so the organiser needs a way to lift the entire per-event audit trail
+off the running gitdone instance and keep it forever. Two surfaces
+share one packaging path:
+
+- the dashboard's amber **Download proof bundle (.tar.gz)** button on
+  `/manage/event/:id` (session-gated), and
+- this email-path command.
+
+Both stream a `.tar.gz` of `data/repos/<id>/`, which contains
+`event.json`, `commits/commit-NNN.json`, `dkim_keys/*.pem`,
+`ots_proofs/*.ots`, and the `.git/` history. Verify offline with
+`gitdone-verify <id>` against the unpacked tree.
+
+- **Trigger.** DKIM-authenticated reply to `bundle+<id>@<domain>`.
+- **Auth.** Identical to the other initiator commands — DKIM verified
+  AND envelope-sender hash matches `event.initiator`.
+- **Sent by.** `app/bin/receive.js` (packaging in `app/src/bundle.js`).
+- **Recipient.** Sender (must equal initiator).
+- **Threading.** Replies thread to `event.proof_email_message_id` when
+  set (so the bundle lands under the same conversation as the proof
+  receipt). Falls back to the inbound message-id otherwise.
+
+### When the repo has commits
+
+- **Subject.** `[gitdone] proof bundle — "<title>"`
+- **Headers.** `Content-Type: multipart/mixed; boundary=…`,
+  `Content-Disposition: attachment; filename="gitdone-<id>-YYYYMMDD.tar.gz"`,
+  `Content-Type: application/gzip` on the attachment part.
+- **Body.** Three lines: "Attached is the full git repository for
+  `<title>`. Verify offline with: `gitdone-verify <id>`. Keep it
+  forever; this is your proof."
+
+### When the repo has no commits yet
+
+The event was created but never received a reply (pending-activation,
+or activated but no inbound mail), so there's nothing to package.
+
+- **Subject.** `[gitdone] no proof yet — "<title>"`
+- **Body.** Plain text explaining the audit trail is empty and that a
+  later `bundle+` after a reply arrives will return the archive.
 
 ## Worked example
 

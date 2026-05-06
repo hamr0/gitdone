@@ -987,6 +987,7 @@ function buildEventActivationBody(event) {
     `  stats+${event.id}@${config.domain}    see current progress`,
     `  remind+${event.id}@${config.domain}   nudge pending participants`,
     `  close+${event.id}@${config.domain}    close the event early`,
+    `  bundle+${event.id}@${config.domain}   get the full audit-trail repo as .tar.gz`,
     ``,
     `Manage your events at: ${publicBaseUrl()}/manage`,
   ].join('\n'));
@@ -1040,6 +1041,7 @@ function buildCryptoActivationBody(event) {
     `Day-to-day commands by email from ${safeInitiator}:`,
     `  stats+${event.id}@${config.domain}    current state`,
     `  close+${event.id}@${config.domain}    close early`,
+    `  bundle+${event.id}@${config.domain}   get the full audit-trail repo as .tar.gz`,
     ``,
     `Manage your events at: ${publicBaseUrl()}/manage`,
   ].join('\n'));
@@ -1229,8 +1231,8 @@ function renderCryptoForm({ values = {}, errors = [] } = {}) {
         </label>
 
         <label class="${attDim}">
-          <span>Threshold (N distinct signers)</span>
-          <input type="number" name="threshold" min="1" value="${values.threshold || '10'}">
+          <span>Threshold (N distinct signers, max 50)</span>
+          <input type="number" name="threshold" min="1" max="50" value="${values.threshold || '10'}">
         </label>
         <label class="${attDim}">
           <span>Dedup rule</span>
@@ -2065,6 +2067,45 @@ router.post('/manage/event/:id/close', async (req, res, params) => {
   res.end();
 });
 
+// Streaming proof-bundle download. Session-gated to the initiator —
+// same auth shape as every other /manage/event/:id route. Spawns tar(1)
+// and pipes its stdout straight to the response so the bundle never
+// lands on disk and never hits Node's heap. PRD §0.1.4 / §7.5: this is
+// the artifact handoff for offline verification.
+router.get('/manage/event/:id/bundle', async (req, res, params) => {
+  const handle = await currentHandle(req);
+  if (!handle) {
+    const target = `/manage/event/${params.id}/bundle`;
+    res.writeHead(303, { location: `/manage?next=${encodeURIComponent(target)}` });
+    return res.end();
+  }
+  const auth = await getAuth();
+  const { loadEvent } = require('../src/event-store');
+  const { streamBundle, bundleFilename, locateRepo, asciiFilename } = require('../src/bundle');
+  const event = await loadEvent(params.id);
+  if (!event) { res.writeHead(404); return res.end('event not found'); }
+  if (auth.deriveHandle(event.initiator) !== handle) { res.writeHead(403); return res.end('forbidden'); }
+  const loc = await locateRepo(params.id);
+  if (!loc.ok) {
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+    return res.end('no proof bundle yet — event has no commits to verify');
+  }
+  const filename = asciiFilename(bundleFilename(params.id));
+  res.writeHead(200, {
+    'content-type': 'application/gzip',
+    'content-disposition': `attachment; filename="${filename}"`,
+    'cache-control': 'no-store',
+  });
+  const r = await streamBundle(params.id, res);
+  if (!r.ok) {
+    // Headers are already sent; we can't switch to 500. Best we can do is
+    // log and end the truncated response — the client gets a malformed
+    // archive, which surfaces as a tar error on extraction.
+    process.stderr.write(`bundle: tar failed for ${params.id}: ${r.reason || r.code || 'unknown'}\n`);
+  }
+  res.end();
+});
+
 // Old magic-link management URLs from pre-session emails. Redirect to the
 // hub so the organiser can sign in and find their event there.
 router.get('/manage/:token', async (req, res) => {
@@ -2120,6 +2161,8 @@ const MANAGE_CSS = `
 .mg-close { background:#0d1117; color:#f85149; border:1px solid #f85149; }
 .mg-close:hover { background:#f85149; color:#0d1117; }
 .mg-actions button:disabled { opacity:0.4; cursor:not-allowed; }
+.mg-bundle-btn { display:inline-block; padding:0.55rem 1.2rem; border-radius:0; cursor:pointer; font:inherit; font-size:0.85em; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; background:#0d1117; color:#ffb000; border:1px solid #ffb000; text-decoration:none; }
+.mg-bundle-btn:hover { background:#ffb000; color:#0d1117; }
 .mg-email-cmds { font-size:0.85em; color:#8b949e; background:#161b22; border:1px solid #30363d; border-radius:0; padding:0.8rem 1rem; margin-top:1rem; }
 .mg-email-cmds code { background:#0d1117; color:#ffb000; border:1px solid #30363d; padding:0.08em 0.35em; border-radius:2px; }
 .mg-email-cmd-list { margin:0; display:grid; grid-template-columns:auto 1fr; gap:0.25rem 0.85rem; }
@@ -2635,6 +2678,11 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
       ${event.type === 'event' ? html`<a href="/manage/event/${eventId}/edit" class="mg-edit-btn ${complete || archived ? raw('mg-disabled') : ''}">Edit</a>` : raw('')}
       <button type="button" class="mg-close" ${complete || archived ? raw('disabled') : ''} data-confirm-trigger="close">Close event</button>
     </div>
+    ${(eventCommits && eventCommits.length)
+      ? html`<div class="mg-actions" style="margin-top:0">
+          <a href="/manage/event/${eventId}/bundle" class="mg-bundle-btn" download>Download proof bundle (.tar.gz)</a>
+        </div>`
+      : raw('')}
     ${pendingActivation ? html`<form method="POST" action="/manage/event/${eventId}/activate" class="mg-confirm-callout" data-confirm-panel="activate" hidden>
       <span class="mg-confirm-msg">${event.type === 'event' ? raw('Emails all named participants. Cannot be undone.') : (event.mode === 'declaration' ? raw('Emails the signer. Cannot be undone.') : raw('Brings the reply address live. Cannot be undone.'))}</span>
       <span class="mg-confirm-actions">
@@ -2678,6 +2726,8 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
         <dd>re-notify everyone whose step is still pending</dd>
         <dt><code class="copyable">close+${event.id}@${config.domain}</code></dt>
         <dd>close the event early — writes a completion commit to the repo, cannot be undone</dd>
+        <dt><code class="copyable">bundle+${event.id}@${config.domain}</code></dt>
+        <dd>get the full audit-trail repo back as a <code>.tar.gz</code> attachment — verify offline with <code>gitdone-verify</code></dd>
       </dl>
       <p style="margin:0.5rem 0 0;color:#6e7681;font-size:0.82em">The subject and body can be anything; the address tag is the command. Authentication is DKIM + envelope-sender == event organizer, so only you can trigger these from your own inbox.</p>
     </div>

@@ -64,11 +64,11 @@ function parseReverifyTag(recipient) {
   return { eventId, commitSequence };
 }
 
-// 1.§6.4 initiator commands: stats+{id}@, remind+{id}@, close+{id}@.
-// All three share the same address shape — one eventId, no step suffix.
-// Authentication (DKIM + envelope sender == event.initiator) happens in
-// email-commands.js; this just parses.
-const INITIATOR_COMMANDS = new Set(['stats', 'remind', 'close']);
+// 1.§6.4 initiator commands: stats+{id}@, remind+{id}@, close+{id}@,
+// bundle+{id}@. All share the same address shape — one eventId, no step
+// suffix. Authentication (DKIM + envelope sender == event.initiator)
+// happens in email-commands.js; this just parses.
+const INITIATOR_COMMANDS = new Set(['stats', 'remind', 'close', 'bundle']);
 function parseInitiatorCommand(recipient) {
   const a = parseAddress(recipient);
   if (!a || !INITIATOR_COMMANDS.has(a.kind)) return null;

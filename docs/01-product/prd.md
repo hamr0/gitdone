@@ -863,6 +863,31 @@ Both emails verify offline via `gitdone-verify <id>` against the
 per-event git repository — the dashboard, the email, and the offline
 CLI all agree.
 
+**The artifact handoff: proof bundle download.** The completion and
+OTS-anchored emails carry the *receipt* (text + a single `.ots` file);
+they don't carry the audit trail itself. To lift the entire per-event
+git repo off the running gitdone service — so it survives even if the
+service goes away — the organiser has two routes to the same archive:
+
+- **Dashboard button.** `/manage/event/:id` renders a primary
+  amber-styled **Download proof bundle (.tar.gz)** action. Session-gated
+  to the initiator (the `auth.deriveHandle(initiator) === handle`
+  check that gates every other manage route). Streams a `.tar.gz` of
+  `data/repos/<id>/` directly through tar(1) → HTTP response, so the
+  bundle never lands on disk and never hits Node's heap.
+- **Email-path command.** `bundle+<id>@<domain>`, authenticated like
+  every other initiator command (DKIM + envelope-sender hash matches
+  `event.initiator`). Reply lands as a `multipart/mixed` message with
+  the same `.tar.gz` attached, threaded to the proof email when there
+  is one. Emails #20–21 in `email-formats.md` describe the proof
+  receipts; #22 describes the bundle command.
+
+The bundle pairs with the proof emails: the emails carry the receipt
+that proves what happened, the bundle carries the full repo so an
+auditor can replay it offline with `gitdone-verify <id>`. Together
+they discharge "proofs outlive the service" — even if gitdone goes
+dark, the organiser already holds the durable artifact.
+
 Frozen UI reference: `docs/01-product/design/proof-surfacing-v1.md`.
 
 ---

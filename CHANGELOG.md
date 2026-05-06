@@ -15,6 +15,33 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Proof bundle download + verify-tool covers crypto + README rewrite + attestation cap 50
+
+- **Proof bundle download.** Every event's manage page now has a
+  "Download proof bundle (.tar.gz)" action streaming the full per-
+  event git repo (`event.json` + `commits/` + `dkim_keys/` +
+  `ots_proofs/` + `.git/`). Email-path equivalent: `bundle+<id>@`
+  from the initiator's address — DKIM + envelope-sender match —
+  replies with the same tarball attached, threaded as a reply to the
+  proof email. Pair with the proof emails (#20-21): emails carry the
+  receipt + .ots file; the bundle carries the full repo for offline
+  verifier replay.
+- **`gitdone-verify` covers crypto events.** Phase 2 of the offline
+  verifier — declaration completion (one commit, signer matches,
+  trust ≥ min) and attestation completion (dedup-rule-derived count,
+  initiator self-replies filtered, per-trust-level breakdown). The
+  comment that said "Phase 2" now describes implementation. 38/38
+  tool tests pass.
+- **README rewrite.** Re-anchored on the two paths (workflow vs
+  declaration/attestation), the four-tier verification table, the
+  two proof emails, and the offline verifier as headline features.
+  Tighter (180 vs 188 lines) and re-organized.
+- **Attestation threshold capped at 50.** Form input enforces `max="50"`,
+  validator rejects above. Label updated to "Threshold (N distinct
+  signers, max 50)".
+- New module: `app/src/bundle.js` (tar streaming + multipart reply
+  composer, no new prod deps).
+
 ### Cryptographic proof surfaced on every dashboard + durable proof emails
 
 The proof — DKIM verification, SPF/DMARC/ARC, raw email hash, OTS

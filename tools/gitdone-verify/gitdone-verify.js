@@ -12,8 +12,13 @@
 //   5. Timestamps    — every ots_proofs/commit-N.ots verifies against
 //                      its paired commit-N.json (ots calendar OK;
 //                      calendar is NOT a gitdone service)
-//   6. Completion    — workflow events have a valid commit per step,
-//                      with participant_match and acceptable trust_level
+//   6. Completion    — workflow events: a valid commit per step with
+//                      participant_match + acceptable trust_level;
+//                      crypto declaration: exactly one commit by the
+//                      named signer at the required trust;
+//                      crypto attestation: dedup-derived count of
+//                      qualifying commits ≥ threshold (initiator
+//                      self-replies skipped).
 //
 // Invoke:
 //   gitdone-verify <repo-path>                    # text output
@@ -339,18 +344,22 @@ function meetsTrust(level, min) {
   return TRUST_ORDER.indexOf(level) >= TRUST_ORDER.indexOf(min);
 }
 
-function checkCompletion(repoPath, commits, minTrust) {
-  const eventPath = path.join(repoPath, 'event.json');
-  const event = JSON.parse(fs.readFileSync(eventPath, 'utf8'));
+// Mirror of app/src/completion.js:hashSender (and gitrepo.saltedSenderHash):
+// the sender_hash recorded in each commit is sha256("<salt>|<lower(email)>").
+// We re-derive it here so declaration/attestation checks can compare a
+// configured email (event.signer, event.initiator) against a commit's
+// sender_hash without ever seeing the cleartext sender.
+function hashSenderForEvent(sender, salt) {
+  if (!sender) return null;
+  const material = `${salt || ''}|${String(sender).toLowerCase()}`;
+  return `sha256:${crypto.createHash('sha256').update(material).digest('hex')}`;
+}
 
-  if (event.type !== 'event') {
-    // Phase 1 only defines workflow events. Crypto types are Phase 2.
-    return { status: 'skip', detail: `event type '${event.type}' not covered in Phase 1` };
-  }
-
-  // 1.L.3: build a trust-upgrade map from reverify commits so the
-  // effective trust level for each reply is max(original, upgraded).
-  const upgrades = new Map(); // target_commit filename -> highest upgraded trust
+// 1.L.3: trust-upgrade map shared across event types. reverify-NNN.json
+// records layer on top of a target commit-NNN.json, raising its
+// effective trust level to max(original, upgraded).
+function buildUpgradeMap(commits) {
+  const upgrades = new Map();
   for (const c of commits) {
     if (c.kind !== 'reverify') continue;
     if (!c.json.upgraded) continue;
@@ -362,12 +371,145 @@ function checkCompletion(repoPath, commits, minTrust) {
       upgrades.set(target, after);
     }
   }
-  function effectiveTrust(c) {
-    const upgraded = upgrades.get(c.file);
-    if (!upgraded) return c.json.trust_level;
-    return TRUST_ORDER.indexOf(upgraded) > TRUST_ORDER.indexOf(c.json.trust_level)
-      ? upgraded
-      : c.json.trust_level;
+  return upgrades;
+}
+
+function effectiveTrustFor(c, upgrades) {
+  const upgraded = upgrades.get(c.file);
+  if (!upgraded) return c.json.trust_level;
+  return TRUST_ORDER.indexOf(upgraded) > TRUST_ORDER.indexOf(c.json.trust_level)
+    ? upgraded
+    : c.json.trust_level;
+}
+
+// Crypto declaration: exactly one commit, by event.signer, at min trust.
+// Mirrors shouldCountDeclaration + applyReply in app/src/completion.js.
+function checkCompletionDeclaration(event, commits, effectiveTrust, minTrust) {
+  const replies = commits.filter((c) => c.kind === 'reply');
+  if (event.signer && event.initiator && event.signer === event.initiator) {
+    return { status: 'fail', detail: 'declaration: signer must differ from initiator' };
+  }
+  if (replies.length !== 1) {
+    return { status: 'fail', detail: `declaration: expected exactly 1 commit, got ${replies.length}` };
+  }
+  const c = replies[0];
+  if (c.fileSeq !== 1) {
+    return { status: 'fail', detail: `declaration: commit sequence ${c.fileSeq} != 1` };
+  }
+  const expectedHash = hashSenderForEvent(event.signer, event.salt);
+  if (!expectedHash || c.json.sender_hash !== expectedHash) {
+    return { status: 'fail', detail: `declaration: signer mismatch — sender_hash does not match event.signer` };
+  }
+  const trust = effectiveTrust(c);
+  if (!meetsTrust(trust, minTrust)) {
+    return { status: 'fail', detail: `declaration: trust below min — got ${trust}, need ${minTrust}` };
+  }
+  const completion = event.completion || {};
+  if (completion.status !== 'complete') {
+    return { status: 'fail', detail: `declaration: completion.status is '${completion.status || 'open'}', expected 'complete'` };
+  }
+  if (completion.commit_sequence !== 1) {
+    return { status: 'fail', detail: `declaration: completion.commit_sequence ${completion.commit_sequence} != 1` };
+  }
+  return {
+    status: 'pass',
+    detail: `declaration signed by ${event.signer} (${trust}, sequence 1)`,
+  };
+}
+
+// Crypto attestation: dedup-derived count vs threshold; initiator
+// self-replies skipped. Mirrors shouldCountAttestation + applyDedup
+// + applyReply in app/src/completion.js.
+function checkCompletionAttestation(event, commits, effectiveTrust) {
+  const dedup = event.dedup || 'unique';
+  const threshold = event.threshold || 0;
+  const initiatorHash = hashSenderForEvent(event.initiator, event.salt);
+  const replies = commits.filter((c) => c.kind === 'reply');
+
+  // Partition: filter initiator self-replies, then apply per-mode trust gate.
+  let selfReplies = 0;
+  const qualifying = [];
+  const breakdown = { verified: 0, forwarded: 0, authorized: 0, unverified: 0 };
+  for (const c of replies) {
+    if (initiatorHash && c.json.sender_hash === initiatorHash) {
+      selfReplies++;
+      continue;
+    }
+    const trust = effectiveTrust(c);
+    if (dedup !== 'accumulating' && trust !== 'verified') continue;
+    qualifying.push({ commit: c, trust });
+    if (breakdown[trust] != null) breakdown[trust]++;
+  }
+
+  // Count per dedup rule.
+  let count;
+  let firstCrossing = null; // commit that pushed count over threshold
+  if (dedup === 'accumulating') {
+    count = qualifying.length;
+    // identify the commit that first crossed threshold (1-indexed)
+    if (count >= threshold && threshold > 0) {
+      const sorted = [...qualifying].sort((a, b) => a.commit.json.sequence - b.commit.json.sequence);
+      firstCrossing = sorted[threshold - 1];
+    }
+  } else {
+    // unique / latest: count distinct sender_hash
+    const seen = new Set();
+    for (const q of qualifying) seen.add(q.commit.json.sender_hash);
+    count = seen.size;
+  }
+
+  // Engine-bug guards.
+  const completion = event.completion || {};
+  const reached = count >= threshold;
+  if (completion.status === 'complete' && count < threshold) {
+    return {
+      status: 'fail',
+      detail: `attestation: completion=complete but counted ${count} < threshold ${threshold} (engine bug)`,
+    };
+  }
+  // For accumulating, if threshold_reached_at was stamped, sanity-check
+  // it landed on the commit that actually first crossed.
+  if (dedup === 'accumulating' && event.threshold_reached_at && firstCrossing) {
+    if (event.threshold_reached_sequence != null
+        && event.threshold_reached_sequence !== firstCrossing.commit.json.sequence) {
+      return {
+        status: 'fail',
+        detail: `attestation: threshold_reached_sequence ${event.threshold_reached_sequence} != actual first crossing ${firstCrossing.commit.json.sequence}`,
+      };
+    }
+  }
+
+  const breakdownStr = `verified: ${breakdown.verified}, forwarded: ${breakdown.forwarded}, authorized: ${breakdown.authorized}, unverified: ${breakdown.unverified}`;
+  const summary = reached
+    ? `attestation reached threshold (${count}/${threshold})`
+    : `attestation NOT reached (${count}/${threshold})`;
+  return {
+    status: reached ? 'pass' : 'warn',
+    detail: `${summary} — ${breakdownStr}; ${selfReplies} initiator self-reply(ies) skipped`,
+    counted: count,
+    threshold,
+    self_replies_skipped: selfReplies,
+    breakdown,
+    dedup,
+  };
+}
+
+function checkCompletion(repoPath, commits, minTrust) {
+  const eventPath = path.join(repoPath, 'event.json');
+  const event = JSON.parse(fs.readFileSync(eventPath, 'utf8'));
+
+  // Trust-upgrade map (1.L.3) is shared across all event types.
+  const upgrades = buildUpgradeMap(commits);
+  const effectiveTrust = (c) => effectiveTrustFor(c, upgrades);
+
+  if (event.type === 'crypto' && event.mode === 'declaration') {
+    return checkCompletionDeclaration(event, commits, effectiveTrust, minTrust);
+  }
+  if (event.type === 'crypto' && event.mode === 'attestation') {
+    return checkCompletionAttestation(event, commits, effectiveTrust);
+  }
+  if (event.type !== 'event') {
+    return { status: 'skip', detail: `event type '${event.type}' not covered` };
   }
 
   // Only reply commits are assigned to steps; reverify commits layer on top.
@@ -557,6 +699,11 @@ module.exports = {
   checkArchivedKeys,
   checkOts,
   checkCompletion,
+  checkCompletionDeclaration,
+  checkCompletionAttestation,
+  buildUpgradeMap,
+  effectiveTrustFor,
+  hashSenderForEvent,
   runAll,
   renderText,
   meetsTrust,

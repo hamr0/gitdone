@@ -23,6 +23,7 @@ const {
   checkArchivedKeys,
   checkOts,
   checkCompletion,
+  hashSenderForEvent,
   runAll,
   meetsTrust,
   TRUST_ORDER,
@@ -467,13 +468,215 @@ test('checkCompletion: detects sequential-flow out-of-order completion', () => {
   } finally { cleanup(d); }
 });
 
-test('checkCompletion: skips when event type is not workflow', () => {
+test('checkCompletion: skips when event type is unknown', () => {
   const d = mkTmpRepo();
   try {
     mkRepoStructure(d);
-    fs.writeFileSync(path.join(d, 'event.json'), JSON.stringify({ type: 'crypto', mode: 'declaration' }));
+    fs.writeFileSync(path.join(d, 'event.json'), JSON.stringify({ type: 'mystery' }));
     const r = checkCompletion(d, [], 'verified');
     assert.equal(r.status, 'skip');
+  } finally { cleanup(d); }
+});
+
+// ---- hashSenderForEvent (cross-check with prod fixture) -------------------
+
+test('hashSenderForEvent: matches prod commit fixture (event 3gq6gdkp9jxh)', () => {
+  // Cross-check against a real prod event's sender_hash so we know this
+  // helper produces digests byte-for-byte identical to the engine's
+  // gitrepo.saltedSenderHash + completion.hashSender.
+  const salt = 'c7eb1723646304196234c6c5c818a297f7131f84a97726acb53b66549c2448d1';
+  const got = hashSenderForEvent('avoidaccess@msn.com', salt);
+  assert.equal(got, 'sha256:c16c3b33069fd6c0b1197adfa928b72538131a228486c83bb0c2d95a7baf5638');
+  // Lowercasing applies
+  assert.equal(hashSenderForEvent('AvoidAccess@MSN.COM', salt), got);
+});
+
+// ---- crypto declaration ---------------------------------------------------
+
+function declarationEvent(overrides = {}) {
+  const salt = '0'.repeat(64);
+  return {
+    id: 'decl-evt',
+    type: 'crypto',
+    mode: 'declaration',
+    initiator: 'organiser@example.com',
+    signer: 'signer@example.com',
+    salt,
+    completion: { status: 'complete', completed_at: '2026-04-17T01:00:00Z', commit_sequence: 1 },
+    ...overrides,
+  };
+}
+
+test('checkCompletion: passes for crypto declaration with one verified commit by signer', () => {
+  const d = mkTmpRepo();
+  try {
+    mkRepoStructure(d);
+    const ev = declarationEvent();
+    fs.writeFileSync(path.join(d, 'event.json'), JSON.stringify(ev));
+    fs.writeFileSync(path.join(d, 'commits', 'commit-001.json'), JSON.stringify(sampleCommit({
+      event_id: 'decl-evt',
+      step_id: undefined,
+      sequence: 1,
+      sender_hash: hashSenderForEvent(ev.signer, ev.salt),
+      trust_level: 'verified',
+      participant_match: true,
+    })));
+    const r = checkCompletion(d, loadCommits(d), 'verified');
+    assert.equal(r.status, 'pass');
+    assert.match(r.detail, /declaration signed by signer@example\.com/);
+    assert.match(r.detail, /verified, sequence 1/);
+  } finally { cleanup(d); }
+});
+
+test('checkCompletion: fails declaration when commit is by someone other than signer', () => {
+  const d = mkTmpRepo();
+  try {
+    mkRepoStructure(d);
+    const ev = declarationEvent();
+    fs.writeFileSync(path.join(d, 'event.json'), JSON.stringify(ev));
+    // sender_hash is for an impostor, not the signer
+    fs.writeFileSync(path.join(d, 'commits', 'commit-001.json'), JSON.stringify(sampleCommit({
+      event_id: 'decl-evt',
+      step_id: undefined,
+      sequence: 1,
+      sender_hash: hashSenderForEvent('impostor@example.com', ev.salt),
+      trust_level: 'verified',
+    })));
+    const r = checkCompletion(d, loadCommits(d), 'verified');
+    assert.equal(r.status, 'fail');
+    assert.match(r.detail, /signer mismatch/);
+  } finally { cleanup(d); }
+});
+
+test('checkCompletion: fails declaration when trust below min', () => {
+  const d = mkTmpRepo();
+  try {
+    mkRepoStructure(d);
+    const ev = declarationEvent();
+    fs.writeFileSync(path.join(d, 'event.json'), JSON.stringify(ev));
+    fs.writeFileSync(path.join(d, 'commits', 'commit-001.json'), JSON.stringify(sampleCommit({
+      event_id: 'decl-evt',
+      step_id: undefined,
+      sequence: 1,
+      sender_hash: hashSenderForEvent(ev.signer, ev.salt),
+      trust_level: 'authorized',
+    })));
+    const r = checkCompletion(d, loadCommits(d), 'verified');
+    assert.equal(r.status, 'fail');
+    assert.match(r.detail, /trust below min/);
+  } finally { cleanup(d); }
+});
+
+// ---- crypto attestation ---------------------------------------------------
+
+function attestationEvent(overrides = {}) {
+  return {
+    id: 'att-evt',
+    type: 'crypto',
+    mode: 'attestation',
+    dedup: 'unique',
+    threshold: 3,
+    initiator: 'organiser@example.com',
+    salt: '0'.repeat(64),
+    replies: [],
+    completion: { status: 'open', completed_at: null, commit_sequence: null },
+    ...overrides,
+  };
+}
+
+function senderCommit(seq, ev, email, overrides = {}) {
+  return sampleCommit({
+    event_id: ev.id,
+    step_id: undefined,
+    sequence: seq,
+    sender_hash: hashSenderForEvent(email, ev.salt),
+    trust_level: 'verified',
+    participant_match: true,
+    ...overrides,
+  });
+}
+
+test('checkCompletion: passes attestation unique reaching threshold', () => {
+  const d = mkTmpRepo();
+  try {
+    mkRepoStructure(d);
+    const ev = attestationEvent({
+      dedup: 'unique',
+      threshold: 3,
+      completion: { status: 'complete', completed_at: '2026-04-17T01:00:00Z', commit_sequence: 3, reached_threshold_at: 3 },
+    });
+    fs.writeFileSync(path.join(d, 'event.json'), JSON.stringify(ev));
+    const senders = ['a@example.com', 'b@example.com', 'c@example.com'];
+    senders.forEach((s, i) => {
+      const seq = i + 1;
+      fs.writeFileSync(path.join(d, 'commits', `commit-00${seq}.json`),
+        JSON.stringify(senderCommit(seq, ev, s)));
+    });
+    const r = checkCompletion(d, loadCommits(d), 'verified');
+    assert.equal(r.status, 'pass');
+    assert.match(r.detail, /reached threshold \(3\/3\)/);
+    assert.match(r.detail, /verified: 3/);
+  } finally { cleanup(d); }
+});
+
+test('checkCompletion: passes attestation accumulating past threshold', () => {
+  const d = mkTmpRepo();
+  try {
+    mkRepoStructure(d);
+    const ev = attestationEvent({
+      dedup: 'accumulating',
+      threshold: 3,
+      threshold_reached_at: '2026-04-17T01:00:00Z',
+      threshold_reached_count: 3,
+      threshold_reached_sequence: 3,
+    });
+    fs.writeFileSync(path.join(d, 'event.json'), JSON.stringify(ev));
+    // 5 commits, mix of trust levels (accumulating has no trust gate)
+    const sigs = [
+      { s: 'a@example.com', t: 'verified' },
+      { s: 'b@example.com', t: 'unverified' },
+      { s: 'c@example.com', t: 'verified' },
+      { s: 'd@example.com', t: 'authorized' },
+      { s: 'e@example.com', t: 'unverified' },
+    ];
+    sigs.forEach((entry, i) => {
+      const seq = i + 1;
+      const file = `commit-${String(seq).padStart(3, '0')}.json`;
+      fs.writeFileSync(path.join(d, 'commits', file),
+        JSON.stringify(senderCommit(seq, ev, entry.s, { trust_level: entry.t })));
+    });
+    const r = checkCompletion(d, loadCommits(d), 'verified');
+    assert.equal(r.status, 'pass');
+    assert.match(r.detail, /reached threshold \(5\/3\)/);
+    // Breakdown should account for unverified count under accumulating
+    assert.match(r.detail, /unverified: 2/);
+  } finally { cleanup(d); }
+});
+
+test('checkCompletion: catches attestation engine bug — completion.status complete but counted < threshold', () => {
+  const d = mkTmpRepo();
+  try {
+    mkRepoStructure(d);
+    // Initiator self-reply was somehow counted by the engine: it inflated
+    // completion.status to 'complete' at threshold 3 with only 2 distinct
+    // non-initiator senders. The verifier filters self-replies and
+    // detects the under-count.
+    const ev = attestationEvent({
+      dedup: 'unique',
+      threshold: 3,
+      completion: { status: 'complete', completed_at: '2026-04-17T01:00:00Z', commit_sequence: 3, reached_threshold_at: 3 },
+    });
+    fs.writeFileSync(path.join(d, 'event.json'), JSON.stringify(ev));
+    fs.writeFileSync(path.join(d, 'commits', 'commit-001.json'),
+      JSON.stringify(senderCommit(1, ev, 'a@example.com')));
+    fs.writeFileSync(path.join(d, 'commits', 'commit-002.json'),
+      JSON.stringify(senderCommit(2, ev, 'b@example.com')));
+    // Initiator self-reply — must be skipped, NOT counted
+    fs.writeFileSync(path.join(d, 'commits', 'commit-003.json'),
+      JSON.stringify(senderCommit(3, ev, ev.initiator)));
+    const r = checkCompletion(d, loadCommits(d), 'verified');
+    assert.equal(r.status, 'fail');
+    assert.match(r.detail, /completion=complete but counted 2 < threshold 3/);
   } finally { cleanup(d); }
 });
 

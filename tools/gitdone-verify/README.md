@@ -36,7 +36,7 @@ gitdone-verify <repo-path> --min-trust verified
 | 3 | Schema (v2) | every commit JSON has required fields, plaintext discipline (§0.1.10), sequence matches filename | yes |
 | 4 | Archived DKIM keys | every `dkim_keys/commit-N.pem` parses as RSA public key via Node `crypto` | yes |
 | 5 | OpenTimestamps | `ots verify` each proof against its paired commit JSON. Catches tamper (text: "File does not match original!"). Classifies pending/in-mempool/anchored | calendars, not gitdone |
-| 6 | Event completion | for workflow events: every step has an accepted reply (participant_match + min trust); sequential flow is in order | yes |
+| 6 | Event completion | **workflow:** every step has an accepted reply (participant_match + min trust); sequential flow is in order. **crypto declaration:** exactly one commit, sender_hash matches `event.signer`, trust ≥ min, `completion.status === 'complete'` at sequence 1. **crypto attestation:** dedup-rule-derived count of qualifying commits ≥ `event.threshold`; initiator self-replies are filtered (never counted); per-trust-level breakdown reported. | yes |
 
 ## Dependencies
 

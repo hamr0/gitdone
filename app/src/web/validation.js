@@ -286,7 +286,7 @@ function validateWorkflowEvent(form) {
 
 const VALID_CRYPTO_MODES = ['declaration', 'attestation'];
 const VALID_DEDUP_RULES = ['unique', 'latest', 'accumulating'];
-const MAX_THRESHOLD = 10000;
+const MAX_THRESHOLD = 50;
 
 // Crypto event validator — PRD §4.2. Branches on mode:
 //   declaration: { title, initiator, signer, min_trust_level }

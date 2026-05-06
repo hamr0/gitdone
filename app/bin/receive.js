@@ -26,6 +26,7 @@ const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } =
 const { applyReply, updateEventAtomic } = require('../src/completion');
 const { notifyWorkflowParticipants, notifyEventCompletion, notifyOrganiserOfStepProgress } = require('../src/notifications');
 const { authenticateInitiatorCommand, statsBody, executeRemind, executeCloseRequest } = require('../src/email-commands');
+const { bundleToBuffer, bundleFilename, buildAttachmentMessage } = require('../src/bundle');
 const { extractDsn } = require('../src/dsn');
 const logger = require('../src/logger');
 const fs = require('node:fs/promises');
@@ -433,9 +434,37 @@ async function main() {
     let replyBody;
     let cmdOutcome = { command: cmdTag.command, event_id: cmdTag.eventId, authenticated: auth1.ok };
     let closeOutcome = null;
+    let bundleOutcome = null;  // { ok, buffer? , filename, reason? } when command === 'bundle' and auth passed
     if (!auth1.ok) {
       replyBody = `Command rejected: ${auth1.reason}.\nOnly the event initiator can issue ${cmdTag.command}+ commands.`;
       cmdOutcome.reason = auth1.reason;
+    } else if (cmdTag.command === 'bundle') {
+      // Pack the per-event git repo into a tar.gz and reply with it as
+      // an attachment. The event has no commits if no replies have been
+      // received yet (pending-activation events, or activated events
+      // with no inbound mail). In that case, send a plain-text "no proof
+      // yet" reply rather than a 0-byte archive.
+      const filename = bundleFilename(cmdTag.eventId);
+      const result = await bundleToBuffer(cmdTag.eventId);
+      bundleOutcome = { ...result, filename };
+      cmdOutcome.bundle_ok = result.ok;
+      if (result.ok) {
+        cmdOutcome.bundle_size = result.buffer.length;
+        replyBody = [
+          `Attached is the full git repository for "${cmdEvent.title}".`,
+          `Verify offline with: gitdone-verify ${cmdEvent.id}`,
+          `Keep it forever; this is your proof.`,
+        ].join('\n');
+      } else {
+        cmdOutcome.bundle_reason = result.reason || null;
+        replyBody = [
+          `No proof bundle yet — "${cmdEvent.title}" hasn't received any`,
+          `replies, so there's nothing in the audit trail to bundle.`,
+          ``,
+          `Once a participant replies (or the signer signs), the next bundle+`,
+          `command will return the full archive.`,
+        ].join('\n');
+      }
     } else if (cmdTag.command === 'stats') {
       replyBody = statsBody(cmdEvent);
     } else if (cmdTag.command === 'remind') {
@@ -505,7 +534,14 @@ async function main() {
       // Falls back to the bare command·id form when the event isn't
       // loaded (rejected commands, unknown ids).
       let subjectStr = `[gitdone] ${cmdTag.command} · ${cmdTag.eventId}`;
-      if (cmdEvent) {
+      // bundle+ has its own subject shape (proof bundle with .tar.gz
+      // attachment) and threads to the proof email if there is one.
+      // Build it before the verb-based subject for the other commands.
+      if (cmdTag.command === 'bundle' && cmdEvent && bundleOutcome) {
+        subjectStr = bundleOutcome.ok
+          ? `[gitdone] proof bundle — "${cmdEvent.title}"`
+          : `[gitdone] no proof yet — "${cmdEvent.title}"`;
+      } else if (cmdEvent) {
         // Attestation has no participant list, so remind+ doesn't actually
         // remind anyone — the body explains how to share the reply
         // address. Use a different verb so the subject doesn't pretend
@@ -538,15 +574,38 @@ async function main() {
           }
         }
       }
-      const rawMessage = buildRawMessage({
-        from: `gitdone <${fromAddr}>`,
-        to,
-        subject: subjectStr,
-        inReplyTo: parsed.messageId || null,
-        references: parsed.messageId || null,
-        body: replyBody,
-        domain: config.domain,
-      });
+      // bundle+ with a real archive: send a multipart/mixed message with
+      // the .tar.gz attached and thread to the proof email if one exists
+      // (so the bundle lands under the same conversation as the receipt).
+      // No-archive bundle+: fall through to the plain-text reply path.
+      let rawMessage;
+      if (cmdTag.command === 'bundle' && bundleOutcome && bundleOutcome.ok) {
+        const proofMid = (cmdEvent && cmdEvent.proof_email_message_id) || null;
+        rawMessage = buildAttachmentMessage({
+          from: `gitdone <${fromAddr}>`,
+          to,
+          subject: subjectStr,
+          body: replyBody,
+          attachment: {
+            filename: bundleOutcome.filename,
+            contentType: 'application/gzip',
+            content: bundleOutcome.buffer,
+          },
+          inReplyTo: proofMid || parsed.messageId || null,
+          references: proofMid || parsed.messageId || null,
+          domain: config.domain,
+        });
+      } else {
+        rawMessage = buildRawMessage({
+          from: `gitdone <${fromAddr}>`,
+          to,
+          subject: subjectStr,
+          inReplyTo: parsed.messageId || null,
+          references: parsed.messageId || null,
+          body: replyBody,
+          domain: config.domain,
+        });
+      }
       const sendRes = await sendmail({ from: fromAddr, rawMessage, to: [to] });
       cmdOutcome.reply = { to, ok: sendRes.ok, reason: sendRes.reason || null, code: sendRes.code || null };
     }
