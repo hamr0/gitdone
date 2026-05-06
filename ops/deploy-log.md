@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-06T19:30Z · `6c776c3` · Proof bundle download + verify-tool crypto support + README rewrite + attestation cap 50
 - 2026-05-06T19:01Z · `900bf79` · Surface cryptographic proof on dashboards + durable proof emails
 - 2026-05-06T17:52Z · `492b707` · Attestation overhaul: dedup-derived trust, accumulating keeps counting, click-to-copy
 - 2026-05-06T14:22Z · `12bd825` · Pending events accessible to signed-in initiator + crypto signer MX parity
