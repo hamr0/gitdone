@@ -136,14 +136,23 @@ Requester: <initiator>
 
 | # | Reason | Subject |
 |---|--------|---------|
-| 4a-partial | accepted, threshold not yet reached | `[gitdone] Attestation reply recorded — <title>` |
-| 4a-final | accepted, this reply hits the threshold | `[gitdone] Attestation complete — <title>` |
+| 4a-partial | accepted, threshold not yet reached | `[gitdone] Attestation reply recorded — <title> [<K>/<threshold>]` |
+| 4a-final | accepted, this reply hits the threshold (locking dedups) | `[gitdone] Attestation complete — <title> [<threshold>/<threshold>]` |
+| 4a-overshoot | accepted, accumulating dedup past threshold | `[gitdone] Attestation reply recorded — <title> [<K>/<threshold>]` (with `K > threshold`, e.g. `[5/2]`) |
 | 5a | `missing_attachment` | `[gitdone] Attachment required — <title>` |
 | 6a | `event archived` | `[gitdone] Crypto Attestation archived — <title>` |
 | 7a | `event not activated` | `[gitdone] Crypto Attestation not yet activated — <title>` |
 | 8a | `event closed` | `[gitdone] Crypto Attestation closed — <title>` |
 
-Accepted body (partial):
+The `[<K>/<threshold>]` tag mirrors the workflow step counter so the
+participant sees their position at a glance. `K` is the post-update
+count (the just-applied reply is included). For `unique`/`latest`
+dedup the count caps at `threshold` by construction; for
+`accumulating` dedup, every additional reply after threshold gets a
+fresh ack with an overshot tag — `[3/2]`, `[5/2]`, etc — paired with
+the body tail below that flags the overshoot.
+
+Accepted body (partial — threshold not yet reached):
 
 ```
 Your reply to Crypto Attestation "<title>" was recorded.
@@ -156,12 +165,23 @@ threshold is met.
 Requester: <initiator>
 ```
 
-When the reply that lands tips the count to threshold, the body
-swaps to:
+When the reply that lands tips a **locking** dedup (unique/latest) to
+threshold, the body swaps to:
 
 ```
 …
 Threshold reached (<threshold>). The audit trail is sealed.
+…
+```
+
+For **accumulating** dedup, threshold is the proof anchor but the
+event keeps counting — the body tail surfaces both the running count
+and the day the threshold was first crossed:
+
+```
+…
+Replies so far: <K> (threshold of <threshold> reached on <YYYY-MM-DD>).
+The attestation keeps counting; only the organiser can close it.
 …
 ```
 
