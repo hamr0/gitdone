@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-07T06:18Z · `1611ad7` · manage hub: unified filter row — type + status pills, all clickable
 - 2026-05-06T21:33Z · `584a4b5` · manage hub: events/crypto type-filter pills (top-right)
 - 2026-05-06T21:03Z · `53961f3` · QA deferred items: DKIM test fixture + overrides smoke + byte-strict pin + EADDRINUSE guard
 - 2026-05-06T20:46Z · `5f54827` · Tests + frozen design ref for the QA-fix render changes

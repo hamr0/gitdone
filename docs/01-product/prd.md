@@ -548,11 +548,23 @@ domains.
 Single self-serve path: knowless-backed sessions. The initiator hub
 at `/manage` shows the sign-in form when no session exists, otherwise
 a dashboard listing every event/crypto record they've ever organized.
-The hub's count strip doubles as a colour legend for the row pills:
-each non-zero status bucket renders in its lifecycle colour
-(`active` blue, `completed` green, `closed early` amber,
-`pending activation` CRT-amber, `archived` grey — same palette as
-§6.5's lifecycle table).
+
+**Filter row.** Above the event list, a single row of pill-shaped
+filters narrows the list along two independent dimensions:
+
+- **Type** — `events` / `crypto` (`?type=event|crypto`). Hidden when
+  the user only has one type.
+- **Status** — `active` / `completed` / `closed` / `pending` /
+  `archived` (`?status=...`). Hidden buckets at zero count.
+
+Every pill is clickable; the active one fills with its lifecycle
+colour (`active` blue, `completed` green, `closed` amber, `pending`
+CRT-amber, `archived` grey — same palette as §6.5's lifecycle
+table) so the filter row doubles as a legend for the row pills.
+Clicking the active pill in either dimension clears that dimension;
+the two dimensions combine freely. Clicking the `archived` pill
+auto-includes archived events. Per-pill counts stay portfolio-wide
+so they communicate what each filter would yield.
 
 **Sign-in flow.** GET `/manage` with no session → email form. POST
 `/manage` → knowless `auth.login` mints a 15-minute single-use magic
