@@ -1460,15 +1460,6 @@ const MANAGE_HUB_CSS = `
 .mh .devlink { background: rgba(255,176,0,.08); border: 1px solid #ffb000; color: #ffb000;
                padding: 0.55rem 0.85rem; margin: 0 0 1rem; font-size: 0.85em; word-break: break-all; }
 .mh .devlink code { background: #0d1117; color: #ffb000; }
-.mh-counts { color: #8b949e; font-size: 0.85em; margin: 0 0 0.8rem; display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
-.mh-counts .legend { white-space: nowrap; display: inline-flex; align-items: center; gap: 0.4rem;
-                     padding: 0.18em 0.55em; border: 1px solid; line-height: 1.4; }
-.mh-counts .legend strong { font-weight: 700; }
-.mh-counts .legend.active { color: #58a6ff; border-color: #58a6ff; }
-.mh-counts .legend.completed { color: #3fb950; border-color: #3fb950; }
-.mh-counts .legend.closed { color: #d29922; border-color: #d29922; }
-.mh-counts .legend.pending { color: #ffb000; border-color: #ffb000; }
-.mh-counts .legend.archived { color: #6e7681; border-color: #6e7681; }
 .mh-pill { display:inline-block; padding:0.1em 0.45em; border-radius:0; font-size:0.65em; font-weight:600;
            text-transform:uppercase; letter-spacing:0.1em; border:1px solid; vertical-align:0.15em; margin-left:0.3em; }
 .mh-pill.open { background:#0d1117; color:#58a6ff; border-color:#58a6ff; }
@@ -1477,8 +1468,8 @@ const MANAGE_HUB_CSS = `
 .mh-pill.pending-activation { background:#0d1117; color:#ffb000; border-color:#ffb000; }
 .mh-pill.archived { background:#0d1117; color:#6e7681; border-color:#6e7681; }
 .mh .list .row .sub .muted { color: #6e7681; }
-.mh-top { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; margin: 0 0 0.4rem; }
-.mh-filter { display: flex; gap: 0.4rem; }
+.mh-filter-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 0.9rem; align-items: center; }
+.mh-filter-sep { width: 1px; height: 1.4em; background: #30363d; margin: 0 0.25rem; }
 .mh-filter-pill { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.7rem;
                   border: 1px solid #30363d; color: #8b949e; font-size: 0.78em; text-decoration: none;
                   text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; border-radius: 999px;
@@ -1487,10 +1478,17 @@ const MANAGE_HUB_CSS = `
 .mh-filter-pill .n { color: #6e7681; font-weight: 700; font-size: 0.92em; }
 .mh-filter-pill.active { color: #0d1117; background: #3fb950; border-color: #3fb950; }
 .mh-filter-pill.active .n { color: #0d1117; }
+/* Active state takes the lifecycle colour so it doubles as a legend
+   when filtered, matching the row pills (.mh-pill.*). */
+.mh-filter-pill.active.active   { background: #58a6ff; border-color: #58a6ff; }
+.mh-filter-pill.active.completed { background: #3fb950; border-color: #3fb950; }
+.mh-filter-pill.active.closed    { background: #d29922; border-color: #d29922; }
+.mh-filter-pill.active.pending   { background: #ffb000; border-color: #ffb000; }
+.mh-filter-pill.active.archived  { background: #6e7681; border-color: #6e7681; color: #0d1117; }
 .mh-filter-pill:focus-visible { outline: 2px solid #3fb950; outline-offset: 2px; }
 @media (max-width: 480px) {
-  .mh-top { flex-direction: column; align-items: flex-start; }
   .mh-filter-pill { padding: 0.2rem 0.55rem; font-size: 0.72em; }
+  .mh-filter-sep { display: none; }
 }
 `;
 
@@ -1531,7 +1529,11 @@ function summariseEvent(ev) {
   return { status, pillClass, progress, terminal, completed, closed, archived, pending };
 }
 
-async function renderSessionHub({ handle, auth, flash, showArchived = false, typeFilter = null }) {
+async function renderSessionHub({ handle, auth, flash, showArchived = false, typeFilter = null, statusFilter = null }) {
+  // Clicking the archived pill implicitly shows archived events,
+  // even if ?show=archived isn't in the URL. Keeps the pill row the
+  // single source of truth.
+  if (statusFilter === 'archived') showArchived = true;
   const findEventsByHandle = createEventFinder((email) => auth.deriveHandle(email));
   const all = await findEventsByHandle(handle);
   // Summarise once so both the top strip and row rendering see the
@@ -1552,11 +1554,24 @@ async function renderSessionHub({ handle, auth, flash, showArchived = false, typ
   const active = all.filter((ev) => !ev._summary.archived);
   const archived = all.filter((ev) => ev._summary.archived);
   let events = showArchived ? all : active;
-  // Type filter — pills in the hub header. typeFilter ∈ {null, 'event', 'crypto'}.
-  // Counts in the strip stay over the whole portfolio; only the row
-  // list narrows.
+  // Type filter — narrows the row list to one event type. Pill counts
+  // stay over the whole portfolio (so the user sees what the other
+  // filter would yield).
   if (typeFilter === 'event' || typeFilter === 'crypto') {
     events = events.filter((ev) => (ev.type === 'crypto' ? 'crypto' : 'event') === typeFilter);
+  }
+  // Status filter — narrows by lifecycle status (active/completed/
+  // closed/pending/archived). Same key set as summariseEvent's pill.
+  if (statusFilter) {
+    events = events.filter((ev) => {
+      const s = ev._summary;
+      if (statusFilter === 'active') return !s.completed && !s.closed && !s.archived && !s.pending;
+      if (statusFilter === 'completed') return !!s.completed;
+      if (statusFilter === 'closed') return !!s.closed;
+      if (statusFilter === 'pending') return !!s.pending;
+      if (statusFilter === 'archived') return !!s.archived;
+      return true;
+    });
   }
   const renderRow = (ev) => {
     const kind = ev.type === 'crypto' ? 'crypto' : 'event';
@@ -1607,14 +1622,38 @@ async function renderSessionHub({ handle, auth, flash, showArchived = false, typ
       </div>
     `;
   };
-  const countsStrip = all.length === 0 ? raw('') : html`
-    <p class="mh-counts">
-      ${counts.active ? html`<span class="legend active"><strong>${String(counts.active)}</strong> active</span>` : raw('')}
-      ${counts.completed ? html`<span class="legend completed"><strong>${String(counts.completed)}</strong> completed</span>` : raw('')}
-      ${counts.closed ? html`<span class="legend closed"><strong>${String(counts.closed)}</strong> closed early</span>` : raw('')}
-      ${counts.pending ? html`<span class="legend pending"><strong>${String(counts.pending)}</strong> pending activation</span>` : raw('')}
-      ${counts.archived ? html`<span class="legend archived"><strong>${String(counts.archived)}</strong> archived</span>` : raw('')}
-    </p>`;
+  // Unified filter row: type pills (events/crypto) + status pills
+  // (active/completed/closed/pending/archived). Same pill shape, all
+  // clickable. Each pill's href toggles its own dimension (clicking
+  // the active one clears it). Independent dimensions: a status
+  // filter coexists with a type filter via separate query params.
+  const buildHref = ({ type, status }) => {
+    const params = [];
+    if (type) params.push(`type=${type}`);
+    if (status) params.push(`status=${status}`);
+    // Preserve ?show=archived only when no status filter is active —
+    // a status filter sets its own visibility.
+    if (showArchived && status !== 'archived' && !statusFilter) params.push('show=archived');
+    return params.length ? `/manage?${params.join('&')}` : '/manage';
+  };
+  const typePill = (key, label, count) => count === 0 ? raw('') : html`
+    <a class="mh-filter-pill ${typeFilter === key ? `active ${key}` : ''}"
+       href="${typeFilter === key ? buildHref({ status: statusFilter }) : buildHref({ type: key, status: statusFilter })}">${label} <span class="n">${String(count)}</span></a>`;
+  const statusPill = (key, label, count) => count === 0 ? raw('') : html`
+    <a class="mh-filter-pill ${statusFilter === key ? `active ${key}` : ''}"
+       href="${statusFilter === key ? buildHref({ type: typeFilter }) : buildHref({ type: typeFilter, status: key })}">${label} <span class="n">${String(count)}</span></a>`;
+  const showTypePills = typeCounts.event > 0 && typeCounts.crypto > 0;
+  const filterRow = all.length === 0 ? raw('') : html`
+    <div class="mh-filter-row">
+      ${showTypePills ? typePill('event', 'events', typeCounts.event) : raw('')}
+      ${showTypePills ? typePill('crypto', 'crypto', typeCounts.crypto) : raw('')}
+      ${showTypePills ? html`<span class="mh-filter-sep" aria-hidden="true"></span>` : raw('')}
+      ${statusPill('active', 'active', counts.active)}
+      ${statusPill('completed', 'completed', counts.completed)}
+      ${statusPill('closed', 'closed', counts.closed)}
+      ${statusPill('pending', 'pending', counts.pending)}
+      ${statusPill('archived', 'archived', counts.archived)}
+    </div>`;
   const rows = events.length === 0
     ? (showArchived
         ? html`<div class="empty">No events (including archived). <a href="/events/new">Create one</a>.</div>`
@@ -1625,33 +1664,13 @@ async function renderSessionHub({ handle, auth, flash, showArchived = false, typ
     : (showArchived
         ? html`<p class="hint" style="margin:0.4rem 0 1rem"><a href="/manage" style="color:#8b949e">← hide archived</a></p>`
         : html`<p class="hint" style="margin:0.4rem 0 1rem"><a href="/manage?show=archived" style="color:#8b949e">show ${String(archived.length)} archived</a></p>`);
-  // Pills preserve ?show=archived. Toggle off by clicking the active
-  // pill (link to the unfiltered URL). Built only when the user has at
-  // least one of each type — otherwise the filter is meaningless.
-  const baseQS = showArchived ? 'show=archived' : '';
-  const pillHref = (t) => {
-    const parts = [baseQS, `type=${t}`].filter(Boolean);
-    return parts.length ? `/manage?${parts.join('&')}` : '/manage';
-  };
-  const clearHref = baseQS ? `/manage?${baseQS}` : '/manage';
-  const filterPills = (typeCounts.event > 0 && typeCounts.crypto > 0)
-    ? html`<div class="mh-filter">
-        <a class="mh-filter-pill ${typeFilter === 'event' ? 'active' : ''}"
-           href="${typeFilter === 'event' ? clearHref : pillHref('event')}">events <span class="n">${String(typeCounts.event)}</span></a>
-        <a class="mh-filter-pill ${typeFilter === 'crypto' ? 'active' : ''}"
-           href="${typeFilter === 'crypto' ? clearHref : pillHref('crypto')}">crypto <span class="n">${String(typeCounts.crypto)}</span></a>
-      </div>`
-    : raw('');
   return html`
     <style>${raw(MANAGE_HUB_CSS)}</style>
     <div class="mh">
-      <div class="mh-top">
-        <p style="margin:0"><a href="/" style="color:#8b949e;font-size:0.88em">← back</a></p>
-        ${filterPills}
-      </div>
-      <p style="margin:0.4rem 0 1rem;color:#8b949e;font-size:0.9em">Every event and crypto you've organised. Open one to send reminders, view replies, or close it.</p>
+      <p style="margin:0 0 0.4rem"><a href="/" style="color:#8b949e;font-size:0.88em">← back</a></p>
+      <p style="margin:0 0 1rem;color:#8b949e;font-size:0.9em">Every event and crypto you've organised. Open one to send reminders, view replies, or close it.</p>
       ${flash ? html`<div class="flash">${flash}</div>` : raw('')}
-      ${countsStrip}
+      ${filterRow}
       ${rows}
       ${toggle}
       <p class="logout">
@@ -1698,6 +1717,10 @@ router.get('/manage', async (req, res) => {
         typeFilter: (() => {
           const t = u.searchParams.get('type');
           return t === 'event' || t === 'crypto' ? t : null;
+        })(),
+        statusFilter: (() => {
+          const s = u.searchParams.get('status');
+          return ['active', 'completed', 'closed', 'pending', 'archived'].includes(s) ? s : null;
         })(),
       }),
     }));

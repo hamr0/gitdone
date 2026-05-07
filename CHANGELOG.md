@@ -15,23 +15,34 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
-### Manage hub: events / crypto type-filter pills
+### Manage hub: unified filter row — type + status pills, all clickable
 
-The hub at `/manage` now renders two pill-shaped clickable filters in
-the top-right of the header — `events <N>` and `crypto <N>` — when
-the user has at least one of each type. Clicking a pill narrows the
-list to that event type via a `?type=event` / `?type=crypto` query
-string; clicking the active pill again clears the filter. The
-existing `?show=archived` parameter is preserved across pill clicks.
+The `/manage` hub now renders a single row of pill-shaped filters
+above the event list, replacing the previous split (clickable type
+pills in the header + a separate read-only status legend strip).
+Every pill — `events`, `crypto`, `active`, `completed`, `closed`,
+`pending`, `archived` — is the same shape and clickable.
 
-- Pills follow the terminal theme: outlined when inactive, solid CRT
-  green `#3fb950` when active. Each carries the per-type count.
-- Counts in the existing summary strip (active / completed / closed
-  / pending / archived) stay over the whole portfolio — they're a
-  status legend, not a per-filter breakdown.
-- Mobile-responsive: pills stack below the back link below 480px.
-- Hidden when the user only has one event type; no point offering a
-  filter that does nothing.
+- **Two independent dimensions.** `?type=event|crypto` and
+  `?status=active|completed|closed|pending|archived` filter the row
+  list independently; you can combine them. Clicking the active
+  pill in either dimension clears that dimension.
+- **Active pill takes the lifecycle colour.** When inactive, every
+  pill is outlined grey. When active, it fills with the matching
+  status colour (blue for active, green for completed, amber for
+  closed, CRT-amber for pending, grey for archived) — the row
+  pills already use this palette, so the filter doubles as a
+  legend.
+- **Archived auto-includes the archived view.** Clicking the
+  `archived` pill flips `showArchived = true` regardless of the
+  `?show=archived` query string. The bottom show/hide toggle stays
+  for users who want the unfiltered combined list.
+- **Type pills hidden when only one type exists.** Status pills
+  hidden when their count is zero. No filters that do nothing.
+- **Counts are portfolio-wide, not per-filter** — they tell you
+  what each filter would yield.
+- Mobile-responsive (wraps below 480px; vertical separator hidden).
+- Per-pill counts.
 
 ### QA deferred items — DKIM fixture, overrides smoke test, byte-strict pin, EADDRINUSE guard
 
