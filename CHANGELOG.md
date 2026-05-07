@@ -15,6 +15,19 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Attestation reply ack: subject carries the [counted/threshold] tag
+
+Workflow step acks have always shown `[stepIdx/totalSteps]` at the end
+of the subject so the participant sees their position at a glance.
+Crypto attestations now do the same — `[gitdone] Attestation reply
+recorded — "<title>" [1/2]`. Locking dedups (unique/latest) cap at
+threshold by construction; **accumulating dedup is allowed to
+overshoot** by design (the audit trail keeps counting after the
+threshold lands), and the subject reflects that — `[3/2]`, `[5/2]`,
+etc — paired with the existing `Replies so far: 5 (threshold of 2
+reached on …)` body tail. Test coverage added for the 1st and 2nd
+ack and for the 5th-of-2 overshoot case.
+
 ### Attestation reply ack: off-by-one fix on the reply count
 
 The participant ack returned to a counted attestation reply read

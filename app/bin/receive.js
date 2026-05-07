@@ -976,9 +976,17 @@ async function main() {
         const reachedThreshold = lockingDedup
           ? !!completion.completed_event
           : (!!event.threshold_reached_at);
+        // Mirror the workflow step counter ([1/N]) on attestation
+        // subjects so the participant sees their position at a glance.
+        // Locking dedups (unique/latest) cap at threshold by definition;
+        // accumulating dedup is allowed to overshoot — [5/2] is a valid,
+        // intentional shape that reads as "5 counted, threshold was 2".
+        const counterTag = event.threshold
+          ? ` [${counted}/${event.threshold}]`
+          : '';
         subject = (lockingDedup && reachedThreshold)
-          ? `[gitdone] Attestation complete — ${event.title}`
-          : `[gitdone] Attestation reply recorded — ${event.title}`;
+          ? `[gitdone] Attestation complete — ${event.title}${counterTag}`
+          : `[gitdone] Attestation reply recorded — ${event.title}${counterTag}`;
         let tail;
         if (lockingDedup && reachedThreshold) {
           tail = `Threshold reached (${event.threshold}). The audit trail is sealed.`;

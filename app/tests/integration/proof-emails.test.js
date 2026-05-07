@@ -250,6 +250,8 @@ test('integration: attestation reply ack reflects the just-counted reply (no off
     const ack1 = await findAck('alice@ex.com');
     assert.match(ack1, /Replies so far: 1\/3/);
     assert.doesNotMatch(ack1, /Replies so far: 0\/3/);
+    // Subject carries the [counted/threshold] tag (workflow-style).
+    assert.match(ack1, /Subject: \[gitdone\] Attestation reply recorded — tell me that you know me \[1\/3\]/);
 
     const eml2 = buildEml([
       'From: bob@ex.com', 'To: event+att01@git-done.com', 'Subject: same here',
@@ -261,6 +263,58 @@ test('integration: attestation reply ack reflects the just-counted reply (no off
     const ack2 = await findAck('bob@ex.com');
     assert.match(ack2, /Replies so far: 2\/3/);
     assert.doesNotMatch(ack2, /Replies so far: 1\/3/);
+    assert.match(ack2, /Subject: \[gitdone\] Attestation reply recorded — tell me that you know me \[2\/3\]/);
+  } finally {
+    delete process.env.GITDONE_OTS_BIN;
+    delete process.env.GITDONE_SENDMAIL_BIN;
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('integration: accumulating attestation subject keeps counting past threshold (e.g. [5/2])', async () => {
+  // Accumulating dedup never locks at threshold — it keeps counting and
+  // every additional reply gets its own ack with a counter that
+  // overshoots: [3/2], [4/2], [5/2]. Locking dedups (unique/latest) cap
+  // at threshold by construction so they never produce overshot tags.
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-att-overshoot-'));
+  try {
+    const { fake, captureDir } = makeFakeSendmail(tmp);
+    await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
+    await fs.writeFile(path.join(tmp, 'events', 'over01.json'), JSON.stringify({
+      id: 'over01', type: 'crypto', mode: 'attestation',
+      title: 'how many know me',
+      min_trust_level: 'unverified',
+      initiator: 'org@ex.com',
+      threshold: 2, dedup: 'accumulating',
+      salt: 'salt-over-01',
+      activated_at: '2026-01-01T00:00:00Z',
+      replies: [],
+    }));
+
+    const senders = ['a1@ex.com', 'a2@ex.com', 'a3@ex.com', 'a4@ex.com', 'a5@ex.com'];
+    for (const s of senders) {
+      const eml = buildEml(['From: ' + s, 'To: event+over01@git-done.com', 'Subject: ack']);
+      const r = await runReceive(eml,
+        ['1.2.3.4', 'ex.com', s, 'event+over01@git-done.com'],
+        { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
+      assert.equal(r.code, 0, r.stderr);
+    }
+
+    const captures = await fs.readdir(captureDir);
+    const ackFor = async (sender) => {
+      const tag = sender.replace('@', '_at_').replace(/[^a-zA-Z0-9._-]/g, '_');
+      for (const f of captures.filter((n) => n.endsWith('.eml') && n.includes(tag))) {
+        const txt = await fs.readFile(path.join(captureDir, f), 'utf8');
+        if (/Attestation reply recorded/.test(txt)) return txt;
+      }
+      throw new Error(`no ack for ${sender}`);
+    };
+
+    // 5th sender's ack should carry [5/2] in the subject and a body
+    // tail that flags the overshoot ("threshold of 2 reached on …").
+    const ack5 = await ackFor('a5@ex.com');
+    assert.match(ack5, /Subject: \[gitdone\] Attestation reply recorded — how many know me \[5\/2\]/);
+    assert.match(ack5, /Replies so far: 5 \(threshold of 2 reached on \d{4}-\d{2}-\d{2}\)/);
   } finally {
     delete process.env.GITDONE_OTS_BIN;
     delete process.env.GITDONE_SENDMAIL_BIN;
