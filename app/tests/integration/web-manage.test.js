@@ -583,3 +583,115 @@ test('GET /manage/event/:id (complete workflow) renders the trust strip + ladder
   // is dimmed grey.
   assert.match(view.body, /data-level="forwarded"[^>]*background:#58a6ff/);
 });
+
+test('GET /manage/event/:id (workflow with attachments) renders the green attach pill + filenames in the receipt drawer', async () => {
+  const eventId = 'proattw1';
+  const event = {
+    id: eventId, type: 'event',
+    title: 'workflow-attach-render',
+    initiator: 'attowner@example.com',
+    salt: 'salt-paw',
+    activated_at: '2026-01-01T00:00:00Z',
+    steps: [
+      { id: 's1', name: 'Sign', participant: 's1@example.com', status: 'complete', commit_sequence: 1, completed_at: '2026-04-15T10:00:00Z', depends_on: [] },
+    ],
+    completion: { status: 'complete', completed_at: '2026-04-15T10:00:00Z', commit_sequence: 1 },
+  };
+  await fsp.mkdir(path.join(tmp, 'events'), { recursive: true });
+  await fsp.writeFile(path.join(tmp, 'events', `${eventId}.json`), JSON.stringify(event));
+  const repoCommitsDir = path.join(tmp, 'repos', eventId, 'commits');
+  await fsp.mkdir(repoCommitsDir, { recursive: true });
+  await fsp.writeFile(path.join(repoCommitsDir, 'commit-001.json'), JSON.stringify({
+    schema_version: 2, event_id: eventId, step_id: 's1', sequence: 1,
+    received_at: '2026-04-15T10:00:00Z', sender_domain: 'example.com',
+    trust_level: 'verified',
+    dkim: { signatures: [{ result: 'pass', domain: 'example.com', selector: 'g1', algorithm: 'rsa-sha256', aligned: true }] },
+    spf: { result: 'pass' }, dmarc: { result: 'pass' }, arc: { result: 'none', chain_length: 0 },
+    raw_sha256: 'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    ots_proof_file: 'ots_proofs/commit-001.ots',
+    attachments: [
+      { filename: 'contract.pdf', sha256: 'sha256:aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff66667777888899990000', size: 102400 },
+    ],
+  }));
+
+  const cookie = mintCookie('attowner@example.com');
+  const view = await get(`/manage/event/${eventId}`, cookie);
+  assert.equal(view.status, 200);
+  // Green attach pill rides next to the trust pill on the row.
+  assert.match(view.body, /trust-pill attach-pill/);
+  assert.match(view.body, /📎 1/);
+  // Filename + truncated hash + size land in the receipt drawer.
+  assert.match(view.body, /contract\.pdf/);
+  assert.match(view.body, /sha256:aaaa…0000/);
+  assert.match(view.body, /100\.0 KB/);
+});
+
+test('GET /manage hub renders the unified filter row with non-zero buckets and lifecycle-coloured CSS', async () => {
+  // Three events under one owner with three different statuses.
+  // Confirms the filter-row pill shape (M-3 from review: no prior
+  // coverage of the unified filter row added in commit 1611ad7).
+  const owner = 'huber@example.com';
+  const eventsDir = path.join(tmp, 'events');
+  await fsp.mkdir(eventsDir, { recursive: true });
+  await fsp.writeFile(path.join(eventsDir, 'hubactive.json'), JSON.stringify({
+    id: 'hubactive', type: 'event', title: 'Active', initiator: owner,
+    created_at: '2026-04-15T10:00:00Z', activated_at: '2026-04-15T10:00:00Z',
+    steps: [{ id: 's1', name: 'A', participant: 'p@example.com', status: 'pending', depends_on: [] }],
+  }));
+  await fsp.writeFile(path.join(eventsDir, 'hubcomplete.json'), JSON.stringify({
+    id: 'hubcomplete', type: 'event', title: 'Done', initiator: owner,
+    created_at: '2026-04-14T10:00:00Z', activated_at: '2026-04-14T10:00:00Z',
+    steps: [{ id: 's1', name: 'A', participant: 'p@example.com', status: 'complete', depends_on: [] }],
+    completion: { status: 'complete', completed_at: '2026-04-14T11:00:00Z' },
+  }));
+  await fsp.writeFile(path.join(eventsDir, 'hubpending.json'), JSON.stringify({
+    id: 'hubpending', type: 'event', title: 'Wait', initiator: owner,
+    created_at: '2026-04-16T10:00:00Z',
+    steps: [{ id: 's1', name: 'A', participant: 'p@example.com', status: 'pending', depends_on: [] }],
+  }));
+  const view = await get('/manage', mintCookie(owner));
+  assert.equal(view.status, 200);
+  // Filter row renders one pill per non-zero bucket.
+  assert.match(view.body, /<div class="mh-filter-row">/);
+  assert.match(view.body, /class="mh-filter-pill[^"]*"[^>]*>active <span class="n">1<\/span>/);
+  assert.match(view.body, /class="mh-filter-pill[^"]*"[^>]*>completed <span class="n">1<\/span>/);
+  assert.match(view.body, /class="mh-filter-pill[^"]*"[^>]*>pending <span class="n">1<\/span>/);
+  // Zero-count buckets stay out of the row.
+  assert.doesNotMatch(view.body, />closed <span class="n">/);
+  assert.doesNotMatch(view.body, />archived <span class="n">/);
+  // Lifecycle colours are wired so the active filter doubles as a legend.
+  assert.match(view.body, /\.mh-filter-pill\.active\.active\s*\{\s*background:\s*#58a6ff/);
+  assert.match(view.body, /\.mh-filter-pill\.active\.completed\s*\{\s*background:\s*#3fb950/);
+  assert.match(view.body, /\.mh-filter-pill\.active\.pending\s*\{\s*background:\s*#ffb000/);
+  // Cleanup so neighbouring tests don't see these fixtures.
+  for (const f of ['hubactive.json', 'hubcomplete.json', 'hubpending.json']) {
+    await fsp.unlink(path.join(eventsDir, f));
+  }
+});
+
+test('GET /manage?status=completed activates the matching pill and filters the list', async () => {
+  const owner = 'huber2@example.com';
+  const eventsDir = path.join(tmp, 'events');
+  await fsp.mkdir(eventsDir, { recursive: true });
+  await fsp.writeFile(path.join(eventsDir, 'hubfact1.json'), JSON.stringify({
+    id: 'hubfact1', type: 'event', title: 'Active1', initiator: owner,
+    created_at: '2026-04-15T10:00:00Z', activated_at: '2026-04-15T10:00:00Z',
+    steps: [{ id: 's1', name: 'A', participant: 'p@example.com', status: 'pending', depends_on: [] }],
+  }));
+  await fsp.writeFile(path.join(eventsDir, 'hubfdone1.json'), JSON.stringify({
+    id: 'hubfdone1', type: 'event', title: 'Done1', initiator: owner,
+    created_at: '2026-04-14T10:00:00Z', activated_at: '2026-04-14T10:00:00Z',
+    steps: [{ id: 's1', name: 'A', participant: 'p@example.com', status: 'complete', depends_on: [] }],
+    completion: { status: 'complete', completed_at: '2026-04-14T11:00:00Z' },
+  }));
+  const view = await get('/manage?status=completed', mintCookie(owner));
+  assert.equal(view.status, 200);
+  // The completed pill is in its `active completed` state — fills with green.
+  assert.match(view.body, /class="mh-filter-pill active completed"/);
+  // Only the matching event title is in the list.
+  assert.match(view.body, /Done1/);
+  assert.doesNotMatch(view.body, />Active1</);
+  for (const f of ['hubfact1.json', 'hubfdone1.json']) {
+    await fsp.unlink(path.join(eventsDir, f));
+  }
+});

@@ -601,10 +601,13 @@ Max-Age. Sign-out deletes the session row.
 - Timeline — commits with Message-ID, DKIM status, OTS anchor state
 - Attachment fingerprints (filename + truncated SHA-256) surface
   inline whenever a counted reply carried files. Workflow rows show
-  a green `📎 N` pill next to the trust pill; crypto attestation
-  ledger rows show the same pill, with a per-attachment list inside
-  the receipt drawer. The PDFs themselves are NOT stored — only the
-  hashes — so this is a verification index, not a download link
+  a green `📎 N` pill **at the row level, next to the DKIM-VERIFIED
+  trust pill** — visible without expanding anything; clicking either
+  pill expands the proof drawer, which lists each attachment's
+  filename + truncated hash + size. Crypto attestation ledger rows
+  show the same row-level pill, with the per-attachment list rendered
+  as a sub-row underneath. The PDFs themselves are NOT stored — only
+  the hashes — so this is a verification index, not a download link
   (use the proof bundle + `verify+` for byte-level recovery).
 - "Send reminders" button → `executeRemind`
 - "Close event" button → `executeClose` + `commitCompletion`

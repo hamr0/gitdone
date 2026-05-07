@@ -60,6 +60,7 @@ const {
   renderProofReceipt,
   renderAttachmentPill,
   truncHash,
+  formatBytes,
   aggregateTrust,
   TRUST_COLOR,
   TRUST_LABEL,
@@ -2349,6 +2350,8 @@ details.proof-details[open] summary::after { content:' \\25b4'; }
               font-size:0.62rem; letter-spacing:0.05em; text-transform:uppercase;
               vertical-align:middle; margin-left:0.4rem; cursor:pointer; }
 .trust-pill[data-step] { user-select:none; }
+.trust-pill[data-step]:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
+.trust-pill.attach-pill { letter-spacing:0; padding:0.04em 0.4em; }
 .mg-steps tr.mg-proof-row td { background:#0d1117; padding:0.4rem 0.7rem 0.55rem;
                                border-bottom:1px solid #30363d; }
 @media (max-width:540px) {
@@ -2502,9 +2505,12 @@ function renderAttestationHero(event, commits) {
               ${atts.length ? html`
                 <div class="proof-row" style="padding-left:1.2rem;color:#8b949e;font-size:0.85em">
                   <div style="display:flex;flex-direction:column;gap:0.15rem">
-                    ${atts.map((a, i) => html`
-                      <div><code>${a.filename || `attachment-${String(i + 1)}`}</code> <span class="mg-receipt-mono">${truncHash(a.sha256)}</span></div>
-                    `)}
+                    ${atts.map((a, i) => {
+                      const sz = formatBytes(a.size);
+                      return html`
+                      <div><code>${a.filename || `attachment-${String(i + 1)}`}</code> <span class="mg-receipt-mono">${truncHash(a.sha256)}</span>${sz ? html` <span style="color:#6e7681">· ${sz}</span>` : raw('')}</div>
+                    `;
+                    })}
                   </div>
                 </div>
               ` : raw('')}
@@ -2688,23 +2694,33 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
         (function(){
           var tbl = document.querySelector('.mg-steps');
           if (!tbl) return;
-          tbl.addEventListener('click', function(e){
-            // Trust pill → toggle the matching mg-proof-row drawer.
+          // Single handler dispatched from both click + keydown so
+          // keyboard users (Tab + Enter/Space) can toggle the same
+          // drawers as mouse users.
+          function handle(e){
+            if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+            // Trust / attach pill → toggle the matching mg-proof-row.
+            // Both pills on a step share data-step, so we sync
+            // aria-expanded across all of them after toggling.
             var pill = e.target.closest('.trust-pill[data-step]');
             if (pill) {
+              if (e.type === 'keydown') e.preventDefault();
               var pid = pill.dataset.step;
               var prow = tbl.querySelector('tr.mg-proof-row[data-step="' + pid + '"]');
               if (prow) {
                 var pwasOpen = !prow.hasAttribute('hidden');
                 if (pwasOpen) prow.setAttribute('hidden', '');
                 else prow.removeAttribute('hidden');
-                pill.setAttribute('aria-expanded', pwasOpen ? 'false' : 'true');
+                var nowOpen = !pwasOpen ? 'true' : 'false';
+                var pills = tbl.querySelectorAll('.trust-pill[data-step="' + pid + '"]');
+                for (var i = 0; i < pills.length; i++) pills[i].setAttribute('aria-expanded', nowOpen);
               }
               return;
             }
             // Pre-existing details-toggle button.
             var btn = e.target.closest('[data-step]');
             if (!btn || btn.tagName !== 'BUTTON') return;
+            if (e.type === 'keydown') e.preventDefault();
             var id = btn.dataset.step;
             var row = tbl.querySelector('tr.mg-details-row[data-step="' + id + '"]');
             if (!row) return;
@@ -2712,7 +2728,9 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
             if (open) row.removeAttribute('hidden');
             else row.setAttribute('hidden', '');
             btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-          });
+          }
+          tbl.addEventListener('click', handle);
+          tbl.addEventListener('keydown', handle);
         })();
       `)}</script>
     `;

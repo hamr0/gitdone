@@ -46,6 +46,11 @@ function truncHash(sha) {
   return `sha256:${noPrefix.slice(0, 4)}…${noPrefix.slice(-4)}`;
 }
 
+// Returns empty string for 0 / negative / non-numeric so callers can
+// short-circuit "· N B" output without a separate guard. A 0-byte
+// attachment is uninteresting noise — caller decides whether to show
+// a placeholder (we don't, since the dashboard already distinguishes
+// "no size data" from "empty file" by the absence of the row).
 function formatBytes(n) {
   const x = Number(n);
   if (!Number.isFinite(x) || x <= 0) return '';

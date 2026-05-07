@@ -187,6 +187,48 @@ test('renderProofReceipt omits attachment block when none recorded', () => {
   assert.doesNotMatch(html, /Attachments/);
 });
 
+test('renderProofReceipt handles legacy commits with attachments=undefined', () => {
+  const commit = {
+    raw_sha256: 'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    trust_level: 'verified',
+    dkim: { signatures: [{ result: 'pass', domain: 'example.com' }] },
+    spf: { result: 'pass' }, dmarc: { result: 'pass' }, arc: { result: 'none' },
+  };
+  const html = renderProofReceipt(commit, 'abc123').html;
+  assert.doesNotMatch(html, /Attachments/);
+});
+
+test('renderProofReceipt falls back gracefully on null filename + missing sha256', () => {
+  const commit = {
+    raw_sha256: 'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    trust_level: 'verified',
+    dkim: { signatures: [{ result: 'pass', domain: 'example.com' }] },
+    spf: { result: 'pass' }, dmarc: { result: 'pass' }, arc: { result: 'none' },
+    attachments: [
+      { filename: null, sha256: null, size: 0 },
+    ],
+  };
+  const html = renderProofReceipt(commit, 'abc123').html;
+  assert.match(html, /attachment-1/);
+  assert.match(html, /—/);
+  assert.doesNotMatch(html, /undefined/);
+});
+
+test('renderProofReceipt escapes malicious filenames (XSS defense)', () => {
+  const commit = {
+    raw_sha256: 'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    trust_level: 'verified',
+    dkim: { signatures: [{ result: 'pass', domain: 'example.com' }] },
+    spf: { result: 'pass' }, dmarc: { result: 'pass' }, arc: { result: 'none' },
+    attachments: [
+      { filename: '<script>alert(1)</script>.pdf', sha256: 'sha256:abcd', size: 100 },
+    ],
+  };
+  const html = renderProofReceipt(commit, 'abc123').html;
+  assert.doesNotMatch(html, /<script>alert/);
+  assert.match(html, /&lt;script&gt;/);
+});
+
 test('renderAttachmentPill renders green paperclip + count, hidden when count is zero', () => {
   const empty = renderAttachmentPill({ count: 0, stepId: 's1' }).html;
   assert.equal(empty, '');

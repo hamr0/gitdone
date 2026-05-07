@@ -15,6 +15,53 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Review-pass follow-up on attachment surfacing — a11y + edge cases
+
+Code-review pass on the attachment surfacing landed two days ago
+(workflow `📎 N` pill + crypto ledger sub-row + receipt drawer)
+flagged a pair of accessibility gaps and a handful of minor
+loose ends. All addressed:
+
+- **Keyboard activation on the trust + attach pills.** The pills
+  carry `role="button" tabindex="0" aria-expanded="false"` so screen
+  readers announce them as toggles, but the dashboard listener was
+  click-only — keyboard users tabbing to a pill couldn't open the
+  proof drawer. Single dispatch handler now covers `click` and
+  `keydown` (Enter / Space). WCAG 2.1.1.
+- **`aria-expanded` synced across both pills sharing one drawer.**
+  When a workflow row has both pills, opening the drawer via either
+  pill now flips `aria-expanded` on every pill that targets that
+  drawer — previously the un-clicked pill desynced.
+- **`focus-visible` outline** on the togglable pills (2px solid
+  currentColor, offset 2px) so keyboard focus is visible on the
+  charcoal background.
+- **`.attach-pill` CSS rule** tightens the paperclip pill (no
+  letter-spacing, slightly tighter padding) — was a dead class
+  before, now does shape work distinct from the trust pill.
+- **File size on the crypto ledger sub-row.** The workflow drawer
+  showed `filename · sha256 · 100.0 KB`; the crypto sub-row was
+  missing the size. Both surfaces now render the same shape.
+- **`formatBytes(0)`** returns empty string by design — comment in
+  the helper documents the choice (callers short-circuit the row
+  rather than rendering "0 B" which would just be noise).
+
+Test coverage broadened (M-3 from the review):
+
+- `attachments` is `undefined` (legacy commits before the field
+  existed) — receipt renders no `Attachments` section.
+- `null` filename + missing `sha256` — falls back to
+  `attachment-N` and `—`; never renders `undefined`.
+- Malicious filename like `<script>alert(1)</script>.pdf` — escaped
+  to `&lt;script&gt;`; XSS defense locked in.
+- Integration test for the workflow attach pill + filename + hash
+  + size in the receipt drawer.
+- Integration tests for the unified filter row (no prior coverage):
+  one asserts non-zero buckets render with lifecycle colours wired,
+  another asserts `?status=completed` activates the pill and
+  filters the list.
+
+474 tests pass (371 unit + 103 integration).
+
 ### Manage hub: unified filter row — type + status pills, all clickable
 
 The `/manage` hub now renders a single row of pill-shaped filters
@@ -110,26 +157,24 @@ they were invisible in the UI. Now surfaced wherever they're useful:
   `commits/commit-NNN.json`; `gitdone-verify` matches against them
   when the user supplies the original file via `verify+`.
 
-`/manage` hub got a small but related upgrade:
-
-- **Status legend.** The count strip at the top of the hub
-  (`13 active · 2 completed · 2 closed early · 7 pending activation`)
-  now renders each non-zero bucket as a small outlined box in its
-  lifecycle colour — same palette as §6.5's lifecycle table:
-  `active` blue, `completed` green, `closed early` amber,
-  `pending activation` CRT-amber, `archived` grey. Doubles as a
-  legend for the row pills, so organisers can read the palette at
-  a glance instead of cross-referencing.
+A short-lived intermediate `/manage` hub legend (count strip with
+lifecycle-coloured pills) shipped alongside this work and was
+superseded the same day by the unified filter row above —
+see "Manage hub: unified filter row" entry. The lifecycle palette
+introduced here carried forward.
 
 Frozen design ref updated:
 `docs/01-product/design/proof-surfacing-v1.md` documents the
 `renderAttachmentPill` helper and the receipt-block format.
-PRD §6.2 updated with the dashboard attachment-surfacing bullet
-and the hub legend description.
+PRD §6.2 dashboard bullet describes the attachment surface.
 
-464 tests pass (367 unit + 97 integration). Five new unit tests
-in `proof-render.test.js` cover the pill, the receipt block, the
-ASCII attachment lines in `plainReceipt`, and `formatBytes`.
+Follow-up review pass added: keyboard activation (Enter/Space)
+and `aria-expanded` sync on the trust + attach pills, focus-visible
+outline, an `.attach-pill` CSS rule, attachment file size also shown
+on the crypto ledger sub-row, and tests covering legacy
+`attachments=undefined`, null filename, missing sha256, malicious
+filename (XSS-defense), and integration coverage of the workflow
+attach pill + filter-row rendering.
 
 ### QA review fixes — mutex parity, accumulating OTS email, click-to-copy a11y
 
