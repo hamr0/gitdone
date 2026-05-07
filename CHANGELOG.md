@@ -15,6 +15,21 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Attestation reply ack: off-by-one fix on the reply count
+
+The participant ack returned to a counted attestation reply read
+`event.replies` from the *pre-update* event snapshot, so the first
+reply against threshold=2 said `Replies so far: 0/2` instead of
+`1/2`, the second `1/2` instead of `2/2`, and so on — every ack
+was off by one. The handler now hoists the post-update event from
+`updateEventAtomic` into the outer `event` binding so the receipt
+sees the just-applied reply. New regression test
+(`attestation reply ack reflects the just-counted reply`) covers
+both the first and second reply, with `assert.doesNotMatch` against
+the off-by-one strings to lock the fix in. Workflow and declaration
+ack paths were already correct (they don't read `event.replies`);
+only attestation receipts were affected.
+
 ### OTS-anchored state surfaced on the manage page
 
 The 6h OTS-upgrade worker has always upgraded calendar-pending proofs

@@ -202,3 +202,68 @@ exit 0
     await fs.rm(tmp, { recursive: true, force: true });
   }
 });
+
+test('integration: attestation reply ack reflects the just-counted reply (no off-by-one)', async () => {
+  // Regression: the participant ack used to be rendered against the
+  // pre-update event snapshot, so the first reply against threshold=N
+  // showed "Replies so far: 0/N" and so on. Now the ack reads the
+  // post-update event and reports 1/N, 2/N, ...
+  //
+  // dedup=accumulating sidesteps the unique/latest "DKIM-verified
+  // required" gate so we can test the receipt arithmetic without
+  // standing up a DKIM-signing fixture. The off-by-one was in the
+  // receipt-render path, not in dedup, so accumulating exercises the
+  // same code (ack tail "Replies so far: X/N").
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-att-ack-'));
+  try {
+    const { fake, captureDir } = makeFakeSendmail(tmp);
+    await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
+    await fs.writeFile(path.join(tmp, 'events', 'att01.json'), JSON.stringify({
+      id: 'att01', type: 'crypto', mode: 'attestation',
+      title: 'tell me that you know me',
+      min_trust_level: 'unverified',
+      initiator: 'org@ex.com',
+      threshold: 3, dedup: 'accumulating',
+      salt: 'salt-att-01',
+      activated_at: '2026-01-01T00:00:00Z',
+      replies: [],
+    }));
+
+    const findAck = async (sender) => {
+      const captures = await fs.readdir(captureDir);
+      const tag = sender.replace('@', '_at_').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const matches = captures.filter((n) => n.endsWith('.eml') && n.includes(tag));
+      for (const f of matches) {
+        const txt = await fs.readFile(path.join(captureDir, f), 'utf8');
+        if (/Attestation (reply recorded|complete)/.test(txt)) return txt;
+      }
+      throw new Error(`no ack to ${sender} in ${matches.join(', ')}`);
+    };
+
+    const eml1 = buildEml([
+      'From: alice@ex.com', 'To: event+att01@git-done.com', 'Subject: i know you',
+    ]);
+    const r1 = await runReceive(eml1,
+      ['1.2.3.4', 'ex.com', 'alice@ex.com', 'event+att01@git-done.com'],
+      { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
+    assert.equal(r1.code, 0, r1.stderr);
+    const ack1 = await findAck('alice@ex.com');
+    assert.match(ack1, /Replies so far: 1\/3/);
+    assert.doesNotMatch(ack1, /Replies so far: 0\/3/);
+
+    const eml2 = buildEml([
+      'From: bob@ex.com', 'To: event+att01@git-done.com', 'Subject: same here',
+    ]);
+    const r2 = await runReceive(eml2,
+      ['1.2.3.4', 'ex.com', 'bob@ex.com', 'event+att01@git-done.com'],
+      { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
+    assert.equal(r2.code, 0, r2.stderr);
+    const ack2 = await findAck('bob@ex.com');
+    assert.match(ack2, /Replies so far: 2\/3/);
+    assert.doesNotMatch(ack2, /Replies so far: 1\/3/);
+  } finally {
+    delete process.env.GITDONE_OTS_BIN;
+    delete process.env.GITDONE_SENDMAIL_BIN;
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});

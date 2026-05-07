@@ -790,6 +790,13 @@ async function main() {
         applied = applyReply(current, commitSummary, { now: receivedAt });
         return applied && applied.applied ? applied.event : null;
       }, { syncMessage: `reply ${seqStr} counted:${stepLabel || ' attestation'}` });
+      // Hoist the post-update state to the outer `event` binding so the
+      // participant receipt below reads the just-counted reply. Without
+      // this the attestation ack rendered "Replies so far: 0/N" because
+      // it was reading the pre-update snapshot loaded at the top of the
+      // handler. updateEventAtomic always returns a defined event
+      // (the original on changed=false, the updated copy on changed=true).
+      event = nextEvent;
       completion = {
         applied: applied ? applied.applied : false,
         decision: applied ? applied.decision : null,
