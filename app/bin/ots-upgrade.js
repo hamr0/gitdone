@@ -71,6 +71,37 @@ function otsUpgrade(file, { binary = OTS_BIN, timeoutMs = UPGRADE_TIMEOUT_MS } =
   };
 }
 
+// Parse Bitcoin block height from `ots info` stdout. opentimestamps-client
+// has used a few output shapes over its lifetime; we accept the common ones
+// and return the first match. Returns null when no anchor is present
+// (calendar-only proof) or the format is unrecognised — callers fall back
+// to "anchored to Bitcoin" without a number.
+function parseOtsBlockHeight(stdout) {
+  if (!stdout) return null;
+  const patterns = [
+    /Bitcoin\s+block\s+(?:height\s+)?(\d+)/i,           // "Bitcoin block 850123"
+    /Block\s+height[:\s]+(\d+)/i,                        // "Block height: 850123"
+    /BitcoinBlockHeaderAttestation[^]*?\b(\d{6,})\b/i,   // attestation node + first 6+ digit run
+  ];
+  for (const re of patterns) {
+    const m = stdout.match(re);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+  }
+  return null;
+}
+
+// Read the Bitcoin block height an .ots file is anchored to, by shelling
+// out to `ots info`. No network — `info` parses the binary proof locally.
+// Returns null on any failure (binary missing, exit non-zero, parse miss).
+function readOtsBlockHeight(absPath, { binary = OTS_BIN, timeoutMs = 30_000 } = {}) {
+  const out = spawnSync(binary, ['info', absPath], { encoding: 'utf8', timeout: timeoutMs });
+  if (out.error || out.status !== 0) return null;
+  return parseOtsBlockHeight(out.stdout || '');
+}
+
 // Walk an event repo's commits/ dir, returning the set of OTS proof
 // files still pending Bitcoin (i.e. ots verify says "calendar"-only).
 // Cheaper signal: just count how many .ots files exist that haven't
@@ -84,8 +115,53 @@ async function listOtsProofs(repoDir) {
   return entries.filter((e) => e.endsWith('.ots'));
 }
 
+// Patch a commit JSON in place, setting ots_anchored: true plus
+// ots_anchored_at and (when known) ots_block. Returns true if the file
+// was modified at all. The "modified" signal includes adding a
+// previously-missing block height even when anchored was already set —
+// covers the case where a backfill run learns the block number for a
+// proof flagged anchored by an earlier (height-blind) run.
+async function patchCommitJsonAnchored(absJson, anchoredAtIso, blockHeight) {
+  let raw;
+  try { raw = await fsp.readFile(absJson, 'utf8'); }
+  catch { return false; }
+  let obj;
+  try { obj = JSON.parse(raw); }
+  catch { return false; }
+  let dirty = false;
+  if (obj.ots_anchored !== true) {
+    obj.ots_anchored = true;
+    dirty = true;
+  }
+  if (!obj.ots_anchored_at) {
+    obj.ots_anchored_at = anchoredAtIso;
+    dirty = true;
+  }
+  if (blockHeight && !obj.ots_block) {
+    obj.ots_block = blockHeight;
+    dirty = true;
+  }
+  if (!dirty) return false;
+  // Preserve trailing newline if the original had one.
+  const trailing = raw.endsWith('\n') ? '\n' : '';
+  await fsp.writeFile(absJson, JSON.stringify(obj, null, 2) + trailing);
+  return true;
+}
+
+// Map an OTS proof filename (e.g. "commit-001.ots") to the sibling
+// commits/<basename>.json. Returns the absolute path; caller checks
+// existence. completion.ots and other namespaces map to a JSON of the
+// same basename (or skip if the JSON doesn't exist).
+function commitJsonForProof(repoDir, proofName) {
+  const base = proofName.replace(/\.ots$/, '');
+  return path.join(repoDir, 'commits', `${base}.json`);
+}
+
 // Walk a single event repo: upgrade every .ots file, track which files
-// changed, make a single git commit with all upgrades if any.
+// changed, make a single git commit with all upgrades if any. Also
+// patches the matching commits/<basename>.json with ots_anchored: true
+// so the manage UI surfaces the anchored state. Backfills the same
+// flag on already-anchored proofs whose JSON predates this fix.
 async function processRepo(repoDir, { binary = OTS_BIN, gitBin = GIT_BIN } = {}) {
   const proofsDir = path.join(repoDir, 'ots_proofs');
   let entries;
@@ -101,12 +177,18 @@ async function processRepo(repoDir, { binary = OTS_BIN, gitBin = GIT_BIN } = {})
 
   const upgraded = [];
   const errors = [];
+  // patchedJsons — JSON files we mutated in place. Includes both the
+  // just-upgraded proofs' siblings AND backfill cases (proof exit 0
+  // with no file change, JSON not yet flagged anchored). Staged into
+  // the same git commit as upgraded proofs.
+  const patchedJsons = [];
   // pendingAfter — files that ots couldn't fully merge in this run
   // (exit non-zero with no error). Used as the signal that the event
   // hasn't fully anchored yet; if pendingAfter == 0 AND any file
   // upgraded this run, the event just crossed the fully-anchored
   // threshold and the proof-anchored email fires.
   let pendingAfter = 0;
+  const anchoredAt = new Date().toISOString();
   for (const name of proofs) {
     const abs = path.join(proofsDir, name);
     const before = await fileStats(abs);
@@ -115,17 +197,35 @@ async function processRepo(repoDir, { binary = OTS_BIN, gitBin = GIT_BIN } = {})
 
     const changed = !before.error && !after.error && before.sha256 !== after.sha256;
     if (changed) {
+      // `ots info` parses the proof locally — no network — so always
+      // safe to call after an upgrade. null on parse miss; the JSON +
+      // email gracefully degrade to "anchored to Bitcoin" without N.
+      const blockHeight = readOtsBlockHeight(abs, { binary });
       upgraded.push({
         file: path.join('ots_proofs', name),
         before_sha256: before.sha256,
         after_sha256: after.sha256,
         size_before: before.size,
         size_after: after.size,
+        block_height: blockHeight,
       });
+      const jsonAbs = commitJsonForProof(repoDir, name);
+      if (await patchCommitJsonAnchored(jsonAbs, anchoredAt, blockHeight)) {
+        patchedJsons.push(path.relative(repoDir, jsonAbs));
+      }
     } else if (!result.error && result.exit !== 0) {
       // ots upgrade returned non-zero with no spawn error → "still
       // pending Bitcoin upgrade" per the comment below.
       pendingAfter += 1;
+    } else if (!result.error && result.exit === 0) {
+      // Backfill: exit 0 + no change = already anchored. Patch the
+      // JSON if it predates this fix; learn the block height too —
+      // a prior (height-blind) backfill run can be upgraded in place.
+      const blockHeight = readOtsBlockHeight(abs, { binary });
+      const jsonAbs = commitJsonForProof(repoDir, name);
+      if (await patchCommitJsonAnchored(jsonAbs, anchoredAt, blockHeight)) {
+        patchedJsons.push(path.relative(repoDir, jsonAbs));
+      }
     }
     // `ots upgrade` exits 1 when a proof is still pending Bitcoin and
     // nothing can be merged — that's NOT an error for our purposes, just
@@ -142,20 +242,23 @@ async function processRepo(repoDir, { binary = OTS_BIN, gitBin = GIT_BIN } = {})
     upgraded: upgraded.length,
     pending_after: pendingAfter,
     errors: errors.length,
+    patched_jsons: patchedJsons.length,
   };
-  if (upgraded.length === 0) {
+  if (upgraded.length === 0 && patchedJsons.length === 0) {
     if (errors.length) summary.error_detail = errors;
     return summary;
   }
 
-  // Stage and commit the upgraded proofs.
-  const relFiles = upgraded.map((u) => u.file);
+  // Stage and commit the upgraded proofs + patched JSONs in one shot.
+  const relFiles = [...upgraded.map((u) => u.file), ...patchedJsons];
   const addRes = spawnSync(gitBin, ['-C', repoDir, 'add', ...relFiles], { encoding: 'utf8' });
   if (addRes.status !== 0) {
     summary.git_add_error = (addRes.stderr || addRes.stdout || '').trim();
     return summary;
   }
-  const msg = `ots upgrade: ${upgraded.length} proof(s) anchored to Bitcoin`;
+  const msg = upgraded.length > 0
+    ? `ots upgrade: ${upgraded.length} proof(s) anchored to Bitcoin`
+    : `ots upgrade: backfill anchored flag for ${patchedJsons.length} proof(s)`;
   const commitRes = spawnSync(gitBin, ['-C', repoDir, 'commit', '-m', msg], { encoding: 'utf8' });
   if (commitRes.status !== 0) {
     summary.git_commit_error = (commitRes.stderr || commitRes.stdout || '').trim();
@@ -164,7 +267,8 @@ async function processRepo(repoDir, { binary = OTS_BIN, gitBin = GIT_BIN } = {})
   // Extract the commit sha from git's stdout "[main abc1234] ..."
   const shaMatch = (commitRes.stdout || '').match(/\[[^\]]*\s([0-9a-f]{7,40})\]/);
   summary.git_commit = shaMatch ? shaMatch[1] : null;
-  summary.upgraded_files = upgraded;
+  if (upgraded.length > 0) summary.upgraded_files = upgraded;
+  if (patchedJsons.length > 0) summary.patched_json_files = patchedJsons;
   return summary;
 }
 
@@ -254,6 +358,7 @@ async function run({ dataDir = config.dataDir, binary = OTS_BIN, gitBin = GIT_BI
             anchorInfo: {
               anchored_at: new Date().toISOString(),
               proof_path: lastUpgrade ? `${event.id}/${lastUpgrade.file}` : null,
+              block_height: lastUpgrade && lastUpgrade.block_height ? lastUpgrade.block_height : null,
             },
           });
           await markAnchoredNotified(repo);
@@ -298,4 +403,7 @@ module.exports = {
   isAnchoredNotified,
   markAnchoredNotified,
   loadEventForRepo,
+  patchCommitJsonAnchored,
+  parseOtsBlockHeight,
+  readOtsBlockHeight,
 };

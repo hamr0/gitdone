@@ -7,7 +7,14 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const { processRepo, run, otsUpgrade, fileStats } = require('../../bin/ots-upgrade');
+const {
+  processRepo,
+  run,
+  otsUpgrade,
+  fileStats,
+  patchCommitJsonAnchored,
+  parseOtsBlockHeight,
+} = require('../../bin/ots-upgrade');
 
 // Build a tiny event repo on disk — enough that git commands work.
 function mkRepo(base, name) {
@@ -24,18 +31,34 @@ function mkRepo(base, name) {
   return dir;
 }
 
-function mkFakeOts(dir, { upgradeFiles = [], exitCode = 0 }) {
-  // Writes a shell script that, when called as `fake upgrade <file>`,
-  // appends " UPGRADED" to files whose basename matches one in
-  // upgradeFiles. Unquoted glob patterns for case-matching.
+function mkFakeOts(dir, { upgradeFiles = [], exitCode = 0, infoBlockHeight = null }) {
+  // Writes a shell script that responds to two subcommands:
+  //   upgrade <file>  → append " UPGRADED" iff basename is in upgradeFiles
+  //   info <file>     → print a synthetic ots-info block with infoBlockHeight
+  // exitCode applies to upgrade only; info always exits 0.
   const fake = path.join(dir, 'fake-ots.sh');
-  const cases = upgradeFiles.map((f) => `    *${f}) echo " UPGRADED" >> "$2" ;;`).join('\n');
+  const upgradeCases = upgradeFiles.map((f) => `      *${f}) echo " UPGRADED" >> "$2" ;;`).join('\n');
+  const infoBlock = infoBlockHeight
+    ? `verify BitcoinBlockHeaderAttestation\n        Bitcoin block ${infoBlockHeight}`
+    : 'verify PendingAttestation';
   const script = `#!/bin/sh
-# args: "upgrade" <file>
-case "$2" in
-${cases}
+case "$1" in
+  upgrade)
+    case "$2" in
+${upgradeCases}
+    esac
+    exit ${exitCode}
+    ;;
+  info)
+    cat <<'EOF'
+File sha256 hash: deadbeef
+Timestamp:
+${infoBlock}
+EOF
+    exit 0
+    ;;
 esac
-exit ${exitCode}
+exit 2
 `;
   fs.writeFileSync(fake, script, { mode: 0o755 });
   return fake;
@@ -146,6 +169,178 @@ test('processRepo: re-running on already-upgraded state is a no-op (idempotent)'
     const fake2 = mkFakeOts(tmp, { upgradeFiles: [] });
     const r2 = await processRepo(dir, { binary: fake2, gitBin: 'git' });
     assert.equal(r2.upgraded, 0);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('patchCommitJsonAnchored: sets ots_anchored on first call, no-op when already anchored', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ots-'));
+  try {
+    const f = path.join(tmp, 'commit-001.json');
+    fs.writeFileSync(f, JSON.stringify({ id: 'x', ots_proof_file: 'ots_proofs/commit-001.ots' }, null, 2) + '\n');
+    const ts = '2026-05-07T10:00:00.000Z';
+    assert.equal(await patchCommitJsonAnchored(f, ts), true);
+    const after = JSON.parse(fs.readFileSync(f, 'utf8'));
+    assert.equal(after.ots_anchored, true);
+    assert.equal(after.ots_anchored_at, ts);
+    // Second call: no-op.
+    assert.equal(await patchCommitJsonAnchored(f, '2099-01-01T00:00:00.000Z'), false);
+    const after2 = JSON.parse(fs.readFileSync(f, 'utf8'));
+    assert.equal(after2.ots_anchored_at, ts, 'timestamp must not be overwritten');
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('patchCommitJsonAnchored: returns false on missing file', async () => {
+  assert.equal(await patchCommitJsonAnchored('/nonexistent/x.json', '2026-01-01T00:00:00.000Z'), false);
+});
+
+test('patchCommitJsonAnchored: writes ots_block when supplied; later runs upgrade height in place', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ots-'));
+  try {
+    const f = path.join(tmp, 'commit-001.json');
+    fs.writeFileSync(f, JSON.stringify({ id: 'x', ots_proof_file: 'ots_proofs/commit-001.ots' }, null, 2) + '\n');
+    // First call — anchored + height.
+    assert.equal(await patchCommitJsonAnchored(f, '2026-05-07T10:00:00.000Z', 858123), true);
+    let body = JSON.parse(fs.readFileSync(f, 'utf8'));
+    assert.equal(body.ots_block, 858123);
+
+    // Second call — already anchored AND already has height: no-op.
+    assert.equal(await patchCommitJsonAnchored(f, '2099-01-01T00:00:00.000Z', 858123), false);
+
+    // Reset to anchored-but-no-height (simulates a JSON written by an
+    // older height-blind run) and confirm a later run learns the height.
+    body = JSON.parse(fs.readFileSync(f, 'utf8'));
+    delete body.ots_block;
+    fs.writeFileSync(f, JSON.stringify(body, null, 2) + '\n');
+    assert.equal(await patchCommitJsonAnchored(f, '2026-05-07T11:00:00.000Z', 858123), true);
+    const after = JSON.parse(fs.readFileSync(f, 'utf8'));
+    assert.equal(after.ots_block, 858123);
+    assert.equal(after.ots_anchored_at, '2026-05-07T10:00:00.000Z', 'original timestamp preserved');
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('parseOtsBlockHeight: matches "Bitcoin block N" form', () => {
+  assert.equal(
+    parseOtsBlockHeight('verify BitcoinBlockHeaderAttestation\n        Bitcoin block 858123'),
+    858123,
+  );
+});
+
+test('parseOtsBlockHeight: matches "Block height: N" form', () => {
+  assert.equal(parseOtsBlockHeight('attestation: Block height: 850000'), 850000);
+});
+
+test('parseOtsBlockHeight: matches BitcoinBlockHeaderAttestation followed by 6+ digits', () => {
+  assert.equal(parseOtsBlockHeight('verify BitcoinBlockHeaderAttestation 12345 850123'), 850123);
+});
+
+test('parseOtsBlockHeight: returns null when no anchor present', () => {
+  assert.equal(parseOtsBlockHeight('verify PendingAttestation\nverify PendingAttestation'), null);
+  assert.equal(parseOtsBlockHeight(''), null);
+  assert.equal(parseOtsBlockHeight(null), null);
+});
+
+test('processRepo: upgrade patches sibling commit JSON with ots_anchored + ots_block', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ots-'));
+  try {
+    const dir = mkRepo(tmp, 'e-anchor');
+    fs.writeFileSync(path.join(dir, 'ots_proofs', 'commit-001.ots'), 'pending');
+    fs.writeFileSync(path.join(dir, 'commits', 'commit-001.json'),
+      JSON.stringify({ id: 'e-anchor', ots_proof_file: 'ots_proofs/commit-001.ots' }, null, 2) + '\n');
+    spawnSync('git', ['-C', dir, 'add', '-A'], { stdio: 'ignore' });
+    spawnSync('git', ['-C', dir, 'commit', '-q', '-m', 'seed'], { stdio: 'ignore' });
+
+    const fake = mkFakeOts(tmp, { upgradeFiles: ['commit-001.ots'], infoBlockHeight: 858123 });
+    const r = await processRepo(dir, { binary: fake, gitBin: 'git' });
+    assert.equal(r.upgraded, 1);
+    assert.equal(r.patched_jsons, 1);
+    assert.equal(r.upgraded_files[0].block_height, 858123);
+
+    const after = JSON.parse(fs.readFileSync(path.join(dir, 'commits', 'commit-001.json'), 'utf8'));
+    assert.equal(after.ots_anchored, true);
+    assert.match(after.ots_anchored_at, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(after.ots_block, 858123);
+
+    // Both files staged in one commit.
+    const show = spawnSync('git', ['-C', dir, 'show', '--stat', '--format=', 'HEAD'], { encoding: 'utf8' }).stdout;
+    assert.match(show, /ots_proofs\/commit-001\.ots/);
+    assert.match(show, /commits\/commit-001\.json/);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('processRepo: backfill learns ots_block from a height-aware re-run of an older flagged JSON', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ots-'));
+  try {
+    const dir = mkRepo(tmp, 'e-height-bf');
+    // Simulate: prior height-blind run anchored the JSON but didn't
+    // record ots_block. Today's run should surface the height.
+    fs.writeFileSync(path.join(dir, 'ots_proofs', 'commit-001.ots'), 'already-anchored');
+    fs.writeFileSync(path.join(dir, 'commits', 'commit-001.json'),
+      JSON.stringify({
+        id: 'e-height-bf',
+        ots_proof_file: 'ots_proofs/commit-001.ots',
+        ots_anchored: true,
+        ots_anchored_at: '2026-05-06T22:02:08.905Z',
+      }, null, 2) + '\n');
+    spawnSync('git', ['-C', dir, 'add', '-A'], { stdio: 'ignore' });
+    spawnSync('git', ['-C', dir, 'commit', '-q', '-m', 'seed'], { stdio: 'ignore' });
+
+    const fake = mkFakeOts(tmp, { upgradeFiles: [], exitCode: 0, infoBlockHeight: 858200 });
+    const r = await processRepo(dir, { binary: fake, gitBin: 'git' });
+    assert.equal(r.upgraded, 0);
+    assert.equal(r.patched_jsons, 1);
+
+    const after = JSON.parse(fs.readFileSync(path.join(dir, 'commits', 'commit-001.json'), 'utf8'));
+    assert.equal(after.ots_block, 858200);
+    assert.equal(after.ots_anchored_at, '2026-05-06T22:02:08.905Z', 'original anchored_at preserved');
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('processRepo: backfill flags already-anchored proofs whose JSON predates this fix', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ots-'));
+  try {
+    const dir = mkRepo(tmp, 'e-backfill');
+    // Proof file already at its final anchored state on disk; JSON
+    // doesn't yet have ots_anchored: true.
+    fs.writeFileSync(path.join(dir, 'ots_proofs', 'commit-001.ots'), 'already-anchored-bytes');
+    fs.writeFileSync(path.join(dir, 'commits', 'commit-001.json'),
+      JSON.stringify({ id: 'e-backfill', ots_proof_file: 'ots_proofs/commit-001.ots' }, null, 2) + '\n');
+    spawnSync('git', ['-C', dir, 'add', '-A'], { stdio: 'ignore' });
+    spawnSync('git', ['-C', dir, 'commit', '-q', '-m', 'seed'], { stdio: 'ignore' });
+
+    // Fake ots: exits 0, makes no changes — simulates the "already
+    // fully anchored" path of the real binary.
+    const fake = mkFakeOts(tmp, { upgradeFiles: [], exitCode: 0 });
+    const r = await processRepo(dir, { binary: fake, gitBin: 'git' });
+    assert.equal(r.upgraded, 0);
+    assert.equal(r.patched_jsons, 1);
+    assert.ok(r.git_commit, 'backfill should still produce a commit');
+
+    const after = JSON.parse(fs.readFileSync(path.join(dir, 'commits', 'commit-001.json'), 'utf8'));
+    assert.equal(after.ots_anchored, true);
+
+    const msg = spawnSync('git', ['-C', dir, 'log', '-1', '--format=%s'], { encoding: 'utf8' }).stdout.trim();
+    assert.match(msg, /backfill anchored flag for 1 proof/);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('processRepo: pending proof (exit 1) does NOT trigger backfill', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ots-'));
+  try {
+    const dir = mkRepo(tmp, 'e-still-pending');
+    fs.writeFileSync(path.join(dir, 'ots_proofs', 'commit-001.ots'), 'pending');
+    fs.writeFileSync(path.join(dir, 'commits', 'commit-001.json'),
+      JSON.stringify({ id: 'e-still-pending', ots_proof_file: 'ots_proofs/commit-001.ots' }, null, 2) + '\n');
+    spawnSync('git', ['-C', dir, 'add', '-A'], { stdio: 'ignore' });
+    spawnSync('git', ['-C', dir, 'commit', '-q', '-m', 'seed'], { stdio: 'ignore' });
+
+    const fake = mkFakeOts(tmp, { upgradeFiles: [], exitCode: 1 });
+    const r = await processRepo(dir, { binary: fake, gitBin: 'git' });
+    assert.equal(r.upgraded, 0);
+    assert.equal(r.patched_jsons, 0);
+    assert.equal(r.pending_after, 1);
+
+    const after = JSON.parse(fs.readFileSync(path.join(dir, 'commits', 'commit-001.json'), 'utf8'));
+    assert.notEqual(after.ots_anchored, true);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 

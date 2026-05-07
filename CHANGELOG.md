@@ -15,6 +15,38 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### OTS-anchored state surfaced on the manage page
+
+The 6h OTS-upgrade worker has always upgraded calendar-pending proofs
+to fully Bitcoin-anchored ones, and the resulting follow-up email has
+always told the recipient so. But the per-event manage dashboard
+silently kept showing **OTS · pending Bitcoin upgrade** indefinitely —
+the renderer reads `commit.ots_anchored`, and nothing was writing it.
+Three changes close the loop:
+
+- **Worker patches the commit JSON.** When `ots upgrade` changes a
+  `.ots` file, the sibling `commits/<basename>.json` is patched with
+  `ots_anchored: true` + `ots_anchored_at`, then staged into the
+  same git commit as the upgraded proof. The dashboard now flips to
+  **anchored to Bitcoin** on the next 6h tick after Bitcoin
+  confirmation.
+- **One-time backfill for already-anchored proofs.** When
+  `ots upgrade` exits 0 with no file change (the "already fully
+  anchored" path), the worker still patches the JSON if it predates
+  this fix. The fix backfills the flag on the very next timer tick —
+  no manual ssh, no rerun. Backfill-only commits are messaged
+  `ots upgrade: backfill anchored flag for N proof(s)` so they're
+  distinguishable from mainline upgrades in `git log`.
+- **Block height in the JSON, the dashboard, and the email.** The
+  worker now runs `ots info` (local-only, no network) on each
+  upgraded or already-anchored proof, parses the Bitcoin block
+  height, and writes it to `commit.ots_block`. The renderer surfaces
+  **anchored at block N**; the OTS-anchored follow-up email
+  surfaces **Block height   N**. Replaces the stub
+  `(anchored, height not parsed)` line. Falls back to the un-numbered
+  "anchored to Bitcoin" gracefully when the local `opentimestamps-client`
+  emits a format the parser doesn't recognise.
+
 ### Review-pass follow-up on attachment surfacing — a11y + edge cases
 
 Code-review pass on the attachment surfacing landed two days ago

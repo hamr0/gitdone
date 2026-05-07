@@ -886,6 +886,17 @@ the dashboard so it survives the service:
   and proof file path. Recipients are the same set as the completion
   email.
 
+The OTS state shown on the per-event dashboard tracks the same three
+phases the worker drives the proof through: **pending Bitcoin
+upgrade** while only the calendar attestation is folded in, **anchored
+to Bitcoin** once Bitcoin has confirmed but the block number can't be
+parsed locally (graceful fallback), and **anchored at block N** once
+`ots info` extracts the Bitcoin block height. The state is recorded
+in the per-commit JSON (`ots_anchored`, `ots_anchored_at`,
+`ots_block`) by the upgrade worker — the dashboard, the email, and
+`gitdone-verify` all read the same on-disk truth, so they never
+disagree.
+
 Both emails verify offline via `gitdone-verify <id>` against the
 per-event git repository — the dashboard, the email, and the offline
 CLI all agree.
