@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-07T06:49Z · `556c628` · deploy-log: fold prior d503b87 deploy entry
 - 2026-05-07T06:20Z · `d503b87` · PRD §6.2: document the unified filter row on the manage hub
 - 2026-05-07T06:18Z · `1611ad7` · manage hub: unified filter row — type + status pills, all clickable
 - 2026-05-06T21:33Z · `584a4b5` · manage hub: events/crypto type-filter pills (top-right)
