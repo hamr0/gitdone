@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-07T20:44Z · `e9e9b6c` · attestation reply ack: fix off-by-one on reply count
 - 2026-05-07T07:33Z · `c6d8a95` · ots upgrade: surface anchored state on the manage page (+ block height)
 - 2026-05-07T06:49Z · `556c628` · deploy-log: fold prior d503b87 deploy entry
 - 2026-05-07T06:20Z · `d503b87` · PRD §6.2: document the unified filter row on the manage hub
