@@ -919,11 +919,13 @@ async function main() {
   if (completion && completion.decision && tag && event) {
     const reason = completion.decision.reason;
     const accepted = completion.applied === true;
+    const isSelfReply = typeof reason === 'string' && reason.includes('self-reply');
     const handled = accepted
       || reason === 'missing_attachment'
       || reason === 'event already complete'
       || reason === 'event not activated'
-      || reason === 'event archived';
+      || reason === 'event archived'
+      || isSelfReply;
     const to = handled ? (envelope.sender || from.address || null) : null;
     if (to) {
       // Crypto reply addresses are event+<id>@ (no step suffix); workflow
@@ -1018,6 +1020,25 @@ async function main() {
           tail,
           ``,
           `Organiser: ${event.initiator}`,
+        ].join('\n');
+      } else if (isSelfReply) {
+        // Initiator self-replied — committed to the audit trail (forensic
+        // record) but never counts. Without an ack the sender wonders if
+        // the round-trip even worked. The ack closes that loop and
+        // explains why the count didn't move.
+        subject = `[gitdone] Self-reply not counted — ${event.title}`;
+        const kindLabel = isCrypto
+          ? (cryptoLabel || 'crypto event')
+          : 'event';
+        body = [
+          `Your email to ${kindLabel} "${event.title}" was committed to`,
+          `the audit trail (DKIM-verified, OpenTimestamped) but does NOT`,
+          `count as your own ${event.type === 'crypto' && event.mode === 'declaration' ? 'signature' : 'attestation'}: you're the initiator and a`,
+          `self-signature has no third-party value.`,
+          ``,
+          `If you meant to test, this confirms the round-trip works.`,
+          `Otherwise, share the reply address with someone else:`,
+          `  ${fromAddr}`,
         ].join('\n');
       } else if (reason === 'missing_attachment') {
         subject = isCrypto

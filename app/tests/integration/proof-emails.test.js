@@ -321,3 +321,57 @@ test('integration: accumulating attestation subject keeps counting past threshol
     await fs.rm(tmp, { recursive: true, force: true });
   }
 });
+
+test('integration: self-reply (initiator emails own event) gets explanatory ack instead of silence', async () => {
+  // Without this fix, a self-reply was committed to the audit trail
+  // but produced no participant ack — the initiator-tester sat there
+  // wondering if their email even reached gitdone. This locks in that
+  // self-replies always produce a "not counted" ack with the kind
+  // (declaration/attestation) and the right reply address, while
+  // staying out of the count.
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-self-reply-'));
+  try {
+    const { fake, captureDir } = makeFakeSendmail(tmp);
+    await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
+    await fs.writeFile(path.join(tmp, 'events', 'self01.json'), JSON.stringify({
+      id: 'self01', type: 'crypto', mode: 'attestation',
+      title: 'tell me you know me',
+      min_trust_level: 'unverified',
+      initiator: 'me@ex.com',
+      threshold: 2, dedup: 'accumulating',
+      salt: 'salt-self-01',
+      activated_at: '2026-01-01T00:00:00Z',
+      replies: [],
+    }));
+
+    const eml = buildEml([
+      'From: me@ex.com', 'To: event+self01@git-done.com', 'Subject: am i in?',
+    ]);
+    const r = await runReceive(eml,
+      ['1.2.3.4', 'ex.com', 'me@ex.com', 'event+self01@git-done.com'],
+      { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
+    assert.equal(r.code, 0, r.stderr);
+    // receive.js emits JSON-lines logs; the summary is the last one.
+    const lines = r.stdout.trim().split('\n').filter(Boolean);
+    const out = JSON.parse(lines[lines.length - 1]);
+    assert.equal(out.completion.applied, false);
+    assert.match(out.completion.decision.reason, /self-reply/);
+
+    // Find the participant ack to me@ex.com — must exist and explain why.
+    const captures = await fs.readdir(captureDir);
+    const matches = captures.filter((n) => n.endsWith('.eml') && n.includes('me_at_ex.com'));
+    let ackBody = null;
+    for (const f of matches) {
+      const txt = await fs.readFile(path.join(captureDir, f), 'utf8');
+      if (/Self-reply not counted/.test(txt)) { ackBody = txt; break; }
+    }
+    assert.ok(ackBody, `no self-reply ack to me@ex.com in ${matches.join(', ')}`);
+    assert.match(ackBody, /Subject: \[gitdone\] Self-reply not counted — tell me you know me/);
+    assert.match(ackBody, /you're the initiator/);
+    assert.match(ackBody, /event\+self01@/);
+  } finally {
+    delete process.env.GITDONE_OTS_BIN;
+    delete process.env.GITDONE_SENDMAIL_BIN;
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});

@@ -15,6 +15,25 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Self-reply now produces an explanatory ack (was silent)
+
+When the initiator emailed their own event's reply address, the
+engine returned `{ count: false, reason: 'sender is the event
+initiator (self-reply)' }` and committed the reply to the audit
+trail — but the participant-ack code only fired for `accepted` plus
+a fixed list of rejections (`missing_attachment`, `event already
+complete`, `event not activated`, `event archived`). Self-reply
+wasn't in the list, so silence — the tester sat there wondering if
+their email even reached gitdone.
+
+Self-replies now produce a `[gitdone] Self-reply not counted —
+"<title>"` ack with body explaining: "you're the initiator, a
+self-signature has no third-party value, your reply is in the
+audit trail but doesn't count, share the reply address with someone
+else." The reply remains uncounted; only the silence is fixed.
+New integration test in `proof-emails.test.js` locks the ack
+behaviour for both crypto modes.
+
 ### Crypto events: `details` (the ask) is now required
 
 Empty "please sign" was the recurring failure mode — recipients had
