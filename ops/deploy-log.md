@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-08T09:15Z · `de5a8d2` · crypto rework module 1: require details (the ask) on creation
 - 2026-05-07T20:47Z · `d5b9b9b` · attestation reply ack: counter tag on the subject ([1/2], [5/2] etc)
 - 2026-05-07T20:44Z · `e9e9b6c` · attestation reply ack: fix off-by-one on reply count
 - 2026-05-07T07:33Z · `c6d8a95` · ots upgrade: surface anchored state on the manage page (+ block height)
