@@ -112,6 +112,7 @@ test('POST /crypto declaration mode creates an event with signer', async () => {
     title: 'Witness statement',
     initiator: 'me@example.com',
     signer: 'witness@example.com',
+    details: 'I attest that I witnessed the event in question.',
   });
   assert.equal(r.status, 200);
   assert.match(r.body, /Check me@example\.com/);
@@ -122,6 +123,7 @@ test('POST /crypto declaration mode creates an event with signer', async () => {
   assert.equal(ev.mode, 'declaration');
   assert.equal(ev.signer, 'witness@example.com');
   assert.equal(ev.title, 'Witness statement');
+  assert.equal(ev.details, 'I attest that I witnessed the event in question.');
   // signer must not pollute attestation fields
   assert.equal(ev.threshold, undefined);
   assert.equal(ev.dedup, undefined);
@@ -134,6 +136,7 @@ test('POST /crypto attestation mode creates event with threshold + dedup', async
     initiator: 'chair@example.com',
     threshold: '7',
     dedup: 'latest',
+    details: 'I attest that the manuscript meets the bar for publication.',
   });
   assert.equal(r.status, 200);
   assert.match(r.body, /Check chair@example\.com/);
@@ -143,6 +146,7 @@ test('POST /crypto attestation mode creates event with threshold + dedup', async
   assert.equal(ev.mode, 'attestation');
   assert.equal(ev.threshold, 7);
   assert.equal(ev.dedup, 'latest');
+  assert.equal(ev.details, 'I attest that the manuscript meets the bar for publication.');
   // allow_anonymous and min_trust_level no longer apply to attestation —
   // trust policy is dedup-derived.
   assert.equal(ev.allow_anonymous, undefined);
@@ -150,6 +154,26 @@ test('POST /crypto attestation mode creates event with threshold + dedup', async
   assert.deepEqual(ev.replies, []);
   // attestation must not leak a signer field
   assert.equal(ev.signer, undefined);
+});
+
+test('POST /crypto rejects an empty details (the ask is required)', async () => {
+  const r = await post('/crypto', {
+    mode: 'attestation', title: 'no ask', initiator: 'a@b.com',
+    threshold: '2', dedup: 'unique',
+    // details intentionally absent
+  });
+  assert.equal(r.status, 422);
+  assert.match(r.body, /details/);
+});
+
+test('POST /crypto rejects whitespace-only details', async () => {
+  const r = await post('/crypto', {
+    mode: 'declaration', title: 'blank ask',
+    initiator: 'a@b.com', signer: 'b@b.com',
+    details: '   \n  ',
+  });
+  assert.equal(r.status, 422);
+  assert.match(r.body, /details/);
 });
 
 test('POST /crypto declaration without signer returns 422', async () => {
@@ -201,6 +225,7 @@ test('POST /crypto triggers a knowless magic link, no parallel token store', asy
   const r = await post('/crypto', {
     mode: 'attestation', title: 'with link', initiator: 'owner@example.com',
     threshold: '3', dedup: 'unique',
+    details: 'Vouch for X.',
   });
   assert.equal(r.status, 200);
   assert.match(r.body, /Check owner@example\.com/);

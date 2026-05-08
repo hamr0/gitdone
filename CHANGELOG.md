@@ -15,6 +15,28 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Crypto events: `details` (the ask) is now required
+
+Empty "please sign" was the recurring failure mode — recipients had
+no idea what they were attesting to or declaring. Both crypto modes
+(declaration and attestation) now require a `details` field at
+creation, validated 1-4096 chars (same brevity rationale as workflow
+step details). The crypto creation form gets a required textarea
+labelled "Details — the ask"; whitespace-only submissions reject with
+a 422 and a clear "details: the ask is required" message. Existing
+events remain readable; only new creations are gated.
+
+The per-event manage dashboard now surfaces the ask as an "Ask:" row
+in the Event details block (declaration + attestation hero), so the
+organiser sees what they wrote and the activated signer sees what
+they're confirming. `whitespace:pre-wrap` so multi-line asks render
+intact. Two new integration tests lock the validation in:
+empty-details and whitespace-only-details both reject.
+
+This is module 1 of a multi-module crypto rework — see the project
+plan for upcoming modules (optional `reference_url`, dual count,
+share buttons, revoke flow).
+
 ### Attestation reply ack: subject carries the [counted/threshold] tag
 
 Workflow step acks have always shown `[stepIdx/totalSteps]` at the end

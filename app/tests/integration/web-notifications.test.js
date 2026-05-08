@@ -211,6 +211,7 @@ test('declaration notifies the designated signer', async () => {
     title: 'Witness',
     initiator: 'me@ex.com',
     signer: 'witness@ex.com',
+    details: 'Witness statement: I attest to having seen the event.',
   });
   assert.equal(r.status, 200);
   await activateAll();
@@ -231,6 +232,7 @@ test('attestation does NOT notify anyone besides the initiator', async () => {
     initiator: 'chair@ex.com',
     threshold: '5',
     dedup: 'unique',
+    details: 'Vouch that the manuscript is acceptable.',
   });
   assert.equal(r.status, 200);
   const recipients = await capturedRecipients();

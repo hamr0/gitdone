@@ -48,6 +48,16 @@ function validateTitle(title) {
   return { ok: true, value: t };
 }
 
+// Crypto event details (the "ask" — what the signer is being asked to
+// attest to or declare). Required; capped at MAX_STEP_DETAILS to reuse
+// the same brevity rationale as workflow step details.
+function validateDetails(details) {
+  const d = clean(details);
+  if (!d) return { ok: false, reason: 'details: the ask is required (what is the signer attesting to or declaring?)' };
+  if (d.length > MAX_STEP_DETAILS) return { ok: false, reason: `details too long (max ${MAX_STEP_DETAILS} chars, got ${d.length})` };
+  return { ok: true, value: d };
+}
+
 function validateTrustLevel(level, defaultLevel) {
   const l = clean(level) || defaultLevel;
   if (!VALID_TRUST_LEVELS.includes(l)) {
@@ -312,6 +322,12 @@ function validateCryptoEvent(form) {
   const initiator = validateEmail(form.initiator);
   if (!initiator.ok) errors.push(`initiator: ${initiator.reason}`);
 
+  // Details (the ask) is required for crypto events — empty "please
+  // sign" was the recurring failure mode. Both modes need the body so
+  // the recipient knows what they're attesting to or declaring.
+  const details = validateDetails(form.details);
+  if (!details.ok) errors.push(details.reason);
+
   // min_trust_level still applies to declaration; attestation derives
   // trust from dedup rule (see shouldCountAttestation).
   const trust = mode === 'declaration'
@@ -338,6 +354,7 @@ function validateCryptoEvent(form) {
         initiator: initiator.value,
         min_trust_level: trust.value,
         signer: signer.value,
+        details: details.value,
       },
     };
   }
@@ -367,6 +384,7 @@ function validateCryptoEvent(form) {
       threshold,
       dedup,
       replies: [],
+      details: details.value,
     },
   };
 }

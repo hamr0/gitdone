@@ -1165,8 +1165,9 @@ const CRYPTO_FORM_CSS = `
 .cf .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem 0.8rem; }
 .cf .grid label { display: block; margin: 0; font-size: 0.9em; color: #c9d1d9; }
 .cf .grid label > span { display: block; font-size: 0.72em; color: #8b949e; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.2rem; }
-.cf .grid input, .cf .grid select { width: 100%; padding: 0.4rem 0.5rem; font: inherit; background: #161b22; color: #c9d1d9; border: 1px solid #30363d; border-radius: 0; box-sizing: border-box; }
-.cf .grid input:focus, .cf .grid select:focus { border-color: #3fb950; outline: 0; box-shadow: 0 0 0 1px rgba(63,185,80,.2); }
+.cf .grid input, .cf .grid select, .cf .grid textarea { width: 100%; padding: 0.4rem 0.5rem; font: inherit; background: #161b22; color: #c9d1d9; border: 1px solid #30363d; border-radius: 0; box-sizing: border-box; }
+.cf .grid textarea { resize: vertical; min-height: 4em; }
+.cf .grid input:focus, .cf .grid select:focus, .cf .grid textarea:focus { border-color: #3fb950; outline: 0; box-shadow: 0 0 0 1px rgba(63,185,80,.2); }
 .cf .grid .full { grid-column: 1 / -1; }
 .cf .grid .dim { opacity: 0.38; pointer-events: none; }
 .cf .grid .dim > span::after { content: ' · declaration only'; color: #6e7681; font-size: 0.9em; text-transform: none; letter-spacing: 0; }
@@ -1222,6 +1223,11 @@ function renderCryptoForm({ values = {}, errors = [] } = {}) {
         <label class="full">
           <span>Title</span>
           <input type="text" name="title" required maxlength="200" value="${values.title || ''}" placeholder="e.g. Proof of being known">
+        </label>
+
+        <label class="full">
+          <span>Details — the ask <small style="color:#8b949e;font-weight:normal">(what is the signer attesting to or declaring? required)</small></span>
+          <textarea name="details" required maxlength="4096" rows="4" placeholder="e.g. I attest that I have read and agree to the terms at https://example.com/terms-2026-05.pdf">${values.details || ''}</textarea>
         </label>
 
         <label>
@@ -1288,6 +1294,7 @@ router.get('/crypto/new', async (req, res) => {
     signer: sp.get('signer') || '',
     threshold: sp.get('threshold') || '',
     dedup: sp.get('dedup') || 'unique',
+    details: sp.get('details') || '',
   };
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
@@ -2411,6 +2418,7 @@ function renderDeclarationHero(event, commit) {
       <div class="proof-secondary">
         <h4>Event details</h4>
         <div class="proof-row"><div class="proof-key">Type</div><div class="proof-value">declaration</div></div>
+        ${event.details ? html`<div class="proof-row"><div class="proof-key">Ask</div><div class="proof-value" style="white-space:pre-wrap">${event.details}</div></div>` : raw('')}
         <div class="proof-row"><div class="proof-key">Initiator</div><div class="proof-value"><code class="copyable">${event.initiator}</code></div></div>
         <div class="proof-row"><div class="proof-key">Signer</div><div class="proof-value"><code class="copyable">${event.signer}</code></div></div>
         <div class="proof-row"><div class="proof-key">Reply address</div><div class="proof-value"><code class="copyable">event+${event.id}@${config.domain}</code></div></div>
@@ -2484,6 +2492,7 @@ function renderAttestationHero(event, commits) {
       <div class="proof-secondary">
         <h4>Event details</h4>
         <div class="proof-row"><div class="proof-key">Type</div><div class="proof-value">attestation · ${dedup}</div></div>
+        ${event.details ? html`<div class="proof-row"><div class="proof-key">Ask</div><div class="proof-value" style="white-space:pre-wrap">${event.details}</div></div>` : raw('')}
         <div class="proof-row"><div class="proof-key">Initiator</div><div class="proof-value"><code class="copyable">${event.initiator}</code></div></div>
         <div class="proof-row"><div class="proof-key">Reply address</div><div class="proof-value"><code class="copyable">event+${event.id}@${config.domain}</code></div></div>
         <div class="proof-row"><div class="proof-key">Threshold</div><div class="proof-value">${String(event.threshold)}</div></div>

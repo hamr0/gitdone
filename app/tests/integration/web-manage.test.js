@@ -318,6 +318,7 @@ test('POST /crypto: declaration signer with no MX is rejected with form error', 
       mode: 'declaration', title: 'sig-mxcheck',
       initiator: 'org@example.com',
       signer: 'someone@gmaicom.invalid',
+      details: 'Sign this typo-test declaration.',
     });
     assert.equal(r.status, 422);
     assert.match(r.body, /signer email &quot;someone@gmaicom\.invalid&quot;/);
