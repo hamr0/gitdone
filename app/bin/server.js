@@ -102,6 +102,23 @@ function serveFavicon(res) {
 router.get('/favicon.svg', async (req, res) => serveFavicon(res));
 router.get('/favicon.ico', async (req, res) => serveFavicon(res));
 
+// OG card — 1200×630 PNG referenced by og:image / twitter:image. Read once
+// at boot, served with a long cache header (scrapers cache aggressively
+// anyway: ~7d on WhatsApp, indefinite on Facebook until busted via the
+// debugger, ~24h on Twitter).
+const OG_PATH = path.join(__dirname, '..', 'src', 'web', 'og.png');
+let OG_BODY = null;
+try { OG_BODY = fs.readFileSync(OG_PATH); } catch {}
+router.get('/og.png', async (req, res) => {
+  if (!OG_BODY) { res.writeHead(404); return res.end(); }
+  res.writeHead(200, {
+    'content-type': 'image/png',
+    'content-length': OG_BODY.length,
+    'cache-control': 'public, max-age=86400',
+  });
+  res.end(OG_BODY);
+});
+
 // Design Lab winner — landing page (variant F: retro-terminal hybrid).
 // CRT-green + amber phosphor, monospace, oversized wordmark with slash,
 // two heavy cells (second inverted green → amber on hover).

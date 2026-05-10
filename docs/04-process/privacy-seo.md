@@ -109,8 +109,21 @@ theme-color, OpenGraph quintet, twitter:card) wired through
 `app/src/web/templates.js:layout()` with optional fields so existing
 call sites stay unchanged. Tier 2 served at `/robots.txt` and
 `/sitemap.xml` (routes in `app/bin/server.js` near the landing
-handler). JSON-LD skipped per playbook. og-card.png deferred — design
-task.
+handler). JSON-LD skipped per playbook.
+
+og-card added 2026-05-10: 1200×630 PNG at `app/src/web/og.png`
+(generated from the SVG source `og.svg` via
+`magick og.svg -background "#0d1117" -density 144 -depth 8 -resize 1200x630 PNG24:og.png`,
+terminal theme: charcoal `#0d1117`, JetBrains Mono `g/` mark
+matching favicon — charcoal `g` + amber `/` — divider, gitdone
+wordmark + tagline right, amber hatch corner badge top-right).
+Served at `/og.png` from `server.js`.
+`templates.js` emits `og:image` (absolute URL built from
+`GITDONE_PUBLIC_URL`), `og:image:width`/`height`/`alt`, and switched
+`twitter:card` from `summary` → `summary_large_image`. Treat the
+current PNG as a placeholder — replace `og.svg`, regenerate the PNG,
+and bust scraper caches via the FB/LinkedIn debuggers when a real
+brand asset lands.
 
 Indexable surfaces: `/`, `/events/new`, `/crypto/new`, `/manage`
 (sign-in form). Disallowed in robots.txt: `/manage/event/`,

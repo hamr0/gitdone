@@ -15,6 +15,25 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Link previews now show a real card (`og:image` wired)
+
+Sharing a git-done.com link in WhatsApp, Slack, Signal, Discord,
+iMessage, etc. used to render as a "compact" preview — chain icon
++ title only — because the head emitted the OpenGraph quintet
+without `og:image`. The card was deferred as a design task in
+`privacy-seo.md`; that's resolved now.
+
+`/og.png` (1200×630, charcoal `#0d1117` bg, JetBrains Mono `g/`
+mark — charcoal `g` + amber `/`, matching the favicon) is served
+out of `app/src/web/og.png`. `templates.js:layout()` emits an
+absolute `og:image` URL built from `GITDONE_PUBLIC_URL`, plus
+`og:image:width/height/alt` and `twitter:image`; `twitter:card`
+upgraded from `summary` → `summary_large_image`. Source SVG sits
+next to the PNG (`og.svg`) so the asset can be regenerated with one
+ImageMagick command. Once the deploy lands, scraper caches need
+busting via developers.facebook.com/tools/debug/ (FB+WhatsApp) and
+linkedin.com/post-inspector/.
+
 ### Self-reply now produces an explanatory ack (was silent)
 
 When the initiator emailed their own event's reply address, the

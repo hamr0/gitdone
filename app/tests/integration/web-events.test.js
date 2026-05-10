@@ -215,15 +215,28 @@ test('GET /sitemap.xml lists every public URL', async () => {
   assert.doesNotMatch(r.body, /\/events\/[a-z0-9]{12}/);
 });
 
-test('GET / has SEO head tags (description, canonical, og:title, twitter:card)', async () => {
+test('GET / has SEO head tags (description, canonical, og:title, og:image, twitter:card)', async () => {
   const r = await get('/');
   assert.equal(r.status, 200);
   assert.match(r.body, /<meta name="description" content="[^"]*[Nn]o accounts[^"]*"/);
   assert.match(r.body, /<link rel="canonical" href="http:\/\/localhost:3001\/"/);
   assert.match(r.body, /<meta property="og:title" content="[^"]*gitdone[^"]*"/);
   assert.match(r.body, /<meta property="og:url" content="http:\/\/localhost:3001\/"/);
-  assert.match(r.body, /<meta name="twitter:card" content="summary"/);
+  // og:image must be absolute (relative URLs get dropped by most scrapers).
+  assert.match(r.body, /<meta property="og:image" content="http:\/\/localhost:3001\/og\.png"/);
+  assert.match(r.body, /<meta property="og:image:width" content="1200"/);
+  assert.match(r.body, /<meta property="og:image:height" content="630"/);
+  assert.match(r.body, /<meta name="twitter:card" content="summary_large_image"/);
   assert.match(r.body, /<meta name="theme-color" content="#0d1117"/);
   // No analytics/tracking scripts.
   assert.doesNotMatch(r.body, /gtag|google-analytics|plausible|fathom|umami/i);
+});
+
+test('GET /og.png serves the OG card', async () => {
+  const r = await get('/og.png');
+  assert.equal(r.status, 200);
+  assert.match(r.headers['content-type'], /image\/png/);
+  // content-length echoes a real PNG body (~tens of KB), not an empty 404.
+  assert.ok(parseInt(r.headers['content-length'], 10) > 1000,
+    `expected og.png > 1KB, got ${r.headers['content-length']}`);
 });

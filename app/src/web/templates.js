@@ -48,6 +48,11 @@ function html(strings, ...values) {
 const DEFAULT_DESCRIPTION = 'Email-native multi-party workflow coordination with cryptographic proof of the reply sequence. No accounts, no API, no telemetry, open source.';
 const SITE_NAME = 'gitdone';
 const THEME_COLOR = '#0d1117';
+// og:image must be absolute (relative URLs are silently dropped by most
+// unfurl scrapers). Built from GITDONE_PUBLIC_URL the same way auth/forward
+// build their absolute URLs; defaults match config.js.
+const PUBLIC_BASE = (process.env.GITDONE_PUBLIC_URL || `https://${process.env.GITDONE_DOMAIN || 'git-done.com'}`).replace(/\/+$/, '');
+const OG_IMAGE_URL = `${PUBLIC_BASE}/og.png`;
 
 function layout({ title, body, dev, devHUD, pageName, pageTagline, description, canonical, noindex }) {
   // Auto-derive header from title when not explicitly given. Two title
@@ -73,14 +78,19 @@ function layout({ title, body, dev, devHUD, pageName, pageTagline, description, 
   seoTags.push(`<meta name="theme-color" content="${THEME_COLOR}">`);
   if (canonical) seoTags.push(`<link rel="canonical" href="${escapeHTML(canonical)}">`);
   if (noindex) seoTags.push(`<meta name="robots" content="noindex,nofollow">`);
-  // OpenGraph + twitter card — skip og:image (deferred design task per
-  // privacy-seo.md tier 1; unfurl falls back to title+description).
+  // OpenGraph + twitter card. og:image is absolute (relative URLs get
+  // dropped by most unfurl scrapers); 1200×630 PNG served from /og.png.
   seoTags.push(`<meta property="og:type" content="website">`);
   seoTags.push(`<meta property="og:site_name" content="${SITE_NAME}">`);
   seoTags.push(`<meta property="og:title" content="${escapeHTML(title || SITE_NAME)}">`);
   seoTags.push(`<meta property="og:description" content="${escapeHTML(desc)}">`);
   if (canonical) seoTags.push(`<meta property="og:url" content="${escapeHTML(canonical)}">`);
-  seoTags.push(`<meta name="twitter:card" content="summary">`);
+  seoTags.push(`<meta property="og:image" content="${escapeHTML(OG_IMAGE_URL)}">`);
+  seoTags.push(`<meta property="og:image:width" content="1200">`);
+  seoTags.push(`<meta property="og:image:height" content="630">`);
+  seoTags.push(`<meta property="og:image:alt" content="${escapeHTML(SITE_NAME)} — ${escapeHTML(DEFAULT_DESCRIPTION.split('.')[0])}">`);
+  seoTags.push(`<meta name="twitter:card" content="summary_large_image">`);
+  seoTags.push(`<meta name="twitter:image" content="${escapeHTML(OG_IMAGE_URL)}">`);
   return `<!doctype html>
 <html lang="en">
 <head>
