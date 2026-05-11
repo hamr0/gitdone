@@ -527,6 +527,66 @@ test('GET /manage/event/:id (complete declaration) renders the trust ladder + DK
   assert.match(view.body, /gitdone-verify protestc1/);
 });
 
+// Module 3: reference_url surfaces on the manage hero as a linkified row.
+test('GET /manage/event/:id (declaration with reference_url) renders a clickable link', async () => {
+  const eventId = 'prefurld1';
+  const event = {
+    id: eventId, type: 'crypto', mode: 'declaration',
+    title: 'declaration-with-ref',
+    initiator: 'refowner@example.com', signer: 'refsigner@example.com',
+    details: 'sign the contract',
+    reference_url: 'https://example.com/contract-2026.pdf',
+    salt: 'salt-prefurld1',
+    activated_at: '2026-01-01T00:00:00Z',
+  };
+  await fsp.mkdir(path.join(tmp, 'events'), { recursive: true });
+  await fsp.writeFile(path.join(tmp, 'events', `${eventId}.json`), JSON.stringify(event));
+  const cookie = mintCookie('refowner@example.com');
+  const view = await get(`/manage/event/${eventId}`, cookie);
+  assert.equal(view.status, 200);
+  assert.match(view.body, /<a [^>]*href="https:\/\/example\.com\/contract-2026\.pdf"[^>]*rel="noopener noreferrer"/);
+  assert.match(view.body, />Reference</);
+});
+
+test('GET /manage/event/:id (attestation with reference_url) renders a clickable link', async () => {
+  const eventId = 'prefurla1';
+  const event = {
+    id: eventId, type: 'crypto', mode: 'attestation',
+    title: 'attestation-with-ref',
+    initiator: 'refattest@example.com',
+    threshold: 3, dedup: 'unique', replies: [],
+    details: 'vouch for this',
+    reference_url: 'https://example.com/post.html',
+    salt: 'salt-prefurla1',
+    activated_at: '2026-01-01T00:00:00Z',
+  };
+  await fsp.mkdir(path.join(tmp, 'events'), { recursive: true });
+  await fsp.writeFile(path.join(tmp, 'events', `${eventId}.json`), JSON.stringify(event));
+  const cookie = mintCookie('refattest@example.com');
+  const view = await get(`/manage/event/${eventId}`, cookie);
+  assert.equal(view.status, 200);
+  assert.match(view.body, /<a [^>]*href="https:\/\/example\.com\/post\.html"[^>]*rel="noopener noreferrer"/);
+  assert.match(view.body, />Reference</);
+});
+
+test('GET /manage/event/:id (crypto event without reference_url) does not render a Reference row', async () => {
+  const eventId = 'prenoref1';
+  const event = {
+    id: eventId, type: 'crypto', mode: 'declaration',
+    title: 'no-ref',
+    initiator: 'norefowner@example.com', signer: 'norefsigner@example.com',
+    details: 'sign without reference',
+    salt: 'salt-prenoref1',
+    activated_at: '2026-01-01T00:00:00Z',
+  };
+  await fsp.mkdir(path.join(tmp, 'events'), { recursive: true });
+  await fsp.writeFile(path.join(tmp, 'events', `${eventId}.json`), JSON.stringify(event));
+  const cookie = mintCookie('norefowner@example.com');
+  const view = await get(`/manage/event/${eventId}`, cookie);
+  assert.equal(view.status, 200);
+  assert.doesNotMatch(view.body, />Reference</);
+});
+
 test('GET /manage/event/:id (complete workflow) renders the trust strip + ladder + per-step trust pills', async () => {
   const eventId = 'protestw1';
   const event = {

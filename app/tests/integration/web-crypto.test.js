@@ -221,6 +221,71 @@ test('POST /crypto unknown mode returns 422', async () => {
   assert.match(r.body, /mode/);
 });
 
+// ---- reference_url (Module 3) -----------------------------------------
+
+test('GET /crypto/new renders the reference_url field', async () => {
+  const r = await get('/crypto/new');
+  assert.equal(r.status, 200);
+  assert.match(r.body, /name="reference_url"/);
+});
+
+test('POST /crypto stores a well-formed https reference_url', async () => {
+  const r = await post('/crypto', {
+    mode: 'declaration',
+    title: 'with reference',
+    initiator: 'me@example.com',
+    signer: 'witness@example.com',
+    details: 'I attest that I read the document.',
+    reference_url: 'https://example.com/contract.pdf',
+  });
+  assert.equal(r.status, 200);
+  const m = r.body.match(/ID: <code>([a-z0-9]{12})<\/code>/);
+  const ev = JSON.parse(await fsp.readFile(path.join(tmp, 'events', `${m[1]}.json`), 'utf8'));
+  assert.equal(ev.reference_url, 'https://example.com/contract.pdf');
+});
+
+test('POST /crypto with empty/whitespace reference_url stores null', async () => {
+  const r = await post('/crypto', {
+    mode: 'attestation',
+    title: 'no reference',
+    initiator: 'chair@example.com',
+    threshold: '2', dedup: 'unique',
+    details: 'Vouch for X.',
+    reference_url: '   \n  ',
+  });
+  assert.equal(r.status, 200);
+  const m = r.body.match(/ID: <code>([a-z0-9]{12})<\/code>/);
+  const ev = JSON.parse(await fsp.readFile(path.join(tmp, 'events', `${m[1]}.json`), 'utf8'));
+  assert.equal(ev.reference_url, null);
+});
+
+test('POST /crypto rejects ftp://, javascript:, plain-string reference_url with 422', async () => {
+  for (const bad of ['ftp://example.com/doc', 'javascript:alert(1)', 'not a url']) {
+    const r = await post('/crypto', {
+      mode: 'attestation',
+      title: 't', initiator: 'a@b.com', threshold: '2', dedup: 'unique',
+      details: 'vouch', reference_url: bad,
+    });
+    assert.equal(r.status, 422, `expected 422 for ${bad}`);
+    assert.match(r.body, /reference_url/);
+  }
+});
+
+test('POST /crypto: on validation error, reference_url round-trips back into form', async () => {
+  // Trigger a validation error on a different field but keep the reference_url
+  // populated, so we can assert it survives the re-render of the form.
+  const r = await post('/crypto', {
+    mode: 'declaration',
+    title: '',                  // empty title triggers a validation error
+    initiator: 'a@b.com',
+    signer: 'c@d.com',
+    details: 'sign',
+    reference_url: 'https://example.com/keep-me',
+  });
+  assert.equal(r.status, 422);
+  assert.match(r.body, /value="https:\/\/example\.com\/keep-me"/);
+});
+
 test('POST /crypto triggers a knowless magic link, no parallel token store', async () => {
   const r = await post('/crypto', {
     mode: 'attestation', title: 'with link', initiator: 'owner@example.com',

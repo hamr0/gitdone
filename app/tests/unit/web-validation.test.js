@@ -5,9 +5,11 @@ const assert = require('node:assert/strict');
 
 const {
   validateWorkflowEvent,
+  validateCryptoEvent,
   validateEmail,
   validateTitle,
   validateTrustLevel,
+  validateReferenceUrl,
   validateDeadline,
   slugifyStepId,
   parseDependsOn,
@@ -332,4 +334,85 @@ test('validateWorkflowEvent: too many steps rejected', () => {
   });
   assert.equal(r.ok, false);
   assert.ok(r.errors.some((e) => /too many/.test(e)));
+});
+
+// ---- reference_url (Module 3) -----------------------------------------
+
+test('validateReferenceUrl: accepts a well-formed https URL', () => {
+  const r = validateReferenceUrl('https://example.com/terms.pdf');
+  assert.equal(r.ok, true);
+  assert.equal(r.value, 'https://example.com/terms.pdf');
+});
+
+test('validateReferenceUrl: trims whitespace; empty stored as null', () => {
+  assert.deepEqual(validateReferenceUrl(''), { ok: true, value: null });
+  assert.deepEqual(validateReferenceUrl('   \t\n  '), { ok: true, value: null });
+  assert.deepEqual(validateReferenceUrl(null), { ok: true, value: null });
+  assert.deepEqual(validateReferenceUrl(undefined), { ok: true, value: null });
+});
+
+test('validateReferenceUrl: rejects non-https schemes', () => {
+  for (const u of [
+    'http://example.com',
+    'ftp://example.com/foo',
+    'javascript:alert(1)',
+    'mailto:a@b.com',
+    'data:text/html,<script>alert(1)</script>',
+    'file:///etc/passwd',
+  ]) {
+    const r = validateReferenceUrl(u);
+    assert.equal(r.ok, false, `expected ${u} to be rejected`);
+    assert.match(r.reason, /https/);
+  }
+});
+
+test('validateReferenceUrl: rejects plain string / not a URL', () => {
+  const r = validateReferenceUrl('not a url');
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /valid https/);
+});
+
+test('validateReferenceUrl: rejects URLs over 2048 chars', () => {
+  const long = 'https://example.com/' + 'a'.repeat(2050);
+  const r = validateReferenceUrl(long);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /too long/);
+});
+
+test('validateCryptoEvent declaration: accepts optional reference_url', () => {
+  const r = validateCryptoEvent({
+    mode: 'declaration', title: 't', initiator: 'a@b.com', signer: 'c@d.com',
+    details: 'sign this', reference_url: 'https://example.com/doc.pdf',
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.value.reference_url, 'https://example.com/doc.pdf');
+});
+
+test('validateCryptoEvent attestation: accepts optional reference_url', () => {
+  const r = validateCryptoEvent({
+    mode: 'attestation', title: 't', initiator: 'a@b.com',
+    threshold: '3', dedup: 'unique',
+    details: 'vouch', reference_url: 'https://example.com/post',
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.value.reference_url, 'https://example.com/post');
+});
+
+test('validateCryptoEvent: omitted reference_url defaults to null', () => {
+  const r = validateCryptoEvent({
+    mode: 'declaration', title: 't', initiator: 'a@b.com', signer: 'c@d.com',
+    details: 'sign this',
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.value.reference_url, null);
+});
+
+test('validateCryptoEvent: rejects javascript: reference_url with 422-shape error', () => {
+  const r = validateCryptoEvent({
+    mode: 'attestation', title: 't', initiator: 'a@b.com',
+    threshold: '3', dedup: 'unique', details: 'vouch',
+    reference_url: 'javascript:alert(1)',
+  });
+  assert.equal(r.ok, false);
+  assert.ok(r.errors.some((e) => /reference_url/.test(e) && /https/.test(e)));
 });

@@ -1247,6 +1247,11 @@ function renderCryptoForm({ values = {}, errors = [] } = {}) {
           <textarea name="details" required maxlength="4096" rows="4" placeholder="e.g. I attest that I have read and agree to the terms at https://example.com/terms-2026-05.pdf">${values.details || ''}</textarea>
         </label>
 
+        <label class="full">
+          <span>Reference URL <small style="color:#8b949e;font-weight:normal">(optional · https:// link to the document, post, or contract being attested to)</small></span>
+          <input type="url" name="reference_url" maxlength="2048" value="${values.reference_url || ''}" placeholder="https://example.com/terms-2026-05.pdf" pattern="https://.*">
+        </label>
+
         <label>
           <span>Your email</span>
           <input type="email" name="initiator" required value="${values.initiator || ''}" placeholder="you@example.com">
@@ -1312,6 +1317,7 @@ router.get('/crypto/new', async (req, res) => {
     threshold: sp.get('threshold') || '',
     dedup: sp.get('dedup') || 'unique',
     details: sp.get('details') || '',
+    reference_url: sp.get('reference_url') || '',
   };
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
@@ -2436,6 +2442,7 @@ function renderDeclarationHero(event, commit) {
         <h4>Event details</h4>
         <div class="proof-row"><div class="proof-key">Type</div><div class="proof-value">declaration</div></div>
         ${event.details ? html`<div class="proof-row"><div class="proof-key">Ask</div><div class="proof-value" style="white-space:pre-wrap">${event.details}</div></div>` : raw('')}
+        ${event.reference_url ? html`<div class="proof-row"><div class="proof-key">Reference</div><div class="proof-value"><a href="${event.reference_url}" rel="noopener noreferrer" target="_blank">${event.reference_url}</a></div></div>` : raw('')}
         <div class="proof-row"><div class="proof-key">Initiator</div><div class="proof-value"><code class="copyable">${event.initiator}</code></div></div>
         <div class="proof-row"><div class="proof-key">Signer</div><div class="proof-value"><code class="copyable">${event.signer}</code></div></div>
         <div class="proof-row"><div class="proof-key">Reply address</div><div class="proof-value"><code class="copyable">event+${event.id}@${config.domain}</code></div></div>
@@ -2510,6 +2517,7 @@ function renderAttestationHero(event, commits) {
         <h4>Event details</h4>
         <div class="proof-row"><div class="proof-key">Type</div><div class="proof-value">attestation · ${dedup}</div></div>
         ${event.details ? html`<div class="proof-row"><div class="proof-key">Ask</div><div class="proof-value" style="white-space:pre-wrap">${event.details}</div></div>` : raw('')}
+        ${event.reference_url ? html`<div class="proof-row"><div class="proof-key">Reference</div><div class="proof-value"><a href="${event.reference_url}" rel="noopener noreferrer" target="_blank">${event.reference_url}</a></div></div>` : raw('')}
         <div class="proof-row"><div class="proof-key">Initiator</div><div class="proof-value"><code class="copyable">${event.initiator}</code></div></div>
         <div class="proof-row"><div class="proof-key">Reply address</div><div class="proof-value"><code class="copyable">event+${event.id}@${config.domain}</code></div></div>
         <div class="proof-row"><div class="proof-key">Threshold</div><div class="proof-value">${String(event.threshold)}</div></div>

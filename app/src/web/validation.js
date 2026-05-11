@@ -58,6 +58,22 @@ function validateDetails(details) {
   return { ok: true, value: d };
 }
 
+// Optional HTTPS reference URL for crypto events — a pointer to the
+// document, contract, or post that the signer is attesting to. We
+// only accept https:// (no ftp://, http://, javascript:, mailto:,
+// data:); empty/whitespace stores as null. 2048-char cap matches
+// common browser/URL practice.
+function validateReferenceUrl(raw) {
+  const s = clean(raw);
+  if (!s) return { ok: true, value: null };
+  if (s.length > 2048) return { ok: false, reason: 'reference_url too long (max 2048 chars)' };
+  let u;
+  try { u = new URL(s); }
+  catch { return { ok: false, reason: 'reference_url must be a valid https:// URL' }; }
+  if (u.protocol !== 'https:') return { ok: false, reason: `reference_url must use https:// (got ${u.protocol.replace(/:$/, '://')})` };
+  return { ok: true, value: s };
+}
+
 function validateTrustLevel(level, defaultLevel) {
   const l = clean(level) || defaultLevel;
   if (!VALID_TRUST_LEVELS.includes(l)) {
@@ -328,6 +344,9 @@ function validateCryptoEvent(form) {
   const details = validateDetails(form.details);
   if (!details.ok) errors.push(details.reason);
 
+  const referenceUrl = validateReferenceUrl(form.reference_url);
+  if (!referenceUrl.ok) errors.push(referenceUrl.reason);
+
   // min_trust_level still applies to declaration; attestation derives
   // trust from dedup rule (see shouldCountAttestation).
   const trust = mode === 'declaration'
@@ -355,6 +374,7 @@ function validateCryptoEvent(form) {
         min_trust_level: trust.value,
         signer: signer.value,
         details: details.value,
+        reference_url: referenceUrl.value,
       },
     };
   }
@@ -385,6 +405,7 @@ function validateCryptoEvent(form) {
       dedup,
       replies: [],
       details: details.value,
+      reference_url: referenceUrl.value,
     },
   };
 }
@@ -397,6 +418,7 @@ module.exports = {
   validateEmail,
   validateTitle,
   validateTrustLevel,
+  validateReferenceUrl,
   validateDeadline,
   parseDependsOn,
   detectDependencyCycles,
