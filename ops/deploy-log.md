@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-11T21:09Z · `0a0b3c3` · crypto rework module 3: optional reference_url field
 - 2026-05-10T11:32Z · `7ce73a0` · og card: wire og:image so link previews render a banner
 - 2026-05-08T10:23Z · `ea243b3` · crypto rework module 2: self-reply now produces an explanatory ack
 - 2026-05-08T09:15Z · `de5a8d2` · crypto rework module 1: require details (the ask) on creation
