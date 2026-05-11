@@ -301,6 +301,76 @@ All event types use the same email receive, DKIM verify, OpenTimestamps, git com
   - Declaration → 1 email received
   - Attestation → N distinct senders reached (per dedup rule)
 
+### 4.4 Where this shines — worked use cases
+
+The three event shapes (workflow, declaration, attestation) cover most
+of the small high-friction social actions that currently require a
+platform to be honest about its database. The pattern across all of
+them: **declaration** is the right primitive when the question is
+"who attested, when, to what, provably." **Workflow** is for "did the
+sequence complete." **Attestation** is for "did enough people agree."
+Ranked roughly by how big the gap is between what people do today and
+what gitdone makes possible:
+
+1. **Witness statements and incident records.** "I, jane@hospital.com,
+   saw the patient at 14:32 on 2026-05-04, conscious." Today: a
+   screenshot, a typed note, or a paper logbook the institution
+   controls. With gitdone (declaration): DKIM-bound to the witness's
+   professional email, OTS-anchored so the timestamp survives,
+   verifiable offline forever. The proof lives in the git repo, not in
+   gitdone's database — the legal-evidence angle is real.
+
+2. **Reference letters and professional endorsements.** LinkedIn
+   endorsements are worthless because anyone can give them and the
+   platform owns the data. A gitdone declaration from
+   `boss@previousemployer.com` is DKIM-bound to the employer domain,
+   anchored in time, and the recipient owns the proof file. Useful for
+   freelancers, consultants, anyone outside the LinkedIn-native
+   economy.
+
+3. **Authorship and first-publication claims.** "I wrote this on
+   2026-05-11." OpenTimestamps is exactly what this needs — the anchor
+   proves you had the text at that time. Combined with DKIM from your
+   own domain, you have a portable, court-friendly priority claim.
+   Today: Twitter posts or sealed envelopes; gitdone is meaningfully
+   better.
+
+4. **Consent receipts (GDPR / data use).** "I consent to X processing
+   my Y data for Z purpose." Currently a checkbox in a database the
+   operator controls. With gitdone (declaration), the user holds the
+   receipt, the operator holds the receipt, neither can rewrite
+   history. The compliance angle alone justifies it for any EU-facing
+   operator.
+
+5. **Domain-ownership and identity-binding claims.** "I,
+   `hamr@msn.com`, claim ownership of `example.com` effective
+   2026-05-11." Acts as a portable identity anchor that doesn't depend
+   on the domain registrar being honest.
+
+6. **Single-step approvals and sign-offs.** Manager approves an
+   expense, partner approves a contract clause, parent consents to a
+   school trip. Today: DocuSign (heavy) or email screenshot
+   (unverifiable). One reply is the right weight — declaration mode
+   fits exactly.
+
+7. **Whistleblower attestations from a named source.** A source
+   attests to a fact via gitdone to a journalist; if the platform that
+   hosted the original event goes dark or the journalist gets
+   pressured, the proof survives. The decoupling-from-the-platform
+   property is the whole point.
+
+8. **NDA acknowledgement / TOS acceptance.** Cleaner than
+   checkbox-click logging because the user holds a copy too, signed by
+   the operator. Both parties can produce the same verifiable record.
+
+These eight aren't exhaustive — they're the cases where the gap
+between current practice and what's now possible is widest. Workflow
+mode (§4.1) covers the multi-step coordination cases (vendor
+management, supply-chain checkpoints with dependencies, multi-party
+contracts with sequenced sign-offs). Attestation mode (§4.2.2) covers
+the threshold cases (peer review quorums, multi-witness statements,
+petitions, collective consent).
+
 ---
 
 ## 5. The Participant Experience
