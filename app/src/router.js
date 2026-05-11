@@ -76,6 +76,20 @@ function parseInitiatorCommand(recipient) {
   return { command: a.kind, eventId: a.extension };
 }
 
+// attach+{eventId}@ — initiator-only reference-doc registration channel
+// for crypto events (Module 4a). Each email's attachments are hashed
+// (SHA-256 + filename + size) and appended to event.reference_docs[].
+// Bytes are discarded after hashing — never persisted to disk. Channel
+// freezes at first counted reply so all signers attest to the same doc
+// set.
+function parseAttachTag(recipient) {
+  const a = parseAddress(recipient);
+  if (!a || a.kind !== 'attach') return null;
+  if (!EVENT_ID_RE.test(a.extension)) return null;
+  return { eventId: a.extension };
+}
+
 module.exports = {
-  parseAddress, parseEventTag, parseVerifyTag, parseReverifyTag, parseInitiatorCommand,
+  parseAddress, parseEventTag, parseVerifyTag, parseReverifyTag,
+  parseInitiatorCommand, parseAttachTag,
 };

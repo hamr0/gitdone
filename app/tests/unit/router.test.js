@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { parseAddress, parseEventTag, parseReverifyTag, parseInitiatorCommand } = require('../../src/router');
+const { parseAddress, parseEventTag, parseReverifyTag, parseInitiatorCommand, parseAttachTag } = require('../../src/router');
 
 test('parseAddress: standard event+tag form', () => {
   assert.deepEqual(parseAddress('event+abc123-step1@git-done.com'), {
@@ -139,4 +139,24 @@ test('parseInitiatorCommand: rejects non-alphanumeric event ids', () => {
   assert.equal(parseInitiatorCommand('stats+abc-def@git-done.com'), null);
   assert.equal(parseInitiatorCommand('close+..@git-done.com'), null);
   assert.equal(parseInitiatorCommand('remind+@git-done.com'), null);
+});
+
+// Module 4a: attach+ channel
+
+test('parseAttachTag: alphanumeric event id', () => {
+  assert.deepEqual(parseAttachTag('attach+abc123@git-done.com'), { eventId: 'abc123' });
+  assert.deepEqual(parseAttachTag('ATTACH+abc123@git-done.com'), { eventId: 'abc123' });
+});
+
+test('parseAttachTag: non-attach kinds return null', () => {
+  assert.equal(parseAttachTag('event+abc123@git-done.com'), null);
+  assert.equal(parseAttachTag('event+abc123-step1@git-done.com'), null);
+  assert.equal(parseAttachTag('close+abc123@git-done.com'), null);
+  assert.equal(parseAttachTag('verify+abc123@git-done.com'), null);
+});
+
+test('parseAttachTag: rejects non-alphanumeric event ids', () => {
+  assert.equal(parseAttachTag('attach+abc-def@git-done.com'), null);
+  assert.equal(parseAttachTag('attach+@git-done.com'), null);
+  assert.equal(parseAttachTag('attach+abc..xyz@git-done.com'), null);
 });

@@ -2423,6 +2423,46 @@ function fmtDate(iso) {
 }
 
 // C3 hero strip for crypto declarations. Ladder + headline + secondary
+// Module 4a: docs row + registration-address row. Each doc renders as
+// "filename · sha256[12] · human-size". When the event hasn't received a
+// counted reply yet, also surface the attach+<id>@ address so the
+// initiator knows where to email more files; bytes are hashed and
+// discarded.
+function isReferenceDocSetFrozen(event) {
+  if (!event || event.type !== 'crypto') return false;
+  if (event.mode === 'attestation') return (event.replies || []).length > 0;
+  if (event.mode === 'declaration') return !!(event.completion && event.completion.status === 'complete');
+  return false;
+}
+
+function renderReferenceDocsRow(event) {
+  if (!event || event.type !== 'crypto') return raw('');
+  const docs = Array.isArray(event.reference_docs) ? event.reference_docs : [];
+  const frozen = isReferenceDocSetFrozen(event);
+  const docsBlock = docs.length
+    ? html`<div class="proof-row">
+        <div class="proof-key">Reference docs</div>
+        <div class="proof-value" style="display:flex;flex-direction:column;gap:0.15rem">
+          ${docs.map((d, i) => {
+            const sz = formatBytes(d.size);
+            return html`<div><code>${d.filename || `doc-${String(i + 1)}`}</code> <span class="mg-receipt-mono">${truncHash(d.sha256)}</span>${sz ? html` <span style="color:#6e7681">· ${sz}</span>` : raw('')}</div>`;
+          })}
+          ${frozen ? html`<div style="color:#8b949e;font-size:0.85em">doc set frozen at first reply</div>` : raw('')}
+        </div>
+      </div>`
+    : raw('');
+  const addrBlock = !frozen
+    ? html`<div class="proof-row">
+        <div class="proof-key">Add docs</div>
+        <div class="proof-value">
+          <code class="copyable">attach+${event.id}@${config.domain}</code>
+          <div style="color:#8b949e;font-size:0.85em;margin-top:0.15rem">email attachments here; we hash + discard the bytes</div>
+        </div>
+      </div>`
+    : raw('');
+  return html`${docsBlock}${addrBlock}`;
+}
+
 // details (signer/reply-addr/status) + collapsible full receipt.
 function renderDeclarationHero(event, commit) {
   const achieved = commit ? commit.trust_level : null;
@@ -2443,6 +2483,7 @@ function renderDeclarationHero(event, commit) {
         <div class="proof-row"><div class="proof-key">Type</div><div class="proof-value">declaration</div></div>
         ${event.details ? html`<div class="proof-row"><div class="proof-key">Ask</div><div class="proof-value" style="white-space:pre-wrap">${event.details}</div></div>` : raw('')}
         ${event.reference_url ? html`<div class="proof-row"><div class="proof-key">Reference</div><div class="proof-value"><a href="${event.reference_url}" rel="noopener noreferrer" target="_blank">${event.reference_url}</a></div></div>` : raw('')}
+        ${renderReferenceDocsRow(event)}
         <div class="proof-row"><div class="proof-key">Initiator</div><div class="proof-value"><code class="copyable">${event.initiator}</code></div></div>
         <div class="proof-row"><div class="proof-key">Signer</div><div class="proof-value"><code class="copyable">${event.signer}</code></div></div>
         <div class="proof-row"><div class="proof-key">Reply address</div><div class="proof-value"><code class="copyable">event+${event.id}@${config.domain}</code></div></div>
@@ -2518,6 +2559,7 @@ function renderAttestationHero(event, commits) {
         <div class="proof-row"><div class="proof-key">Type</div><div class="proof-value">attestation · ${dedup}</div></div>
         ${event.details ? html`<div class="proof-row"><div class="proof-key">Ask</div><div class="proof-value" style="white-space:pre-wrap">${event.details}</div></div>` : raw('')}
         ${event.reference_url ? html`<div class="proof-row"><div class="proof-key">Reference</div><div class="proof-value"><a href="${event.reference_url}" rel="noopener noreferrer" target="_blank">${event.reference_url}</a></div></div>` : raw('')}
+        ${renderReferenceDocsRow(event)}
         <div class="proof-row"><div class="proof-key">Initiator</div><div class="proof-value"><code class="copyable">${event.initiator}</code></div></div>
         <div class="proof-row"><div class="proof-key">Reply address</div><div class="proof-value"><code class="copyable">event+${event.id}@${config.domain}</code></div></div>
         <div class="proof-row"><div class="proof-key">Threshold</div><div class="proof-value">${String(event.threshold)}</div></div>

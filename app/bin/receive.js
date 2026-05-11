@@ -15,9 +15,9 @@ const config = require('../src/config');
 const { parseEnvelope } = require('../src/envelope');
 const { preFilter, extractHeaderBlock } = require('../src/prefilter');
 const { classifyTrust } = require('../src/classifier');
-const { parseEventTag, parseAddress, parseVerifyTag, parseReverifyTag, parseInitiatorCommand } = require('../src/router');
+const { parseEventTag, parseAddress, parseVerifyTag, parseReverifyTag, parseInitiatorCommand, parseAttachTag } = require('../src/router');
 const { loadEvent, findStep, senderMatchesStep, recordStepSendErrors } = require('../src/event-store');
-const { commitReply, commitCompletion, saltedSenderHash } = require('../src/gitrepo');
+const { commitReply, commitCompletion, commitAttach, saltedSenderHash } = require('../src/gitrepo');
 const { fetchDkimKey, pickSignatureToArchive } = require('../src/dkim-archive');
 const { buildVerificationReport, formatVerifyReportBody } = require('../src/verify');
 const { sendmail, buildRawMessage } = require('../src/outbound');
@@ -123,6 +123,37 @@ function summariseAttachments(parsed) {
     size: a.size || (a.content && a.content.length) || 0,
     sha256: a.content ? sha256(a.content) : null,
   }));
+}
+
+// Module 4a: reference doc set is frozen once the event has received its
+// first counted reply. For declaration that means completion=='complete';
+// for attestation it means any reply has landed (counted by the engine).
+// Once frozen, attach+ emails bounce — guarantees every signer attests
+// to the same docs.
+function isReferenceDocSetFrozen(event) {
+  if (!event || event.type !== 'crypto') return false;
+  if (event.mode === 'attestation') return (event.replies || []).length > 0;
+  if (event.mode === 'declaration') return !!(event.completion && event.completion.status === 'complete');
+  return false;
+}
+
+// Format a reference_docs list for inclusion in an ack body.
+// One line per doc: "  • <filename> · <sha256[7..15]> · <size>"
+function formatReferenceDocList(docs) {
+  if (!Array.isArray(docs) || docs.length === 0) return '  (none yet)';
+  return docs.map((d) => {
+    const name = d.filename || '(unnamed)';
+    const hashShort = d.sha256 ? d.sha256.replace(/^sha256:/, '').slice(0, 12) : '?';
+    const sz = humanSize(d.size);
+    return `  • ${name} · ${hashShort} · ${sz}`;
+  }).join('\n');
+}
+
+function humanSize(n) {
+  if (!n && n !== 0) return '?';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(2)} MB`;
 }
 
 async function main() {
@@ -653,6 +684,138 @@ async function main() {
     return;
   }
 
+  // Module 4a — attach+{id}@: reference-doc registration channel.
+  // Initiator-only, DKIM-gated. Hashes each attachment (SHA-256 + filename
+  // + size), appends to event.reference_docs[], discards the bytes, writes
+  // a kind:'attach' commit, OTS-stamps. Frozen at first counted reply.
+  const attachTag = parseAttachTag(envelope.recipient);
+  if (attachTag && !filter.rejected) {
+    const attachEvent = await loadEvent(attachTag.eventId).catch(() => null);
+    const receivedAtAtt = new Date().toISOString();
+    const trustAtt = classifyTrust(auth);
+    const senderAtt = envelope.sender || (from.address || null);
+    const fromAddrAtt = `attach+${attachTag.eventId}@${config.domain}`;
+    const to = senderAtt;
+
+    let replyBody;
+    const attachOutcome = {
+      event_id: attachTag.eventId,
+      accepted: false,
+      reason: null,
+      added: 0,
+    };
+
+    if (!attachEvent) {
+      attachOutcome.reason = 'unknown event';
+      replyBody = `No such event: ${attachTag.eventId}. The attach+ address is only valid for an existing crypto event.`;
+    } else if (attachEvent.type !== 'crypto') {
+      attachOutcome.reason = 'not a crypto event';
+      replyBody = `Event "${attachEvent.title}" is a workflow event, not a crypto event. The attach+ channel only registers reference docs for crypto declarations and attestations.`;
+    } else {
+      const auth1 = authenticateInitiatorCommand(attachEvent, { sender: senderAtt, trustLevel: trustAtt });
+      if (!auth1.ok) {
+        attachOutcome.reason = auth1.reason;
+        replyBody = [
+          `Reference-doc registration rejected: ${auth1.reason}.`,
+          ``,
+          `Only the event initiator can register reference documents via`,
+          `attach+${attachTag.eventId}@${config.domain}. Send from the initiator's`,
+          `address with DKIM signed and aligned.`,
+        ].join('\n');
+      } else if (isReferenceDocSetFrozen(attachEvent)) {
+        attachOutcome.reason = 'doc set frozen';
+        replyBody = [
+          `Reference-doc set frozen — "${attachEvent.title}" has already`,
+          `received a counted reply, so the document set can't change.`,
+          ``,
+          `Fairness rule: every signer attests to the same documents.`,
+          `Adding docs after the first reply would let you swap what people`,
+          `effectively signed.`,
+        ].join('\n');
+      } else if (!parsed.attachments || parsed.attachments.length === 0) {
+        attachOutcome.reason = 'no attachments';
+        replyBody = [
+          `No attachments found on your email to ${fromAddrAtt}.`,
+          ``,
+          `Reply with one or more files attached. Each will be hashed`,
+          `(SHA-256) and recorded in the event's audit trail; the bytes`,
+          `themselves are discarded.`,
+        ].join('\n');
+      } else {
+        const newEntries = parsed.attachments.map((a) => ({
+          filename: a.filename || null,
+          content_type: a.contentType || null,
+          size: a.size || (a.content && a.content.length) || 0,
+          sha256: a.content ? sha256(a.content) : null,
+          registered_at: receivedAtAtt,
+        }));
+        const updRes = await updateEventAtomic(attachTag.eventId, (ev) => ({
+          ...ev,
+          reference_docs: [...(ev.reference_docs || []), ...newEntries],
+        }), { syncMessage: `reference_docs +${newEntries.length}` });
+        const updated = updRes.event;
+        let gitRes = null;
+        try {
+          gitRes = await commitAttach(attachTag.eventId, updated, {
+            receivedAt: receivedAtAtt,
+            sender_domain: from.address ? from.address.split('@')[1] : (senderAtt ? senderAtt.split('@')[1] : null),
+            sender: senderAtt,
+            attachments: newEntries,
+          });
+        } catch (err) {
+          attachOutcome.commit_error = err.message || String(err);
+        }
+        attachOutcome.accepted = true;
+        attachOutcome.added = newEntries.length;
+        attachOutcome.commit_sequence = gitRes ? gitRes.sequence : null;
+        const docList = formatReferenceDocList(updated.reference_docs);
+        replyBody = [
+          `Registered ${newEntries.length} reference document${newEntries.length === 1 ? '' : 's'} on "${attachEvent.title}".`,
+          ``,
+          `Current reference doc set (${updated.reference_docs.length} total):`,
+          docList,
+          ``,
+          `Bytes are NOT stored. Hashes (SHA-256) + filenames + sizes are`,
+          `committed to the event's git audit trail and OpenTimestamped.`,
+          ``,
+          `Add more by replying with additional attachments. The doc set`,
+          `freezes at the first counted reply.`,
+        ].join('\n');
+      }
+    }
+
+    if (to && replyBody) {
+      const subject = attachEvent
+        ? `[gitdone] attach+ — ${attachEvent.title}`
+        : `[gitdone] attach+ — ${attachTag.eventId}`;
+      const rawMessage = buildRawMessage({
+        from: `gitdone <${fromAddrAtt}>`,
+        to, subject, body: replyBody,
+        inReplyTo: parsed.messageId || null,
+        references: parsed.messageId || null,
+        domain: config.domain,
+        autoSubmitted: 'auto-replied',
+      });
+      const sendRes = await sendmail({ from: fromAddrAtt, rawMessage, to: [to] });
+      attachOutcome.reply = { to, ok: sendRes.ok, reason: sendRes.reason || null };
+    }
+
+    logger.emit({
+      kind: 'attach_command',
+      received_at: receivedAtAtt,
+      envelope: {
+        client_ip: envelope.clientIp,
+        client_helo: envelope.clientHelo,
+        sender: envelope.sender,
+        recipient: envelope.recipient,
+      },
+      from: from.address || null,
+      trust_level: trustAtt,
+      attach: attachOutcome,
+    });
+    return;
+  }
+
   // Routing: resolve plus-tag → event/step, look up event JSON, check
   // sender-vs-participant match. Accept-with-flag: never reject on routing
   // failure. Initiator policy decides.
@@ -922,6 +1085,7 @@ async function main() {
     const isSelfReply = typeof reason === 'string' && reason.includes('self-reply');
     const handled = accepted
       || reason === 'missing_attachment'
+      || reason === 'awaiting_reference_docs'
       || reason === 'event already complete'
       || reason === 'event not activated'
       || reason === 'event archived'
@@ -950,6 +1114,9 @@ async function main() {
       let body;
       if (accepted && isCrypto && event.mode === 'declaration') {
         subject = `[gitdone] Signed — ${event.title}`;
+        const refDocsBlock = (event.reference_docs && event.reference_docs.length)
+          ? `\n\nReference documents (${event.reference_docs.length}):\n${formatReferenceDocList(event.reference_docs)}`
+          : '';
         body = [
           `Your signature on Crypto Declaration "${event.title}" was accepted.`,
           `The reply is DKIM-verified, OpenTimestamped, and committed to the`,
@@ -957,7 +1124,7 @@ async function main() {
           ``,
           `The declaration is now final and the audit trail is sealed. Thank you.`,
           ``,
-          `Requester: ${event.initiator}`,
+          `Requester: ${event.initiator}` + refDocsBlock,
         ].join('\n');
       } else if (accepted && isCrypto && event.mode === 'attestation') {
         const dedup = event.dedup || 'unique';
@@ -998,6 +1165,9 @@ async function main() {
         } else {
           tail = `Replies so far: ${counted}/${event.threshold}. The attestation stays open until the threshold is met.`;
         }
+        const refDocsBlock = (event.reference_docs && event.reference_docs.length)
+          ? `\n\nReference documents (${event.reference_docs.length}):\n${formatReferenceDocList(event.reference_docs)}`
+          : '';
         body = [
           `Your reply to Crypto Attestation "${event.title}" was recorded.`,
           `It's DKIM-verified, OpenTimestamped, and committed to the event's`,
@@ -1005,7 +1175,7 @@ async function main() {
           ``,
           tail,
           ``,
-          `Requester: ${event.initiator}`,
+          `Requester: ${event.initiator}` + refDocsBlock,
         ].join('\n');
       } else if (accepted) {
         subject = `[gitdone] Accepted — ${event.title} — ${stepName}${stepCounter}`;
@@ -1039,6 +1209,24 @@ async function main() {
           `If you meant to test, this confirms the round-trip works.`,
           `Otherwise, share the reply address with someone else:`,
           `  ${fromAddr}`,
+        ].join('\n');
+      } else if (reason === 'awaiting_reference_docs') {
+        subject = `[gitdone] Awaiting reference documents — ${event.title}`;
+        body = [
+          `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`,
+          ``,
+          `The requester cited a reference URL but hasn't yet registered the`,
+          `document hashes that pin what's being signed:`,
+          `  ${event.reference_url}`,
+          ``,
+          `Your message is recorded in the event's audit trail, but doesn't`,
+          `count yet — every signer needs to attest to the same document`,
+          `snapshot. Once ${event.initiator} registers the docs (by emailing`,
+          `attach+${event.id}@${config.domain} with the files attached), you`,
+          `can resend to:`,
+          `  ${fromAddr}`,
+          ``,
+          `If you believe this is a mistake, reach out to ${event.initiator}.`,
         ].join('\n');
       } else if (reason === 'missing_attachment') {
         subject = isCrypto

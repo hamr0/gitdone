@@ -147,6 +147,13 @@ function shouldCountDeclaration(event, commit) {
   if (!senderMatchesSigner(commit, event)) {
     return { count: false, reason: 'sender is not the declared signer' };
   }
+  // Module 4a/4b: if the initiator cited a reference_url but hasn't yet
+  // registered any reference docs, the signature can't be evaluated
+  // against a specific snapshot. Commit it for the audit trail but don't
+  // count until docs land.
+  if (event.reference_url && !(event.reference_docs && event.reference_docs.length)) {
+    return { count: false, reason: 'awaiting_reference_docs' };
+  }
   return { count: true };
 }
 
@@ -180,6 +187,12 @@ function shouldCountAttestation(event, commit) {
     }
   }
   // accumulating: no trust gate (both DKIM-verified and unverified count)
+  // Module 4a/4b: reference_url set but no reference_docs yet → don't
+  // count. Commit lands in audit trail so the would-be attestor's intent
+  // is preserved; when docs land they can resend.
+  if (event.reference_url && !(event.reference_docs && event.reference_docs.length)) {
+    return { count: false, reason: 'awaiting_reference_docs' };
+  }
   return { count: true };
 }
 
