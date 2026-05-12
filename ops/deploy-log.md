@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-12T14:36Z · `b77ce9a` · fix(4d-followup): revert misguided per-sign initiator email + add final-ack regression test
 - 2026-05-12T14:29Z · `3ad8644` · crypto rework module 4d (followup): three more UX fixes
 - 2026-05-12T13:50Z · `640e178` · crypto rework module 4d: UX polish on strict-signing flow
 - 2026-05-12T12:35Z · `c208fdb` · crypto rework module 4c: strict signing — signer attaches matching files
