@@ -994,6 +994,11 @@ async function main() {
         has_attachment: (attachments || []).length > 0,
         // Module 4c: strict-signing match needs the full attachment list
         attachments: attachments || [],
+        // Module 4e: strict-attestation persists this on the reply
+        // that fills the attestor's bucket so the completion email can
+        // reach them. completion.js gates storage behind strict mode +
+        // attestor_emails_redacted_at; this field is otherwise ignored.
+        sender_email: envelope.sender || from.address || null,
       };
       let applied = null;
       let didCascade = false;
@@ -1061,12 +1066,42 @@ async function main() {
           const { listCommits } = require('../src/gitrepo');
           const allCommits = await listCommits(tag.eventId).catch(() => []);
           const countingCommits = filterCountingCommits(nextEvent, allCommits);
+          // Module 4e — strict-attestation only: gather attestor emails
+          // persisted by completion.js's strict branch so the proof
+          // email reaches them too. Loose attestation has only salted
+          // hashes, so this stays empty there.
+          const isStrictAtt = nextEvent.type === 'crypto'
+            && nextEvent.mode === 'attestation'
+            && nextEvent.reference_url
+            && Array.isArray(nextEvent.reference_docs)
+            && nextEvent.reference_docs.length > 0;
+          const attestorEmails = isStrictAtt && nextEvent.attestor_progress
+            ? Object.values(nextEvent.attestor_progress)
+                .filter((p) => p && p.email && p.complete)
+                .map((p) => p.email)
+            : [];
           const results = await notifyEventCompletion(nextEvent, {
             reason,
             completedStepId: applied.completedStep,
             commits: countingCommits,
+            extraRecipients: attestorEmails,
           });
           completion.completion_notified = results.map((r) => ({ to: r.to, ok: r.ok }));
+          // Module 4e — redact stored emails immediately after the
+          // one-shot send. Stamps attestor_emails_redacted_at so the
+          // strict branch refuses to re-introduce PII on post-threshold
+          // accumulating replies. Failure here is non-fatal but logged
+          // (the completion already happened; we'd rather note the
+          // missed redaction than crash the receive pipeline).
+          if (isStrictAtt && attestorEmails.length > 0) {
+            try {
+              const { redactAttestorEmails } = require('../src/completion');
+              await redactAttestorEmails(tag.eventId, { now: receivedAt });
+            } catch (err) {
+              process.stderr.write(`attestor-email-redact: ${err.message || err}\n`);
+              completion.attestor_email_redact_error = err.message || String(err);
+            }
+          }
           // Persist the FIRST recipient's Message-Id so the OTS-anchored
           // follow-up can thread to the proof email.
           const firstOk = results.find((r) => r.ok && r.message_id);

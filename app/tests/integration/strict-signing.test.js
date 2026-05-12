@@ -454,6 +454,83 @@ test('strict declaration: extras (unrelated attachments) are ignored, do not blo
   } finally { await fs.rm(tmp, { recursive: true, force: true }); }
 });
 
+// Module 4e — strict-attestation only: the threshold-tripping reply
+// fires a proof email to every counted attestor (read from
+// attestor_progress[*].email), then those emails are redacted from
+// event.json and attestor_emails_redacted_at is stamped. Loose
+// attestation keeps the anonymity-friendly posture (no emails stored,
+// no attestor proof notification).
+test('strict attestation 4e: completion notification reaches attestors + redact runs', async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-strict-att-4e-'));
+  try {
+    const { fake, captureDir } = makeFakeSendmail(tmp);
+    await writeAttEvent(tmp, 'sa4e', {
+      reference_url: 'https://example.com/post',
+    });
+    // Initiator registers one doc (keeps the test compact).
+    const reg = buildAttachEml({
+      from: 'chair@ex.com', to: 'attach+sa4e@git-done.com',
+      attachments: [{ filename: 'doc.pdf', content: 'XX' }],
+    });
+    await runReceive(reg,
+      ['1.2.3.4', 'ex.com', 'chair@ex.com', 'attach+sa4e@git-done.com'],
+      { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
+
+    // Attestor 1 signs — bucket completes, but threshold (2) not yet reached.
+    const a1 = buildAttachEml({
+      from: 'alice@ex.com', to: 'event+sa4e@git-done.com',
+      attachments: [{ filename: 'doc.pdf', content: 'XX' }],
+    });
+    await runReceive(a1,
+      ['1.2.3.4', 'ex.com', 'alice@ex.com', 'event+sa4e@git-done.com'],
+      { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
+    let ev = JSON.parse(await fs.readFile(path.join(tmp, 'events', 'sa4e.json'), 'utf8'));
+    const aliceKey = Object.keys(ev.attestor_progress)[0];
+    assert.equal(ev.attestor_progress[aliceKey].complete, true);
+    assert.equal(ev.attestor_progress[aliceKey].email, 'alice@ex.com',
+      'expected attestor email persisted on bucket-completing reply');
+    assert.ok(!ev.attestor_emails_redacted_at, 'redaction must not fire pre-threshold');
+
+    // Clear captures so we only look at the proof-email burst that
+    // follows the threshold-tripping reply.
+    for (const f of await fs.readdir(captureDir)) await fs.unlink(path.join(captureDir, f));
+
+    // Attestor 2 signs — threshold reached, completion notification fires.
+    const a2 = buildAttachEml({
+      from: 'bob@ex.com', to: 'event+sa4e@git-done.com',
+      attachments: [{ filename: 'doc.pdf', content: 'XX' }],
+    });
+    await runReceive(a2,
+      ['1.2.3.4', 'ex.com', 'bob@ex.com', 'event+sa4e@git-done.com'],
+      { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
+
+    // Read every captured outbound mail and bucket by To: header. The
+    // proof email subject is "[gitdone] proof — ..."; participant acks
+    // and the per-reply attestation receipt are also captured, so we
+    // filter to the proof subject.
+    const captureFiles = await fs.readdir(captureDir);
+    const proofRecipients = new Set();
+    for (const f of captureFiles) {
+      const body = await fs.readFile(path.join(captureDir, f), 'utf8');
+      const subjectLine = body.split(/\r?\n/).find((l) => /^Subject:/i.test(l)) || '';
+      if (!/\[gitdone\] proof /.test(subjectLine)) continue;
+      const toLine = body.split(/\r?\n/).find((l) => /^To:/i.test(l)) || '';
+      const m = toLine.match(/<([^>]+)>|([\w.+-]+@[\w.-]+)/);
+      if (m) proofRecipients.add((m[1] || m[2]).toLowerCase());
+    }
+    assert.ok(proofRecipients.has('chair@ex.com'), 'initiator must receive the proof email');
+    assert.ok(proofRecipients.has('alice@ex.com'), 'attestor 1 must receive the proof email (4e)');
+    assert.ok(proofRecipients.has('bob@ex.com'), 'attestor 2 must receive the proof email (4e)');
+
+    // Post-send: emails must be redacted; stamp must be set.
+    ev = JSON.parse(await fs.readFile(path.join(tmp, 'events', 'sa4e.json'), 'utf8'));
+    for (const [k, p] of Object.entries(ev.attestor_progress)) {
+      assert.equal(p.email, null, `attestor ${k} email must be redacted post-send`);
+    }
+    assert.ok(ev.attestor_emails_redacted_at, 'attestor_emails_redacted_at must be stamped');
+  } finally { await fs.rm(tmp, { recursive: true, force: true }); }
+});
+
 test('strict attestation: per-attestor progress; partial does not count, full sign counts', async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-strict-att-'));
   try {

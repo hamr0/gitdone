@@ -328,12 +328,26 @@ reply counts. Matching rule:
 - Extras (unrelated attachments alongside the matching set) are
   ignored.
 
-Privacy posture is unchanged: gitdone never stores file bytes, only
-hashes. Declaration's strict mode adds `signed_trust_level` +
+Privacy posture is unchanged for file bytes (never stored, only
+hashes). Declaration's strict mode adds `signed_trust_level` +
 `signed_sender_domain` per doc (the signer's domain is part of the
 DKIM-bound proof anyway). Attestation's strict mode keeps the
 per-attestor map keyed by salted sender_hash — same shape as
 loose attestation's dedup ledger.
+
+**Attestor email under strict mode (Module 4e).** Strict-mode
+attestation also persists each attestor's plaintext email
+(`attestor_progress[hash].email`) on the reply that fills their
+bucket, *only* so the one-shot proof email at threshold-reach can
+reach them. The instant `notifyEventCompletion` returns, every stored
+email is cleared and `event.attestor_emails_redacted_at` is stamped;
+post-redaction replies (only possible under accumulating dedup) refuse
+to re-introduce PII. Loose attestation never stores emails. The PII
+window is bounded by (bucket-completion → threshold-reach → send →
+redact) — typically seconds to days; never longer than the
+threshold-reach delay. The trade is justified by strict mode's
+self-selected non-anonymity: signers attach files matching a
+manifest, and their domain is already in the proof.
 
 `reference_url` alone (no docs registered) is **not** strict mode —
 it's just a pointer; replies count under the normal trust + dedup

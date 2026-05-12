@@ -374,6 +374,64 @@ test('strict attestation unique: threshold-tripping reply flips completion to co
   assert.match(r3.decision.reason, /already complete/);
 });
 
+// Module 4e — strict attestation persists the attestor email on the
+// reply that fills their bucket so the proof email can reach them.
+// Loose attestation MUST NOT (anonymity-friendly posture is the whole
+// point of the loose mode). attestor_emails_redacted_at blocks new
+// stores after the one-shot completion notification has fired.
+test('strict attestation 4e: stores attestor email on bucket-completing reply', () => {
+  const H = 'sha256:' + 'b'.repeat(64);
+  let ev = mkAttestation({
+    threshold: 2,
+    dedup: 'unique',
+    reference_url: 'https://example.com/x',
+    reference_docs: [{ filename: 'x.pdf', sha256: H, size: 10 }],
+  });
+  const attach = [{ filename: 'x.pdf', sha256: H, size: 10 }];
+
+  // Bucket-completing reply stores the email.
+  const r = applyReply(ev, mkCommit({
+    sender_hash: 's1', step_id: null, sequence: 1,
+    attachments: attach, sender_email: 'alice@gmail.com',
+  }));
+  assert.equal(r.applied, true);
+  assert.equal(r.event.attestor_progress.s1.complete, true);
+  assert.equal(r.event.attestor_progress.s1.email, 'alice@gmail.com');
+});
+
+test('strict attestation 4e: post-redaction reply does NOT re-introduce email', () => {
+  const H = 'sha256:' + 'c'.repeat(64);
+  // accumulating dedup so we can keep applying past threshold
+  let ev = mkAttestation({
+    threshold: 1,
+    dedup: 'accumulating',
+    reference_url: 'https://example.com/x',
+    reference_docs: [{ filename: 'x.pdf', sha256: H, size: 10 }],
+    attestor_emails_redacted_at: '2026-05-12T17:00:00Z',
+  });
+  const r = applyReply(ev, mkCommit({
+    sender_hash: 's-late', step_id: null, sequence: 1,
+    attachments: [{ filename: 'x.pdf', sha256: H, size: 10 }],
+    sender_email: 'late@gmail.com',
+    trust_level: 'verified',
+  }));
+  assert.equal(r.applied, true);
+  assert.equal(r.event.attestor_progress['s-late'].complete, true);
+  assert.equal(r.event.attestor_progress['s-late'].email, null, 'must NOT store email post-redact');
+});
+
+test('loose attestation 4e: never stores attestor email (anonymity-friendly)', () => {
+  // No reference_url + reference_docs → loose mode, not strict.
+  let ev = mkAttestation({ threshold: 2, dedup: 'unique' });
+  const r = applyReply(ev, mkCommit({
+    sender_hash: 's1', step_id: null, sequence: 1,
+    sender_email: 'alice@gmail.com',
+  }));
+  assert.equal(r.applied, true);
+  // Loose attestation uses the replies[] path, no attestor_progress entry.
+  assert.equal(r.event.attestor_progress, undefined);
+});
+
 test('attestation: replies after completion still commit but do not re-count', () => {
   let ev = mkAttestation({ threshold: 1, dedup: 'unique' });
   const r1 = applyReply(ev, mkCommit({ sender_hash: 's1', step_id: null, sequence: 1 }));

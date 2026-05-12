@@ -398,6 +398,18 @@ function applyReply(event, commit, { now = new Date().toISOString() } = {}) {
       const totalDocs = (event.reference_docs || []).length;
       const wasComplete = !!prior.complete;
       const nowComplete = seen.size >= totalDocs && totalDocs > 0;
+      // Module 4e — strict-attestation only: persist plaintext attestor
+      // email on the reply that fills their bucket, so the completion
+      // notification can reach them. Loose attestation keeps the
+      // anonymity-friendly posture (hashes only). Once the one-shot
+      // completion notification fires, receive.js calls
+      // redactAttestorEmails which both clears every stored email AND
+      // stamps event.attestor_emails_redacted_at — so post-notification
+      // replies (only possible under accumulating dedup) don't
+      // re-introduce PII.
+      const justBucketComplete = !wasComplete && nowComplete;
+      const alreadyRedacted = !!event.attestor_emails_redacted_at;
+      const storeEmail = !alreadyRedacted && justBucketComplete && !!commit.sender_email;
       progress[senderKey] = {
         ...prior,
         signed_doc_hashes: Array.from(seen),
@@ -405,6 +417,7 @@ function applyReply(event, commit, { now = new Date().toISOString() } = {}) {
         completed_at: nowComplete ? (prior.completed_at || now) : prior.completed_at || null,
         last_seen_at: now,
         sender_domain: commit.sender_domain || prior.sender_domain || null,
+        email: storeEmail ? commit.sender_email : (prior.email || null),
       };
       const completeAttestors = Object.keys(progress).filter((k) => progress[k].complete).length;
       const threshold = event.threshold || 0;
@@ -533,6 +546,35 @@ async function updateEventAtomic(eventId, updater, { syncMessage } = {}) {
   });
 }
 
+// Module 4e — clear every stored attestor email AND stamp
+// attestor_emails_redacted_at so the strict-attestation branch in
+// applyReply refuses to re-store on future replies (only possible under
+// accumulating dedup post-threshold). Called by receive.js after the
+// one-shot completion notification has been sent. Returns the redacted
+// event so callers can read the post-state.
+async function redactAttestorEmails(eventId, { now = new Date().toISOString() } = {}) {
+  const result = await updateEventAtomic(eventId, (current) => {
+    if (!current.attestor_progress) return null;
+    const progress = {};
+    let touched = false;
+    for (const [hash, entry] of Object.entries(current.attestor_progress)) {
+      if (entry && entry.email) {
+        progress[hash] = { ...entry, email: null };
+        touched = true;
+      } else {
+        progress[hash] = entry;
+      }
+    }
+    if (!touched && current.attestor_emails_redacted_at) return null;
+    return {
+      ...current,
+      attestor_progress: progress,
+      attestor_emails_redacted_at: now,
+    };
+  }, { syncMessage: 'attestor emails redacted post-completion' });
+  return result.event;
+}
+
 module.exports = {
   shouldCount,
   applyReply,
@@ -546,6 +588,7 @@ module.exports = {
   senderMatchesSigner,
   senderIsInitiator,
   updateEventAtomic,
+  redactAttestorEmails,
   matchAttachmentsAgainstRefDocs,
   isStrictSigningEvent,
   TRUST_ORDER,

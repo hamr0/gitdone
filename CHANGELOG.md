@@ -15,6 +15,30 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Crypto rework module 4e — attestor completion notification (strict only)
+
+Until this module, the `[gitdone] proof — "<title>"` completion email
+went only to the initiator and (for declarations) the named signer.
+Loose attestations are anonymity-friendly by construction (gitdone
+stores salted hashes, not plaintext) so there's no way to reach
+counted attestors. Strict-mode attestation already has the same
+hash-based ledger, but the signers are by definition non-anonymous —
+they're attaching files whose hashes pin them to the manifest, and
+their domain is in the proof.
+
+Under **strict mode only**, gitdone now persists each attestor's
+plaintext email on the reply that fills their bucket
+(`attestor_progress[hash].email`), fires the proof email to every
+counted attestor + the initiator when the threshold-tripping reply
+lands, and then **immediately redacts** every stored email +
+stamps `event.attestor_emails_redacted_at`. Post-redaction replies
+(only possible under accumulating dedup) refuse to re-introduce PII.
+
+The PII window is bounded by: bucket-completion → threshold reached →
+proof email burst → redact. Typically seconds to days; never longer
+than the threshold-reach delay. Loose attestation is untouched — no
+emails stored, no attestor proof email.
+
 ### Crypto rework module 5 — prominent mode badge on the manage hero
 
 Between the proof headline and the details block, every crypto manage

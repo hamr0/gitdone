@@ -286,7 +286,7 @@ function renderProofBlock(event, commits, { recipient } = {}) {
 // cryptographic receipt(s). When supplied, the message is the durable
 // PROOF email; the Message-Id is returned to the caller so the
 // OTS-anchored follow-up can thread to it.
-async function notifyEventCompletion(event, { reason = 'all_steps_done', publicBaseUrl, completedStepId, commits } = {}) {
+async function notifyEventCompletion(event, { reason = 'all_steps_done', publicBaseUrl, completedStepId, commits, extraRecipients } = {}) {
   if (!event) return [];
   const completedAt = (event.completion && event.completion.completed_at) || new Date().toISOString();
   const finalStep = completedStepId && Array.isArray(event.steps)
@@ -302,10 +302,15 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
   } else if (event.type === 'crypto' && event.mode === 'declaration' && event.signer) {
     recipients.add(event.signer.toLowerCase());
   }
-  // Attestation: anonymous addresses are stored as salted hashes only —
-  // we never have plaintext to reach those repliers. The initiator
-  // gets the proof email and can verify offline; counted repliers got
-  // their per-reply ack at receive time.
+  // Loose attestation: anonymous addresses are stored as salted hashes
+  // only — we never have plaintext to reach those repliers. Under
+  // strict mode (4e) the caller passes attestor emails via
+  // extraRecipients; receive.js then redacts them after the send.
+  if (Array.isArray(extraRecipients)) {
+    for (const r of extraRecipients) {
+      if (typeof r === 'string' && r.includes('@')) recipients.add(r.toLowerCase());
+    }
+  }
 
   // Keep vocabulary in sync with the /manage hub pills: "completed"
   // means every step ran its full course; "closed early" means the
