@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-12T16:33Z · `f541be5` · crypto rework module 5: prominent mode badge on manage hero
 - 2026-05-12T16:17Z · `09f843f` · fix: attestation reference docs row was never ticking — read attestor_progress
 - 2026-05-12T14:36Z · `b77ce9a` · fix(4d-followup): revert misguided per-sign initiator email + add final-ack regression test
 - 2026-05-12T14:29Z · `3ad8644` · crypto rework module 4d (followup): three more UX fixes
