@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-12T13:50Z · `640e178` · crypto rework module 4d: UX polish on strict-signing flow
 - 2026-05-12T12:35Z · `c208fdb` · crypto rework module 4c: strict signing — signer attaches matching files
 - 2026-05-11T21:45Z · `6ade39d` · crypto rework module 4a: attach+<id>@ reference-doc channel + derived gating
 - 2026-05-11T21:09Z · `0a0b3c3` · crypto rework module 3: optional reference_url field
