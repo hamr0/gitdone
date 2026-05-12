@@ -265,6 +265,52 @@ test('strict declaration: matching attachment counts as partial; event stays ope
   } finally { await fs.rm(tmp, { recursive: true, force: true }); }
 });
 
+test('strict declaration: signer receives "Signed" final ack on the completing reply', async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-strict-finalack-'));
+  try {
+    const { fake, captureDir } = makeFakeSendmail(tmp);
+    await writeDeclEvent(tmp, 'sf1', {
+      reference_url: 'https://example.com/contract.pdf',
+    });
+    const a = buildAttachEml({
+      from: 'boss@ex.com', to: 'attach+sf1@git-done.com',
+      attachments: [
+        { filename: 'a.pdf', content: 'AAAA' },
+        { filename: 'b.pdf', content: 'BBBB' },
+      ],
+    });
+    await runReceive(a,
+      ['1.2.3.4', 'ex.com', 'boss@ex.com', 'attach+sf1@git-done.com'],
+      { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
+    // Signer reply #1 (partial).
+    await runReceive(buildAttachEml({
+      from: 'employee@ex.com', to: 'event+sf1@git-done.com',
+      attachments: [{ filename: 'a.pdf', content: 'AAAA' }],
+    }),
+      ['1.2.3.4', 'ex.com', 'employee@ex.com', 'event+sf1@git-done.com'],
+      { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
+    // Signer reply #2 (completes).
+    await runReceive(buildAttachEml({
+      from: 'employee@ex.com', to: 'event+sf1@git-done.com',
+      attachments: [{ filename: 'b.pdf', content: 'BBBB' }],
+    }),
+      ['1.2.3.4', 'ex.com', 'employee@ex.com', 'event+sf1@git-done.com'],
+      { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
+    // Signer should have received a "Signed" final ack (subject differs
+    // from the in-progress one).
+    const all = await fs.readdir(captureDir);
+    const signerAcks = all.filter((f) => f.startsWith('employee_at_ex.com'));
+    assert.ok(signerAcks.length, 'no signer ack captures at all');
+    let finalAckBody = '';
+    for (const f of signerAcks) {
+      const txt = await fs.readFile(path.join(captureDir, f), 'utf8');
+      if (/Subject: \[gitdone\] Signed —/.test(txt)) { finalAckBody = txt; break; }
+    }
+    assert.ok(finalAckBody, `no final "Signed —" ack to signer in ${signerAcks.join(',')}`);
+    assert.match(finalAckBody, /declaration is now final/);
+  } finally { await fs.rm(tmp, { recursive: true, force: true }); }
+});
+
 test('strict declaration: matching the last pending doc completes the event', async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-strict-complete-'));
   try {
