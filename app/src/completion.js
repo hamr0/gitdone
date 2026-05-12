@@ -423,7 +423,16 @@ function applyReply(event, commit, { now = new Date().toISOString() } = {}) {
         updated.threshold_reached_count = completeAttestors;
         updated.threshold_reached_sequence = commit.sequence;
       }
-      if (lockingDedup && reachedThreshold && !event.completion) {
+      // `event.completion` is initialised to `{ status: 'open', ... }` after
+      // the first counted reply (line 429 below), so `!event.completion` is
+      // only ever true on the very first reply — by which point the
+      // threshold can't be reached yet. The right gate is "not already
+      // complete," not "no completion record exists." (Pre-fix, strict
+      // attestation never flipped to complete; the dashboard stayed
+      // "active" past threshold and the proof-completion email may have
+      // fired but the event.json on disk lied.)
+      const wasAlreadyComplete = event.completion && event.completion.status === 'complete';
+      if (lockingDedup && reachedThreshold && !wasAlreadyComplete) {
         updated.completion = { status: 'complete', completed_at: now, commit_sequence: commit.sequence };
       } else {
         updated.completion = event.completion || { status: 'open', completed_at: null, commit_sequence: null };

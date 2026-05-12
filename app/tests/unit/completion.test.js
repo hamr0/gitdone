@@ -319,6 +319,61 @@ test('attestation unique/latest: low trust rejected; accumulating accepts', () =
   assert.equal(r3.applied, true);
 });
 
+// Regression: strict-mode attestation under unique dedup must flip
+// event.completion.status to 'complete' on the threshold-tripping reply.
+// Before this fix, the strict branch checked `!event.completion`, which
+// was already truthy ({status:'open',...}) after the first reply, so
+// completion never flipped. The dashboard showed "active" forever and
+// post-threshold attestors weren't being rejected by shouldCount's
+// already-complete gate.
+test('strict attestation unique: threshold-tripping reply flips completion to complete', () => {
+  const DOC_HASH = 'sha256:' + 'a'.repeat(64);
+  let ev = mkAttestation({
+    threshold: 2,
+    dedup: 'unique',
+    reference_url: 'https://example.com/doc',
+    reference_docs: [{ filename: 'doc.pdf', sha256: DOC_HASH, size: 100 }],
+  });
+  const matchingAttachment = [{ filename: 'doc.pdf', sha256: DOC_HASH, size: 100 }];
+
+  // Attestor 1 signs the doc. Threshold not yet reached.
+  const r1 = applyReply(ev, mkCommit({
+    sender_hash: 's1', step_id: null, sequence: 1,
+    attachments: matchingAttachment,
+  }), { now: '2026-05-12T16:00:00Z' });
+  assert.equal(r1.applied, true);
+  assert.equal(r1.completedEvent, false);
+  assert.equal(isComplete(r1.event), false);
+  // After first reply the completion record exists but is open — this is
+  // the state the (pre-fix) bug then read as "already complete" via
+  // `!event.completion`.
+  assert.equal(r1.event.completion.status, 'open');
+  ev = r1.event;
+
+  // Attestor 2 signs — threshold of 2 is now reached and completion MUST
+  // flip to 'complete'.
+  const r2 = applyReply(ev, mkCommit({
+    sender_hash: 's2', step_id: null, sequence: 2,
+    attachments: matchingAttachment,
+  }), { now: '2026-05-12T16:03:00Z' });
+  assert.equal(r2.applied, true);
+  assert.equal(r2.completedEvent, true, 'completedEvent must fire so receive.js sends the proof email');
+  assert.equal(r2.event.completion.status, 'complete', 'completion.status must flip to "complete"');
+  assert.equal(r2.event.completion.completed_at, '2026-05-12T16:03:00Z');
+  assert.equal(r2.event.completion.commit_sequence, 2);
+  assert.equal(isComplete(r2.event), true);
+
+  // Post-completion gating: a third unique attestor must now be rejected
+  // by shouldCount's already-complete branch (was silently overcounting
+  // before the fix).
+  const r3 = applyReply(r2.event, mkCommit({
+    sender_hash: 's3', step_id: null, sequence: 3,
+    attachments: matchingAttachment,
+  }));
+  assert.equal(r3.applied, false);
+  assert.match(r3.decision.reason, /already complete/);
+});
+
 test('attestation: replies after completion still commit but do not re-count', () => {
   let ev = mkAttestation({ threshold: 1, dedup: 'unique' });
   const r1 = applyReply(ev, mkCommit({ sender_hash: 's1', step_id: null, sequence: 1 }));
