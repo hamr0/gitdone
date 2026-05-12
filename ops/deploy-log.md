@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-12T21:39Z · `7de26e1` · revert: drop the 4e diagnostic — missing email was gmail spam, not a bug
 - 2026-05-12T20:48Z · `8a085d6` · crypto rework module 4e: attestor completion notification (strict only)
 - 2026-05-12T19:24Z · `a8db6f3` · fix: strict attestation never flipped event.completion to complete
 - 2026-05-12T16:33Z · `f541be5` · crypto rework module 5: prominent mode badge on manage hero
