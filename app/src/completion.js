@@ -139,6 +139,52 @@ function shouldCountWorkflow(event, commit) {
   return { count: true, step };
 }
 
+// Module 4c — strict signing helper. Returns { strict, matched, mismatched, extras }.
+//   matched:   ref docs whose sha256 == one of the attachment hashes
+//   mismatched: filename matches an unsigned ref doc but sha256 differs
+//   extras:    attachments unmatched by either hash or filename
+//
+// "strict" is a coarse flag: true when reference_url is set AND
+// reference_docs has at least one entry. Caller uses it to decide whether
+// to enforce attachment-set matching at all.
+function matchAttachmentsAgainstRefDocs(attachments, refDocs) {
+  const docs = Array.isArray(refDocs) ? refDocs : [];
+  const atts = Array.isArray(attachments) ? attachments : [];
+  const matched = [];
+  const mismatched = [];
+  const extras = [];
+  const usedRefIdx = new Set();
+
+  for (const a of atts) {
+    if (!a || !a.sha256) { extras.push(a); continue; }
+    const byHash = docs.findIndex((d) => d && d.sha256 === a.sha256);
+    if (byHash >= 0) {
+      matched.push({ ref_index: byHash, attachment: a });
+      usedRefIdx.add(byHash);
+      continue;
+    }
+    const byName = a.filename
+      ? docs.findIndex((d) => d && d.filename === a.filename)
+      : -1;
+    if (byName >= 0) {
+      mismatched.push({
+        ref_index: byName,
+        attachment: a,
+        expected_sha256: docs[byName].sha256,
+        got_sha256: a.sha256,
+      });
+    } else {
+      extras.push(a);
+    }
+  }
+  return { matched, mismatched, extras };
+}
+
+function isStrictSigningEvent(event) {
+  if (!event || event.type !== 'crypto') return false;
+  return !!(event.reference_url && Array.isArray(event.reference_docs) && event.reference_docs.length > 0);
+}
+
 function shouldCountDeclaration(event, commit) {
   if (!event.activated_at) return { count: false, reason: 'event not activated' };
   if (event.archived_at) return { count: false, reason: 'event archived' };
@@ -153,6 +199,20 @@ function shouldCountDeclaration(event, commit) {
   // count until docs land.
   if (event.reference_url && !(event.reference_docs && event.reference_docs.length)) {
     return { count: false, reason: 'awaiting_reference_docs' };
+  }
+  // Module 4c: strict signing — when the event has registered reference
+  // docs, the signer must attach files whose sha256 hashes match. Partial
+  // is allowed (some docs at a time); event completes only when all are
+  // signed.
+  if (isStrictSigningEvent(event)) {
+    const matchRes = matchAttachmentsAgainstRefDocs(commit.attachments, event.reference_docs);
+    if (matchRes.mismatched.length > 0) {
+      return { count: false, reason: 'attachment_set_mismatch', match_result: matchRes };
+    }
+    if (matchRes.matched.length === 0) {
+      return { count: false, reason: 'strict_no_matching_attachments', match_result: matchRes };
+    }
+    return { count: true, match_result: matchRes, strict: true };
   }
   return { count: true };
 }
@@ -192,6 +252,20 @@ function shouldCountAttestation(event, commit) {
   // is preserved; when docs land they can resend.
   if (event.reference_url && !(event.reference_docs && event.reference_docs.length)) {
     return { count: false, reason: 'awaiting_reference_docs' };
+  }
+  // Module 4c: strict signing — same rules as declaration but per-attestor
+  // progress is tracked in event.attestor_progress[sender_hash]. An
+  // attestor only counts toward threshold when their personal progress
+  // covers every reference doc.
+  if (isStrictSigningEvent(event)) {
+    const matchRes = matchAttachmentsAgainstRefDocs(commit.attachments, event.reference_docs);
+    if (matchRes.mismatched.length > 0) {
+      return { count: false, reason: 'attachment_set_mismatch', match_result: matchRes };
+    }
+    if (matchRes.matched.length === 0) {
+      return { count: false, reason: 'strict_no_matching_attachments', match_result: matchRes };
+    }
+    return { count: true, match_result: matchRes, strict: true };
   }
   return { count: true };
 }
@@ -250,6 +324,39 @@ function applyReply(event, commit, { now = new Date().toISOString() } = {}) {
   }
 
   if (event.type === 'crypto' && event.mode === 'declaration') {
+    // Module 4c strict signing: partial signs are allowed across emails.
+    // Mark every matched reference doc as signed; event only completes
+    // when ALL docs are signed.
+    if (decision.strict && decision.match_result) {
+      const matched = decision.match_result.matched;
+      const refDocs = (event.reference_docs || []).map((d, i) => {
+        const hit = matched.find((m) => m.ref_index === i);
+        if (!hit || d.signed_at) return d;     // already signed → don't re-stamp
+        return {
+          ...d,
+          signed_at: now,
+          signed_by_hash: commit.sender_hash,
+          signed_commit_sequence: commit.sequence,
+        };
+      });
+      const allSigned = refDocs.every((d) => !!d.signed_at);
+      const updated = {
+        ...event,
+        reference_docs: refDocs,
+        completion: allSigned
+          ? { status: 'complete', completed_at: now, commit_sequence: commit.sequence }
+          : (event.completion || { status: 'open', completed_at: null, commit_sequence: null }),
+      };
+      return {
+        event: updated, applied: true, decision,
+        completedEvent: allSigned,
+        // newly_signed_count: how many docs this commit moved to signed
+        newly_signed_count: refDocs.filter((d, i) => {
+          const before = (event.reference_docs || [])[i];
+          return d.signed_at && (!before || !before.signed_at);
+        }).length,
+      };
+    }
     return {
       event: {
         ...event,
@@ -269,6 +376,66 @@ function applyReply(event, commit, { now = new Date().toISOString() } = {}) {
       received_at: commit.received_at,
       trust_level: commit.trust_level,
     };
+    // Module 4c strict signing for attestation: per-attestor progress map.
+    // An attestor's reply is appended to replies[] for audit, but they
+    // count toward threshold only when their attestor_progress entry has
+    // signed every reference doc.
+    if (decision.strict && decision.match_result) {
+      const matched = decision.match_result.matched;
+      const senderKey = commit.sender_hash || 'unknown';
+      const progress = { ...(event.attestor_progress || {}) };
+      const prior = progress[senderKey] || { signed_doc_hashes: [], complete: false, first_seen_at: now };
+      const seen = new Set(prior.signed_doc_hashes);
+      const addedHashes = [];
+      for (const m of matched) {
+        const h = (event.reference_docs[m.ref_index] || {}).sha256;
+        if (h && !seen.has(h)) { seen.add(h); addedHashes.push(h); }
+      }
+      const totalDocs = (event.reference_docs || []).length;
+      const wasComplete = !!prior.complete;
+      const nowComplete = seen.size >= totalDocs && totalDocs > 0;
+      progress[senderKey] = {
+        ...prior,
+        signed_doc_hashes: Array.from(seen),
+        complete: nowComplete,
+        completed_at: nowComplete ? (prior.completed_at || now) : prior.completed_at || null,
+        last_seen_at: now,
+        sender_domain: commit.sender_domain || prior.sender_domain || null,
+      };
+      const completeAttestors = Object.keys(progress).filter((k) => progress[k].complete).length;
+      const threshold = event.threshold || 0;
+      const reachedThreshold = completeAttestors >= threshold;
+      const firstCrossing = !wasComplete && nowComplete && reachedThreshold && !event.threshold_reached_at;
+      const dedup = event.dedup || 'unique';
+      const lockingDedup = dedup !== 'accumulating';
+      const justCompleted = !wasComplete && nowComplete;
+      const updated = {
+        ...event,
+        replies: [...(event.replies || []), newReply],
+        attestor_progress: progress,
+      };
+      if (firstCrossing) {
+        updated.threshold_reached_at = now;
+        updated.threshold_reached_count = completeAttestors;
+        updated.threshold_reached_sequence = commit.sequence;
+      }
+      if (lockingDedup && reachedThreshold && !event.completion) {
+        updated.completion = { status: 'complete', completed_at: now, commit_sequence: commit.sequence };
+      } else {
+        updated.completion = event.completion || { status: 'open', completed_at: null, commit_sequence: null };
+      }
+      return {
+        event: updated, applied: true, decision,
+        countedReplies: completeAttestors,
+        completedEvent: lockingDedup ? (justCompleted && reachedThreshold) : firstCrossing,
+        thresholdReached: reachedThreshold,
+        thresholdJustCrossed: firstCrossing,
+        // surface for receive.js ack composition
+        newly_signed_count: addedHashes.length,
+        attestor_complete_after: nowComplete,
+        attestor_complete_before: wasComplete,
+      };
+    }
     const all = [...(event.replies || []), newReply];
     const dedup = event.dedup || 'unique';
     const { replies, count } = applyDedup(all, dedup);
@@ -366,5 +533,7 @@ module.exports = {
   senderMatchesSigner,
   senderIsInitiator,
   updateEventAtomic,
+  matchAttachmentsAgainstRefDocs,
+  isStrictSigningEvent,
   TRUST_ORDER,
 };

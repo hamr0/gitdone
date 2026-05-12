@@ -125,13 +125,17 @@ function summariseAttachments(parsed) {
   }));
 }
 
-// Module 4a: reference doc set is frozen once the event has received its
-// first counted reply. For declaration that means completion=='complete';
-// for attestation it means any reply has landed (counted by the engine).
-// Once frozen, attach+ emails bounce — guarantees every signer attests
-// to the same docs.
+// Module 4a + 4c: reference doc set is frozen
+//   - in strict mode (event.reference_url + any reference_docs): frozen
+//     immediately, so the first attach+ email is the canonical one-shot
+//     manifest. Signer was held until this point, so adding docs later
+//     would change what they were asked to sign.
+//   - in loose mode (no reference_url): frozen at first counted reply.
+// Once frozen, attach+ emails bounce.
 function isReferenceDocSetFrozen(event) {
   if (!event || event.type !== 'crypto') return false;
+  const hasDocs = Array.isArray(event.reference_docs) && event.reference_docs.length > 0;
+  if (event.reference_url && hasDocs) return true;
   if (event.mode === 'attestation') return (event.replies || []).length > 0;
   if (event.mode === 'declaration') return !!(event.completion && event.completion.status === 'complete');
   return false;
@@ -147,6 +151,31 @@ function formatReferenceDocList(docs) {
     const sz = humanSize(d.size);
     return `  • ${name} · ${hashShort} · ${sz}`;
   }).join('\n');
+}
+
+// Module 4c — render a "matched / missing" block for the partial-sign
+// progress ack body. Reads event.reference_docs[] and surfaces each doc's
+// signed_at state.
+function formatProgressBlock(event) {
+  const docs = Array.isArray(event.reference_docs) ? event.reference_docs : [];
+  const signed = docs.filter((d) => d.signed_at);
+  const pending = docs.filter((d) => !d.signed_at);
+  const lines = [`Progress: ${signed.length} of ${docs.length} signed.`, ''];
+  if (signed.length) {
+    lines.push(`Matched:`);
+    for (const d of signed) {
+      lines.push(`  [x] ${d.filename || '(unnamed)'}`);
+    }
+  }
+  if (pending.length) {
+    if (signed.length) lines.push('');
+    lines.push(`Still needed:`);
+    for (const d of pending) {
+      const hashShort = d.sha256 ? d.sha256.replace(/^sha256:/, '').slice(0, 16) + '…' : '?';
+      lines.push(`  [ ] ${d.filename || '(unnamed)'}   sha256: ${hashShort}`);
+    }
+  }
+  return lines.join('\n');
 }
 
 function humanSize(n) {
@@ -769,6 +798,24 @@ async function main() {
         attachOutcome.added = newEntries.length;
         attachOutcome.commit_sequence = gitRes ? gitRes.sequence : null;
         const docList = formatReferenceDocList(updated.reference_docs);
+
+        // Module 4c: strict mode — if this is the first batch (event had
+        // no reference_docs before) AND the event cites a reference_url,
+        // the declaration signer's invite was held at activation. Fire it
+        // now that the signer can know what to attach.
+        const wasEmpty = !((attachEvent.reference_docs || []).length);
+        const strictNow = !!updated.reference_url
+          && !!(updated.reference_docs && updated.reference_docs.length);
+        if (wasEmpty && strictNow && updated.mode === 'declaration') {
+          try {
+            const { notifyDeclarationSigner } = require('../src/notifications');
+            const sendResults = await notifyDeclarationSigner(updated);
+            attachOutcome.signer_invited = sendResults.map((s) => ({ to: s.to, ok: s.ok }));
+          } catch (err) {
+            attachOutcome.signer_invite_error = err.message || String(err);
+          }
+        }
+
         replyBody = [
           `Registered ${newEntries.length} reference document${newEntries.length === 1 ? '' : 's'} on "${attachEvent.title}".`,
           ``,
@@ -778,8 +825,9 @@ async function main() {
           `Bytes are NOT stored. Hashes (SHA-256) + filenames + sizes are`,
           `committed to the event's git audit trail and OpenTimestamped.`,
           ``,
-          `Add more by replying with additional attachments. The doc set`,
-          `freezes at the first counted reply.`,
+          strictNow
+            ? `Strict signing is on (reference_url set + docs registered).\nThe signer must attach matching files to sign. Doc set is now frozen.`
+            : `Add more by replying with additional attachments. The doc set\nfreezes at the first counted reply.`,
         ].join('\n');
       }
     }
@@ -944,6 +992,8 @@ async function main() {
         sender_domain: from.address ? from.address.split('@')[1] : null,
         received_at: receivedAt,
         has_attachment: (attachments || []).length > 0,
+        // Module 4c: strict-signing match needs the full attachment list
+        attachments: attachments || [],
       };
       let applied = null;
       let didCascade = false;
@@ -1086,6 +1136,8 @@ async function main() {
     const handled = accepted
       || reason === 'missing_attachment'
       || reason === 'awaiting_reference_docs'
+      || reason === 'attachment_set_mismatch'
+      || reason === 'strict_no_matching_attachments'
       || reason === 'event already complete'
       || reason === 'event not activated'
       || reason === 'event archived'
@@ -1113,19 +1165,42 @@ async function main() {
       let subject;
       let body;
       if (accepted && isCrypto && event.mode === 'declaration') {
-        subject = `[gitdone] Signed — ${event.title}`;
-        const refDocsBlock = (event.reference_docs && event.reference_docs.length)
-          ? `\n\nReference documents (${event.reference_docs.length}):\n${formatReferenceDocList(event.reference_docs)}`
-          : '';
-        body = [
-          `Your signature on Crypto Declaration "${event.title}" was accepted.`,
-          `The reply is DKIM-verified, OpenTimestamped, and committed to the`,
-          `event's git audit trail.`,
-          ``,
-          `The declaration is now final and the audit trail is sealed. Thank you.`,
-          ``,
-          `Requester: ${event.initiator}` + refDocsBlock,
-        ].join('\n');
+        // Module 4c: strict signing — under partial progress, ack lists
+        // matched/missing and the event stays open. Once every doc is
+        // signed, completion.completed_event is true and we send the
+        // "final" body.
+        const strictMode = !!event.reference_url
+          && Array.isArray(event.reference_docs)
+          && event.reference_docs.length > 0;
+        const allSigned = !!completion.completed_event;
+        if (strictMode && !allSigned) {
+          subject = `[gitdone] Signed in progress — ${event.title}`;
+          body = [
+            `Your reply on Crypto Declaration "${event.title}" was accepted in part.`,
+            `Reply is DKIM-verified, OpenTimestamped, and committed to the audit`,
+            `trail.`,
+            ``,
+            formatProgressBlock(event),
+            ``,
+            `Reply again to ${fromAddr} attaching the remaining file${event.reference_docs.filter((d) => !d.signed_at).length === 1 ? '' : 's'}.`,
+            ``,
+            `Requester: ${event.initiator}`,
+          ].join('\n');
+        } else {
+          subject = `[gitdone] Signed — ${event.title}`;
+          const refDocsBlock = (event.reference_docs && event.reference_docs.length)
+            ? `\n\nReference documents (${event.reference_docs.length}):\n${formatReferenceDocList(event.reference_docs)}`
+            : '';
+          body = [
+            `Your signature on Crypto Declaration "${event.title}" was accepted.`,
+            `The reply is DKIM-verified, OpenTimestamped, and committed to the`,
+            `event's git audit trail.`,
+            ``,
+            `The declaration is now final and the audit trail is sealed. Thank you.`,
+            ``,
+            `Requester: ${event.initiator}` + refDocsBlock,
+          ].join('\n');
+        }
       } else if (accepted && isCrypto && event.mode === 'attestation') {
         const dedup = event.dedup || 'unique';
         const replies = event.replies || [];
@@ -1209,6 +1284,41 @@ async function main() {
           `If you meant to test, this confirms the round-trip works.`,
           `Otherwise, share the reply address with someone else:`,
           `  ${fromAddr}`,
+        ].join('\n');
+      } else if (reason === 'attachment_set_mismatch') {
+        subject = `[gitdone] Attachment hash mismatch — ${event.title}`;
+        const m = (completion.decision && completion.decision.match_result) || {};
+        const mismatchLines = (m.mismatched || []).map((mm) => {
+          const exp = (mm.expected_sha256 || '').replace(/^sha256:/, '').slice(0, 16) + '…';
+          const got = (mm.got_sha256 || '').replace(/^sha256:/, '').slice(0, 16) + '…';
+          return `  • ${mm.attachment.filename || '(unnamed)'}   expected: ${exp}   got: ${got}`;
+        }).join('\n') || '  (no diff available)';
+        body = [
+          `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`,
+          ``,
+          `One or more attachments share a filename with a reference doc but`,
+          `their bytes don't match what was registered. Your reply is recorded`,
+          `in the audit trail but does NOT count.`,
+          ``,
+          mismatchLines,
+          ``,
+          `Send the exact file${(m.mismatched || []).length === 1 ? '' : 's'} that ${event.initiator} registered.`,
+          `You can spread the docs across multiple replies; we'll track`,
+          `progress.`,
+          ``,
+          formatProgressBlock(event),
+        ].join('\n');
+      } else if (reason === 'strict_no_matching_attachments') {
+        subject = `[gitdone] No matching attachments — ${event.title}`;
+        body = [
+          `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`,
+          ``,
+          `This event requires you to attach the registered reference document${event.reference_docs.length === 1 ? '' : 's'}.`,
+          `Your reply is in the audit trail but does NOT count.`,
+          ``,
+          formatProgressBlock(event),
+          ``,
+          `Reply again to ${fromAddr} with the file${event.reference_docs.length === 1 ? '' : 's'} attached.`,
         ].join('\n');
       } else if (reason === 'awaiting_reference_docs') {
         subject = `[gitdone] Awaiting reference documents — ${event.title}`;

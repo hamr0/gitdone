@@ -81,6 +81,44 @@ function workflowStepBody({ event, step, stepIndex, totalSteps }) {
 
 function declarationSignerBody({ event }) {
   const replyAddr = cryptoReplyAddr(event);
+  const refDocs = Array.isArray(event.reference_docs) ? event.reference_docs : [];
+  const strict = !!event.reference_url && refDocs.length > 0;
+  if (strict) {
+    const lines = [
+      `${event.initiator} asked you to sign a gitdone declaration.`,
+      ``,
+      `Event: ${event.title}`,
+      `Type: declaration (one signer, one permanent record)`,
+      ``,
+    ];
+    if (event.details) {
+      lines.push(`What you're being asked to sign:`, event.details, ``);
+    }
+    if (event.reference_url) {
+      lines.push(`Reference: ${event.reference_url}`, ``);
+    }
+    lines.push(
+      `To sign, reply from ${event.signer} to:`,
+      `  ${replyAddr}`,
+      ``,
+      `Attach the following file${refDocs.length === 1 ? '' : 's'} — each must hash exactly to the value`,
+      `recorded below (we verify on receipt):`,
+      ``,
+    );
+    for (const d of refDocs) {
+      const hashShort = d.sha256 ? d.sha256.replace(/^sha256:/, '').slice(0, 16) + '…' : '?';
+      lines.push(`  • ${d.filename || '(unnamed)'}   sha256: ${hashShort}`);
+    }
+    lines.push(
+      ``,
+      `You can spread the files across multiple emails; we'll track progress`,
+      `and confirm what we matched / what's still missing on every reply.`,
+      `Your declaration completes only when every file is signed.`,
+      ``,
+      `If this is unexpected, ignore this email.`,
+    );
+    return lines.join('\n');
+  }
   return [
     `${event.initiator} asked you to sign a gitdone declaration.`,
     ``,

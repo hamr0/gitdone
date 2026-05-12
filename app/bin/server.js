@@ -2073,9 +2073,17 @@ router.post('/manage/event/:id/activate', async (req, res, params) => {
           process.stderr.write(`activate-organiser-notify: ${err.message || err}\n`);
         }
       } else if (event.type === 'crypto' && event.mode === 'declaration') {
-        const results = await notifyDeclarationSigner(event);
-        for (const r of results) {
-          if (!r.ok) process.stderr.write(`activate-notify: failed ${r.to}: ${r.reason || r.code}\n`);
+        // Module 4c: when the event cites a reference_url, hold the
+        // signer invite until reference docs land — the signer needs
+        // the file list + hashes to know what to attach. First attach+
+        // email triggers the invite (see receive.js attach+ branch).
+        const holdForDocs = !!event.reference_url
+          && !((event.reference_docs || []).length);
+        if (!holdForDocs) {
+          const results = await notifyDeclarationSigner(event);
+          for (const r of results) {
+            if (!r.ok) process.stderr.write(`activate-notify: failed ${r.to}: ${r.reason || r.code}\n`);
+          }
         }
       }
       // Attestation: no per-recipient invite — organiser shares the
@@ -2430,6 +2438,8 @@ function fmtDate(iso) {
 // discarded.
 function isReferenceDocSetFrozen(event) {
   if (!event || event.type !== 'crypto') return false;
+  const hasDocs = Array.isArray(event.reference_docs) && event.reference_docs.length > 0;
+  if (event.reference_url && hasDocs) return true;
   if (event.mode === 'attestation') return (event.replies || []).length > 0;
   if (event.mode === 'declaration') return !!(event.completion && event.completion.status === 'complete');
   return false;

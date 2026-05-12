@@ -389,7 +389,7 @@ test('derived gating: reference_url set + no docs → reply bounces "awaiting re
   } finally { await fs.rm(tmp, { recursive: true, force: true }); }
 });
 
-test('derived gating: after docs register, a fresh reply counts normally', async () => {
+test('derived gating + strict signing: after docs register, signer attaches matching file → counts', async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-gating-thaw-'));
   try {
     const { fake } = makeFakeSendmail(tmp);
@@ -405,16 +405,20 @@ test('derived gating: after docs register, a fresh reply counts normally', async
       ['1.2.3.4', 'ex.com', 'boss@ex.com', 'attach+g2@git-done.com'],
       { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
     assert.equal(ra.code, 0, ra.stderr);
-    // 2. Now signer replies; should count.
-    const b = buildPlainEml({
+    // 2. Signer attaches the SAME bytes — strict mode requires it.
+    const b = buildAttachEml({
       from: 'employee@ex.com', to: 'event+g2@git-done.com', subject: 'signed',
+      attachments: [{ filename: 'doc.pdf', content: 'PDFBYTES' }],
     });
     const rb = await runReceive(b,
       ['1.2.3.4', 'ex.com', 'employee@ex.com', 'event+g2@git-done.com'],
       { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
     assert.equal(rb.code, 0, rb.stderr);
-    const out = JSON.parse(rb.stdout.trim());
+    const records = rb.stdout.trim().split('\n').map((l) => JSON.parse(l));
+    const out = records.find((rr) => rr.completion);
+    assert.ok(out, 'no main record with completion');
     assert.equal(out.completion.applied, true);
+    assert.equal(out.completion.completed_event, true);
   } finally { await fs.rm(tmp, { recursive: true, force: true }); }
 });
 
