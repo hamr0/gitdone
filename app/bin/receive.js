@@ -1080,6 +1080,24 @@ async function main() {
                 .filter((p) => p && p.email && p.complete)
                 .map((p) => p.email)
             : [];
+          // Diagnostic — temporary, so prod logs surface whether the
+          // 4e branch fires and what it captured. If the count is 0 on
+          // a clearly strict-mode event, the email-storage step never
+          // ran (likely event predates the 4e deploy). Postfix's pipe
+          // transport captures stderr → /var/log/maillog.
+          if (isStrictAtt) {
+            const progressCount = nextEvent.attestor_progress
+              ? Object.keys(nextEvent.attestor_progress).length : 0;
+            const withEmail = nextEvent.attestor_progress
+              ? Object.values(nextEvent.attestor_progress).filter((p) => p && p.email).length : 0;
+            const complete = nextEvent.attestor_progress
+              ? Object.values(nextEvent.attestor_progress).filter((p) => p && p.complete).length : 0;
+            process.stderr.write(
+              `4e-diagnostic event=${nextEvent.id} progress=${progressCount} `
+              + `with_email=${withEmail} complete=${complete} `
+              + `extra_recipients=${attestorEmails.length}\n`
+            );
+          }
           const results = await notifyEventCompletion(nextEvent, {
             reason,
             completedStepId: applied.completedStep,

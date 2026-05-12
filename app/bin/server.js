@@ -2747,13 +2747,26 @@ function renderAttestationHero(event, commits) {
         <details class="proof-details">
           <summary>Cryptographic proof — per-reply ledger</summary>
           <div class="mg-receipt">
-            ${commits.map((c) => {
-              const atts = Array.isArray(c.attachments) ? c.attachments : [];
-              return html`
-              <div class="proof-row">
+            ${(() => {
+              // Audit-trail policy commits every inbound reply, counted or
+              // not (PRD §0.1.10 — "audit trail always wins"). Without a
+              // visual cue the rejected ones (wrong-doc strict mismatch,
+              // self-reply, etc.) read identical to counted attestations
+              // and the organiser can't tell who counted. Compute the
+              // counted-sequence set from event.replies and badge the rest.
+              const countedSeqs = new Set();
+              for (const r of (event.replies || [])) {
+                if (typeof r.sequence === 'number') countedSeqs.add(r.sequence);
+              }
+              return commits.map((c) => {
+                const atts = Array.isArray(c.attachments) ? c.attachments : [];
+                const counted = countedSeqs.has(c.sequence);
+                return html`
+              <div class="proof-row"${counted ? raw('') : raw(' style="opacity:0.62"')}>
                 <div class="proof-key">${c.sender_domain || '?'}</div>
                 <div class="proof-value">${fmtDate(c.received_at)}</div>
                 ${atts.length ? html`<span class="trust-pill attach-pill" style="color:${raw(TRUST_COLOR.verified)};border-color:${raw(TRUST_COLOR.verified)};margin-left:0.5rem">📎 ${String(atts.length)}</span>` : raw('')}
+                ${counted ? raw('') : html`<span class="trust-pill" style="color:#ffb000;border-color:#ffb000;margin-left:0.5rem;text-transform:uppercase;letter-spacing:0.04em">audit-only</span>`}
                 <div style="margin-left:auto;color:${raw(TRUST_COLOR[c.trust_level] || '#c9d1d9')}">${TRUST_LABEL[c.trust_level] || c.trust_level || '?'}</div>
               </div>
               ${atts.length ? html`
@@ -2769,7 +2782,8 @@ function renderAttestationHero(event, commits) {
                 </div>
               ` : raw('')}
               `;
-            })}
+              });
+            })()}
             <div class="mg-receipt-cmd"><code class="copyable">$ gitdone-verify ${event.id}</code></div>
           </div>
         </details>
