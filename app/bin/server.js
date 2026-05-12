@@ -2405,6 +2405,13 @@ const MANAGE_CSS = `
 .proof-headline.is-authorized { color:#ffb000; }
 .proof-headline.is-unverified { color:#6e7681; }
 .proof-sub { font-size:0.82rem; color:#8b949e; margin:0 0 0.6rem; }
+.proof-mode-badge { display:inline-block; padding:0.25rem 0.7rem; margin:0.3rem 0 0.6rem;
+                    border:1px solid; font-size:0.78rem; font-weight:600;
+                    letter-spacing:0.12em; text-transform:uppercase; }
+.proof-mode-badge.decl { color:#3fb950; border-color:#3fb950; background:rgba(63,185,80,.08); }
+.proof-mode-badge.attn { color:#ffb000; border-color:#ffb000; background:rgba(255,176,0,.08); }
+.proof-mode-badge .sep { color:#6e7681; margin:0 0.5rem; }
+.proof-mode-badge .dedup { color:#8b949e; font-weight:500; }
 .proof-secondary { background:#161b22; border:1px solid #30363d; padding:0.7rem 0.9rem;
                    margin-top:0.5rem; }
 .proof-secondary h4 { margin:0 0 0.4rem; font-size:0.7rem; text-transform:uppercase;
@@ -2603,6 +2610,7 @@ function renderDeclarationHero(event, commit, allCommits = []) {
       ${renderTrustLadder({ achieved })}
       <div class="proof-headline ${headlineCls}">${headline}</div>
       <div class="proof-sub">"${event.title}" · id <code>${event.id}</code></div>
+      <div class="proof-mode-badge decl">Declaration <span class="sep">·</span> <span class="dedup">one signer, one record</span></div>
       <div class="proof-secondary">
         <h4>Event details</h4>
         <div class="proof-row"><div class="proof-key">Type</div><div class="proof-value">declaration</div></div>
@@ -2714,11 +2722,15 @@ function renderAttestationHero(event, commits) {
         `)}
       </div>`
     : raw('');
+  const dedupBlurb = dedup === 'unique'
+    ? 'one count per sender'
+    : (dedup === 'latest' ? 'latest counts per sender' : 'every reply counts');
   return html`
     <div class="proof-hero">
       ${renderTrustLadder({ achieved })}
       <div class="proof-headline ${headlineCls}">${headline}</div>
       <div class="proof-sub">"${event.title}" · id <code>${event.id}</code></div>
+      <div class="proof-mode-badge attn">Attestation <span class="sep">·</span> ${dedup} <span class="sep">·</span> <span class="dedup">${dedupBlurb}</span></div>
       ${tilesHTML}
       <div class="proof-secondary">
         <h4>Event details</h4>
