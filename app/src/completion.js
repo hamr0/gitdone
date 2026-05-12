@@ -337,6 +337,10 @@ function applyReply(event, commit, { now = new Date().toISOString() } = {}) {
           signed_at: now,
           signed_by_hash: commit.sender_hash,
           signed_commit_sequence: commit.sequence,
+          // Module 4d#5 — capture trust at time of match so the manage
+          // hero can annotate each doc with its DKIM/SPF/etc. state.
+          signed_trust_level: commit.trust_level || null,
+          signed_sender_domain: commit.sender_domain || null,
         };
       });
       const allSigned = refDocs.every((d) => !!d.signed_at);

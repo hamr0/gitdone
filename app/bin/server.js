@@ -1097,6 +1097,17 @@ function renderCheckYourInboxPage({ event, kind }) {
   const noun = kind === 'crypto'
     ? (event.mode === 'declaration' ? 'declaration' : 'attestation')
     : 'event';
+  // Module 4d#4 — for crypto events with a reference_url set, the
+  // expected flow has TWO extra steps: initiator attaches docs after
+  // activation, THEN the signer/attestor invite goes out. Surface
+  // those expectations + the ask + the URL up front.
+  const strictMode = kind === 'crypto' && !!event.reference_url;
+  const detailsBlock = (kind === 'crypto' && event.details)
+    ? html`<div style="margin:1.2rem 0 0;padding:0.7rem 0.95rem;background:#0d1117;border-left:3px solid #3fb950;color:#c9d1d9;white-space:pre-wrap;font-size:0.92em;line-height:1.5"><strong style="display:block;color:#8b949e;font-size:0.78em;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:0.25rem">The ask</strong>${event.details}</div>`
+    : raw('');
+  const refUrlBlock = (kind === 'crypto' && event.reference_url)
+    ? html`<p style="margin:0.8rem 0 0;font-size:0.92em"><strong style="color:#8b949e;font-size:0.78em;letter-spacing:0.08em;text-transform:uppercase;display:block;margin-bottom:0.2rem">Reference</strong><a href="${event.reference_url}" rel="noopener noreferrer" target="_blank">${event.reference_url}</a></p>`
+    : raw('');
   const indexById = event.steps
     ? new Map(event.steps.map((s, i) => [s.id, i + 1]))
     : new Map();
@@ -1134,15 +1145,24 @@ function renderCheckYourInboxPage({ event, kind }) {
               ? 'the signer has not been notified and the reply address is not live.'
               : 'the reply address is not live.')}
       </div>
+      ${detailsBlock}
+      ${refUrlBlock}
       <ol style="margin:1rem 0 0;padding-left:1.4rem;color:#c9d1d9;font-size:0.92em;line-height:1.6">
         <li>Open your inbox at <code>${event.initiator}</code>.</li>
         <li>Click the gitdone sign-in link (valid 15 minutes).</li>
         <li>You'll land back here on the dashboard for this ${noun}.</li>
         <li>Press <strong>Activate</strong> to ${kind === 'event'
           ? 'send invitations to all named participants'
-          : (event.mode === 'declaration'
-              ? 'invite the signer'
-              : 'make the reply address live')}.</li>
+          : (strictMode
+              ? html`turn the reply address live. Right after, we'll email you
+              with instructions to <strong>attach the reference document${event.mode === 'declaration' ? '' : 's'}</strong> in
+              ONE email to <code>attach+${event.id}@${config.domain}</code> — that's a one-shot freeze.`
+              : (event.mode === 'declaration'
+                  ? 'invite the signer'
+                  : 'make the reply address live'))}.</li>
+        ${strictMode ? html`<li>After we receive your docs, gitdone ${event.mode === 'declaration'
+              ? html`invites the signer (<code>${event.signer || 'configured signer'}</code>) with the file list + sha256 hashes they must match`
+              : html`makes the reply address live; you share it with attestors. Each must attach the same files to count`}.</li>` : raw('')}
       </ol>
       ${stepsBlock}
       ${(() => {
@@ -1198,7 +1218,9 @@ const CRYPTO_FORM_CSS = `
 `;
 
 function renderCryptoForm({ values = {}, errors = [] } = {}) {
-  const mode = values.mode === 'declaration' ? 'declaration' : 'attestation';
+  // Default to declaration — the one-signer flow is the more common entry
+  // point per user feedback. Attestation is selected explicitly.
+  const mode = values.mode === 'attestation' ? 'attestation' : 'declaration';
   const dedup = values.dedup || 'unique';
   const dedupOpts = VALID_DEDUP_RULES.map((d) => html`
     <option value="${d}" ${dedup === d ? raw('selected') : ''}>${d === 'unique'
@@ -1310,7 +1332,7 @@ router.get('/crypto/new', async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host}`);
   const sp = u.searchParams;
   const values = {
-    mode: sp.get('mode') || 'attestation',
+    mode: sp.get('mode') || 'declaration',
     title: sp.get('title') || '',
     initiator: sp.get('initiator') || '',
     signer: sp.get('signer') || '',
@@ -2086,6 +2108,18 @@ router.post('/manage/event/:id/activate', async (req, res, params) => {
           }
         }
       }
+      // Module 4d#3 — for any crypto event with reference_url set + no
+      // docs (declaration or attestation), email the initiator with the
+      // attach+ instructions so they know what to do next.
+      if (event.type === 'crypto' && event.reference_url
+          && !((event.reference_docs || []).length)) {
+        const { notifyInitiatorAttachDocsNeeded } = require('../src/notifications');
+        try {
+          await notifyInitiatorAttachDocsNeeded(event);
+        } catch (err) {
+          process.stderr.write(`activate-attach-prompt: ${err.message || err}\n`);
+        }
+      }
       // Attestation: no per-recipient invite — organiser shares the
       // reply address themselves.
     } catch (err) {
@@ -2452,10 +2486,21 @@ function renderReferenceDocsRow(event) {
   const docsBlock = docs.length
     ? html`<div class="proof-row">
         <div class="proof-key">Reference docs</div>
-        <div class="proof-value" style="display:flex;flex-direction:column;gap:0.15rem">
+        <div class="proof-value" style="display:flex;flex-direction:column;gap:0.18rem">
           ${docs.map((d, i) => {
             const sz = formatBytes(d.size);
-            return html`<div><code>${d.filename || `doc-${String(i + 1)}`}</code> <span class="mg-receipt-mono">${truncHash(d.sha256)}</span>${sz ? html` <span style="color:#6e7681">· ${sz}</span>` : raw('')}</div>`;
+            const sig = d.signed_at ? '[x]' : '[ ]';
+            const sigColor = d.signed_at ? '#3fb950' : '#6e7681';
+            // Module 4d#5: trust annotation per signed doc.
+            const trust = d.signed_trust_level;
+            const trustLabel = trust ? (TRUST_LABEL[trust] || trust) : null;
+            const trustColor = trust ? (TRUST_COLOR[trust] || '#c9d1d9') : '#8b949e';
+            const dom = d.signed_sender_domain;
+            const dateStr = d.signed_at ? String(d.signed_at).slice(0, 10) : null;
+            const annot = d.signed_at
+              ? html` · <span style="color:${raw(trustColor)}">${trustLabel || 'signed'}</span>${dom ? html` · <span style="color:#8b949e">@${dom}</span>` : raw('')}${dateStr ? html` · <span style="color:#8b949e">${dateStr}</span>` : raw('')}`
+              : raw('');
+            return html`<div><span style="color:${raw(sigColor)};font-family:JetBrains Mono,monospace">${sig}</span> <code>${d.filename || `doc-${String(i + 1)}`}</code> <span class="mg-receipt-mono" style="color:#6e7681">${truncHash(d.sha256)}</span>${sz ? html` <span style="color:#6e7681">· ${sz}</span>` : raw('')}${annot}</div>`;
           })}
           ${frozen ? html`<div style="color:#8b949e;font-size:0.85em">doc set frozen at first reply</div>` : raw('')}
         </div>
@@ -2474,7 +2519,12 @@ function renderReferenceDocsRow(event) {
 }
 
 // details (signer/reply-addr/status) + collapsible full receipt.
-function renderDeclarationHero(event, commit) {
+//
+// Under strict signing (Module 4c), an event has N reference docs each
+// signed by a separate reply commit. We render per-doc summary rows
+// (each independently expandable into the full DKIM/SPF/DMARC/ARC/OTS
+// receipt), instead of one combined drawer (Module 4d#6).
+function renderDeclarationHero(event, commit, allCommits = []) {
   const achieved = commit ? commit.trust_level : null;
   const headlineLabel = (achieved && TRUST_LABEL[achieved]) || 'PENDING SIGNATURE';
   const headlineCls = achieved ? `is-${achieved}` : 'is-unverified';
@@ -2483,6 +2533,16 @@ function renderDeclarationHero(event, commit) {
   const headline = (achieved && domain && dateStr)
     ? html`${headlineLabel} · @${domain} · ${dateStr}`
     : html`${headlineLabel}`;
+  const strictMode = !!event.reference_url
+    && Array.isArray(event.reference_docs) && event.reference_docs.length > 0;
+  const perDocReceipts = strictMode
+    ? renderPerDocReceipts(event, allCommits)
+    : (commit
+        ? html`<details class="proof-details">
+            <summary>Cryptographic proof</summary>
+            ${renderProofReceipt(commit, event.id)}
+          </details>`
+        : raw(''));
   return html`
     <div class="proof-hero">
       ${renderTrustLadder({ achieved })}
@@ -2499,12 +2559,53 @@ function renderDeclarationHero(event, commit) {
         <div class="proof-row"><div class="proof-key">Reply address</div><div class="proof-value"><code class="copyable">event+${event.id}@${config.domain}</code></div></div>
         <div class="proof-row"><div class="proof-key">Status</div><div class="proof-value">${commit ? html`signed on <code>${event.completion.completed_at.slice(0, 10)}</code>` : 'awaiting signature'}</div></div>
       </div>
-      ${commit ? html`
-        <details class="proof-details">
-          <summary>Cryptographic proof</summary>
-          ${renderProofReceipt(commit, event.id)}
-        </details>
-      ` : raw('')}
+      ${perDocReceipts}
+    </div>
+  `;
+}
+
+// Module 4d#6 — per-doc proof receipts. One row per registered doc:
+// pending docs render a dim "[ ] filename · awaiting" line; signed docs
+// render a clickable summary that expands into the full receipt for the
+// commit that registered the signature.
+function renderPerDocReceipts(event, allCommits) {
+  const docs = Array.isArray(event.reference_docs) ? event.reference_docs : [];
+  if (!docs.length) return raw('');
+  const commitBySeq = new Map();
+  for (const c of (allCommits || [])) {
+    if (c && c.sequence != null) commitBySeq.set(c.sequence, c);
+  }
+  return html`
+    <div class="proof-secondary" style="margin-top:0.6rem">
+      <h4>Per-document proof</h4>
+      ${docs.map((d, i) => {
+        if (!d.signed_at) {
+          return html`<details class="proof-details" style="opacity:0.7">
+            <summary style="cursor:default;color:#8b949e">
+              [ ] <code>${d.filename || `doc-${String(i + 1)}`}</code>
+              <span style="margin-left:0.5rem;color:#6e7681;font-size:0.88em">awaiting signature</span>
+            </summary>
+          </details>`;
+        }
+        const seq = d.signed_commit_sequence;
+        const docCommit = seq != null ? commitBySeq.get(seq) : null;
+        const trust = d.signed_trust_level;
+        const trustLabel = trust ? (TRUST_LABEL[trust] || trust) : 'signed';
+        const trustColor = trust ? (TRUST_COLOR[trust] || '#c9d1d9') : '#3fb950';
+        const dom = d.signed_sender_domain;
+        const dateStr = String(d.signed_at).slice(0, 10);
+        return html`<details class="proof-details">
+          <summary>
+            <span style="color:#3fb950">[x]</span>
+            <code>${d.filename || `doc-${String(i + 1)}`}</code>
+            <span style="margin-left:0.5rem;color:${raw(trustColor)}">${trustLabel}</span>${dom ? html` <span style="color:#8b949e">· @${dom}</span>` : raw('')}
+            <span style="color:#8b949e"> · ${dateStr}</span>
+          </summary>
+          ${docCommit
+            ? renderProofReceipt(docCommit, event.id)
+            : html`<div style="padding:0.7rem;color:#8b949e;font-size:0.9em">commit data unavailable (sequence ${String(seq)})</div>`}
+        </details>`;
+      })}
     </div>
   `;
 }
@@ -2644,7 +2745,7 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
       ? html`<span class="mg-pill archived">archived</span>`
       : (pendingActivation
         ? html`<span class="mg-pill pending-activation">pending activation</span>`
-        : html`<span class="mg-pill open">open</span>`));
+        : html`<span class="mg-pill open">active</span>`));
   let bodyMiddle;
   if (event.type === 'event' && pendingActivation) {
     // Pending workflow events have no live state (no replies, no
@@ -2825,7 +2926,7 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
     // details + collapsible receipt. Pre-completion (no commit yet),
     // the ladder is dim and the headline reads "PENDING SIGNATURE".
     const declCommit = findDeclarationCommit(event, eventCommits);
-    bodyMiddle = renderDeclarationHero(event, declCommit);
+    bodyMiddle = renderDeclarationHero(event, declCommit, eventCommits);
   } else {
     // C3 attestation hero. Threshold/dedup details live inside the
     // hero's secondary block; the standing dedup-explainer line stays

@@ -491,6 +491,53 @@ async function notifyOrganiserOfActivation(event, { sendResults = [], publicBase
   });
 }
 
+// Module 4d#3 — on activation, when a crypto event cites a
+// reference_url but no documents have been registered yet, email the
+// initiator with explicit instructions on how to register the doc set.
+// The signer invite is held until they do this (Module 4c flow).
+async function notifyInitiatorAttachDocsNeeded(event, { publicBaseUrl } = {}) {
+  if (!event || event.type !== 'crypto' || !event.initiator) return null;
+  if (!event.reference_url) return null;
+  if (Array.isArray(event.reference_docs) && event.reference_docs.length > 0) return null;
+  const baseUrl = publicBaseUrl || process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
+  const attachAddr = `attach+${event.id}@${config.domain}`;
+  const labelKind = event.mode === 'declaration' ? 'declaration' : 'attestation';
+  const subjectKind = event.mode === 'declaration' ? 'declaration' : 'attestation';
+  const body = [
+    `Your ${subjectKind} "${event.title}" is now active, but we still need`,
+    `the reference document${event.mode === 'declaration' ? '' : 's'} before the ${event.mode === 'declaration' ? 'signer can sign' : 'attestors can vouch'}.`,
+    ``,
+    `What you cited as the reference:`,
+    `  ${event.reference_url}`,
+    ``,
+    `Reply to this email (or send a fresh one) with the file${event.mode === 'declaration' ? '' : 's'} attached to:`,
+    `  ${attachAddr}`,
+    ``,
+    `Important — this is a one-shot. The first email we receive at that`,
+    `address with attachments becomes the canonical document set and`,
+    `freezes immediately. Anything you send afterwards is rejected.`,
+    `Send everything in ONE email.`,
+    ``,
+    `Format: anything. PDF, DOCX, images, plain text, whatever you like.`,
+    `Practical guidance: keep it to ~5 files or fewer; if you need more,`,
+    `zip them and attach the .zip. We hash each attachment (SHA-256) and`,
+    `discard the bytes — only the hashes + filenames + sizes are recorded.`,
+    ``,
+    `Once we receive your docs, we'll automatically invite the`,
+    `${event.mode === 'declaration' ? 'signer (' + (event.signer || 'configured signer') + ')' : 'attestors (you share the reply address with them yourself)'}`,
+    `with the file list and the exact hashes they have to match.`,
+    ``,
+    `Manage: ${baseUrl}/manage/event/${event.id}`,
+  ].join('\n');
+  return sendOne({
+    to: event.initiator,
+    subject: `[gitdone] "${event.title}" — please attach reference document${event.mode === 'declaration' ? '' : 's'} (${labelKind})`,
+    body,
+    event,
+    replyTo: attachAddr,
+  });
+}
+
 // Email the organiser when a step completes and one or more downstream
 // steps become the new active set. Keeps the organiser in the loop
 // without forcing them to poll the dashboard.
@@ -603,6 +650,7 @@ async function notifyDeclarationSigner(event) {
 module.exports = {
   notifyWorkflowParticipants,
   notifyDeclarationSigner,
+  notifyInitiatorAttachDocsNeeded,
   notifyEventCompletion,
   notifyProofAnchored,
   notifyOrganiserOfActivation,
