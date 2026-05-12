@@ -1017,6 +1017,31 @@ async function main() {
         completed_step: applied && applied.completedStep ? applied.completedStep : null,
       };
 
+      // Module 4d (followup) — under strict signing, partial progress
+      // doesn't trigger completion notification, so the initiator stays
+      // in the dark until the final reply. Send a per-reply progress
+      // email when this reply contributed signatures but the event
+      // isn't yet complete. Best-effort; failures don't undo the commit.
+      if (changed && applied.applied
+          && applied.decision && applied.decision.strict
+          && !applied.completedEvent
+          && nextEvent.type === 'crypto'
+          && nextEvent.mode === 'declaration') {
+        try {
+          const { notifyInitiatorOfSigningProgress } = require('../src/notifications');
+          const matched = (applied.decision.match_result && applied.decision.match_result.matched) || [];
+          const addedFilenames = matched
+            .map((m) => (nextEvent.reference_docs[m.ref_index] || {}).filename)
+            .filter(Boolean);
+          await notifyInitiatorOfSigningProgress(nextEvent, {
+            signerDomain: commitSummary.sender_domain,
+            addedFilenames,
+          });
+        } catch (err) {
+          process.stderr.write(`progress-notify: ${err.message || err}\n`);
+        }
+      }
+
       if (changed && applied.completedEvent) {
         const summary = nextEvent.type === 'event'
           ? { steps_completed: nextEvent.steps.length }

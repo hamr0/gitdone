@@ -1029,7 +1029,10 @@ function buildCryptoActivationBody(event) {
   const safeTitle = asciiSafe(event.title);
   const safeInitiator = asciiSafe(event.initiator);
   const safeSigner = asciiSafe(event.signer);
+  const safeDetails = event.details ? asciiSafe(event.details) : null;
   const replyAddr = `event+${event.id}@${config.domain}`;
+  const attachAddr = `attach+${event.id}@${config.domain}`;
+  const strictMode = !!event.reference_url;
   const modeDetails = event.mode === 'declaration'
     ? [
         `Mode: declaration - one DKIM-verified reply from the designated signer.`,
@@ -1040,31 +1043,54 @@ function buildCryptoActivationBody(event) {
         `Dedup rule: ${event.dedup} - ${dedupDescription(event.dedup)}`,
         `Share the reply address below however you like - social, email, QR.`,
       ];
-  return ({ url }) => ([
-    `You created the crypto event "${safeTitle}" on gitdone.`,
-    ``,
-    `Clicking the link below signs you in and opens the event dashboard.`,
-    `Review the details below, then press Activate on the dashboard to make`,
-    `the reply address live${event.mode === 'declaration' ? ' and notify the signer' : ''}. Nothing leaves the server until you press`,
-    `Activate; if you decide not to go ahead, just ignore this email.`,
-    `Sign-in link is valid for 15 minutes; request a new one at`,
-    `${publicBaseUrl()}/manage if it expires.`,
-    ``,
-    url,
-    ``,
-    `Event ID: ${event.id}`,
-    ...modeDetails,
-    ``,
-    `Reply address (goes live on activation):`,
-    `  ${replyAddr}`,
-    ``,
-    `Day-to-day commands by email from ${safeInitiator}:`,
-    `  stats+${event.id}@${config.domain}    current state`,
-    `  close+${event.id}@${config.domain}    close early`,
-    `  bundle+${event.id}@${config.domain}   get the full audit-trail repo as .tar.gz`,
-    ``,
-    `Manage your events at: ${publicBaseUrl()}/manage`,
-  ].join('\n'));
+  return ({ url }) => {
+    const lines = [
+      `You created the crypto event "${safeTitle}" on gitdone.`,
+      ``,
+      `Clicking the link below signs you in and opens the event dashboard.`,
+      `Review the details below, then press Activate on the dashboard to make`,
+      `the reply address live${event.mode === 'declaration' && !strictMode ? ' and notify the signer' : ''}. Nothing leaves the server until you press`,
+      `Activate; if you decide not to go ahead, just ignore this email.`,
+      `Sign-in link is valid for 15 minutes; request a new one at`,
+      `${publicBaseUrl()}/manage if it expires.`,
+      ``,
+      url,
+      ``,
+      `Event ID: ${event.id}`,
+      ...modeDetails,
+    ];
+    if (safeDetails) {
+      lines.push(``, `The ask:`, ...safeDetails.split('\n').map((l) => `  ${l}`));
+    }
+    if (event.reference_url) {
+      lines.push(``, `Reference URL:`, `  ${event.reference_url}`);
+    }
+    if (strictMode) {
+      lines.push(
+        ``,
+        `IMPORTANT - reference documents required before signing:`,
+        `  After you press Activate, gitdone will email you back asking`,
+        `  you to attach the reference document${event.mode === 'declaration' ? '' : 's'} in ONE reply (one-shot`,
+        `  freeze) to:`,
+        `    ${attachAddr}`,
+        `  Once we receive your docs, we will${event.mode === 'declaration' ? ' invite the signer' : ' open the reply address'} with the`,
+        `  file list and sha256 hashes. Until then, signing is held.`,
+      );
+    }
+    lines.push(
+      ``,
+      `Reply address (goes live on activation):`,
+      `  ${replyAddr}`,
+      ``,
+      `Day-to-day commands by email from ${safeInitiator}:`,
+      `  stats+${event.id}@${config.domain}    current state`,
+      `  close+${event.id}@${config.domain}    close early`,
+      `  bundle+${event.id}@${config.domain}   get the full audit-trail repo as .tar.gz`,
+      ``,
+      `Manage your events at: ${publicBaseUrl()}/manage`,
+    );
+    return lines.join('\n');
+  };
 }
 
 // knowless caps subjects at 60 strictly-ASCII chars (no CR/LF). Strip
@@ -1568,7 +1594,7 @@ function summariseEvent(ev) {
   else if (closed) { status = 'closed early'; pillClass = 'closed'; }
   else if (archived) { status = 'archived'; pillClass = 'archived'; }
   else if (pending) { status = 'pending activation'; pillClass = 'pending-activation'; }
-  else { status = 'open'; pillClass = 'open'; }
+  else { status = 'active'; pillClass = 'open'; }
   let progress = null;
   if (ev.type === 'event' && Array.isArray(ev.steps) && ev.steps.length) {
     const done = ev.steps.filter((s) => s.status === 'complete').length;

@@ -491,6 +491,54 @@ async function notifyOrganiserOfActivation(event, { sendResults = [], publicBase
   });
 }
 
+// Module 4d#3 (followup) — partial-sign progress notification to the
+// initiator. Mirrors notifyOrganiserOfStepProgress in shape: a
+// best-effort email summarising which docs are now signed and which
+// remain. Only fires on partial progress; final completion goes
+// through notifyEventCompletion which already covers the initiator.
+async function notifyInitiatorOfSigningProgress(event, { signerDomain, addedFilenames = [] } = {}) {
+  if (!event || event.type !== 'crypto' || !event.initiator) return null;
+  if (!Array.isArray(event.reference_docs) || event.reference_docs.length === 0) return null;
+  const docs = event.reference_docs;
+  const signed = docs.filter((d) => d.signed_at);
+  const pending = docs.filter((d) => !d.signed_at);
+  const lines = [
+    `An attestor signed ${addedFilenames.length} of your reference document${addedFilenames.length === 1 ? '' : 's'} on "${event.title}".`,
+    ``,
+    `Just matched in this reply:`,
+    ...addedFilenames.map((f) => `  [x] ${f}`),
+    ``,
+    `Overall progress: ${signed.length} of ${docs.length} signed.`,
+    ``,
+  ];
+  if (signed.length) {
+    lines.push(`Signed so far:`);
+    for (const d of signed) {
+      const trustLabel = d.signed_trust_level || 'signed';
+      const dom = d.signed_sender_domain || signerDomain || '';
+      lines.push(`  [x] ${d.filename || '(unnamed)'} · ${trustLabel}${dom ? ` · @${dom}` : ''}`);
+    }
+    lines.push(``);
+  }
+  if (pending.length) {
+    lines.push(`Still awaiting:`);
+    for (const d of pending) {
+      lines.push(`  [ ] ${d.filename || '(unnamed)'}`);
+    }
+    lines.push(``);
+  }
+  lines.push(
+    `When the last doc is signed, you'll get the full proof email`,
+    `automatically.`,
+  );
+  return sendOne({
+    to: event.initiator,
+    subject: `[gitdone] "${event.title}" — ${signed.length}/${docs.length} signed`,
+    body: lines.join('\n'),
+    event,
+  });
+}
+
 // Module 4d#3 — on activation, when a crypto event cites a
 // reference_url but no documents have been registered yet, email the
 // initiator with explicit instructions on how to register the doc set.
@@ -651,6 +699,7 @@ module.exports = {
   notifyWorkflowParticipants,
   notifyDeclarationSigner,
   notifyInitiatorAttachDocsNeeded,
+  notifyInitiatorOfSigningProgress,
   notifyEventCompletion,
   notifyProofAnchored,
   notifyOrganiserOfActivation,
