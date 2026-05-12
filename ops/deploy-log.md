@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-12T19:24Z · `a8db6f3` · fix: strict attestation never flipped event.completion to complete
 - 2026-05-12T16:33Z · `f541be5` · crypto rework module 5: prominent mode badge on manage hero
 - 2026-05-12T16:17Z · `09f843f` · fix: attestation reference docs row was never ticking — read attestor_progress
 - 2026-05-12T14:36Z · `b77ce9a` · fix(4d-followup): revert misguided per-sign initiator email + add final-ack regression test
