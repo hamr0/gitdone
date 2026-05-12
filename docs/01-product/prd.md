@@ -292,6 +292,54 @@ declaration's create-time signer ≠ initiator check.
 
 **Use cases:** vouching (proof of being known), petitions, peer review quorums, multi-witness statements, supply chain checkpoints, multi-party attestations, collective consent.
 
+#### 4.2.3 Reference docs and strict signing
+
+Both crypto modes accept an optional `reference_url` — a public HTTPS
+link to the thing being signed (contract, position paper, statement).
+Validation is `https://` only, ≤2048 chars; the manage hero renders
+it as a linkified row.
+
+When `reference_url` is set, the organiser is asked to register the
+canonical document(s) via the `attach+{id}@` channel (see §6.4
+address namespace). The first `attach+` email is the **canonical
+one-shot manifest** — it hashes every attachment (SHA-256 + filename
++ size), commits a `kind: 'attach'` record to the per-event git repo,
+OTS-stamps it, **discards the bytes**, and freezes the doc set.
+Subsequent `attach+` emails bounce. The signer invite is held at
+activation until the first `attach+` lands; the invite body then
+lists the manifest so the signer can fetch and attach the exact
+bytes.
+
+`reference_url` + registered docs ⇒ **strict signing mode**. The
+signer (declaration) or attestor (attestation) MUST attach files
+whose SHA-256 hashes match the registered manifest before their
+reply counts. Matching rule:
+
+- Exact hash set match. Partial signing is allowed across multiple
+  replies — matches accumulate per signer (declaration) or per
+  per-attestor bucket (attestation, keyed by the same salted-hash
+  identifier the loose-mode dedup ledger uses).
+- Filename match with different bytes is rejected
+  (`attachment_set_mismatch`) with a diff in the ack; the signer
+  fixes the file rather than re-sending blindly.
+- No matching hashes at all is rejected
+  (`strict_no_matching_attachments`) with the manifest reproduced
+  inline.
+- Extras (unrelated attachments alongside the matching set) are
+  ignored.
+
+Privacy posture is unchanged: gitdone never stores file bytes, only
+hashes. Declaration's strict mode adds `signed_trust_level` +
+`signed_sender_domain` per doc (the signer's domain is part of the
+DKIM-bound proof anyway). Attestation's strict mode keeps the
+per-attestor map keyed by salted sender_hash — same shape as
+loose attestation's dedup ledger.
+
+`reference_url` alone (no docs registered) is **not** strict mode —
+it's just a pointer; replies count under the normal trust + dedup
+rules. Strict mode requires both halves: URL set AND
+`reference_docs.length > 0`.
+
 ### 4.3 Shared engine
 
 All event types use the same email receive, DKIM verify, OpenTimestamps, git commit pipeline. The only differences are:
@@ -705,6 +753,7 @@ Per the moat (§0.1.4 — "invisible beats correct"), the initiator's day-to-day
 | `stats+{id}@` | initiator: current event state + progress | DKIM + envelope sender == `event.initiator` |
 | `remind+{id}@` | initiator: resend reminders to pending-step participants | same |
 | `close+{id}@` | initiator: close event early — **two-step confirm**; first reply replies with a 30-min token, second reply quoting `CONFIRM <token>` actually closes | same |
+| `attach+{id}@` | initiator: register the canonical reference doc(s) on a crypto event with `reference_url` set — first reply freezes the manifest (§4.2.3) | same |
 | `reverify+{id}-{commitN}@` | initiator or auditor: re-run verification on a specific commit with supplied evidence (raw `.eml`, attachment) | none |
 
 **Initiator authentication via DKIM:** when an inbound message is DKIM-verified and its envelope sender matches `event.initiator`, that's cryptographic proof that the initiator authorised the command. As strong as (and often stronger than) a magic link — DKIM can't be spoofed, magic links can be forwarded.

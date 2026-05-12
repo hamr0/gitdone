@@ -15,6 +15,172 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Crypto rework module 5 — prominent mode badge on the manage hero
+
+Between the proof headline and the details block, every crypto manage
+page now renders a colour-coded mode badge so the organiser sees at a
+glance which side of the declaration/attestation split they're on:
+
+- **Declaration** — green pill (`DECLARATION · one signer, one
+  record`), CRT-green border.
+- **Attestation** — amber pill (`ATTESTATION · unique · one count per
+  sender` / `latest · only the most recent counts` / `accumulating ·
+  every reply counts`), CRT-amber border. The dedup blurb adapts to
+  the event's configured rule.
+
+The form defaults (declaration mode, unique dedup) were already in
+place from module 4d; this surfaces the resulting mode in the
+existing-event view too, so an organiser sharing a screenshot of the
+hero conveys the proof shape without writing a sentence about it.
+CSS-only styling, no new state.
+
+### Crypto rework module 4d — UX polish on the strict-signing flow
+
+Module 4c shipped the engine; 4d closes the UX gaps around it. Six
+changes plus two followup fixes:
+
+- **Form default flipped to declaration.** Was attestation, which
+  pushed every first-time user into the harder mode. Most asks are
+  one-signer; declaration is the right default and the radio reflects
+  that.
+- **`/manage` status pill: `open` → `active`.** "Open" read as
+  "anyone can join"; "active" reads as "running." Renamed in the
+  per-event hero and on the manage-hub list view.
+- **Activation email asks for the docs when URL set + no docs.** The
+  organiser-facing activation mail now carries an IMPORTANT block
+  telling them to forward / attach the reference doc(s) to
+  `attach+<id>@`. The signer invite is held until the first attach+
+  registers the set, so the signer never gets an empty manifest.
+- **Confirm page expanded.** Title + details + ref URL + a 5-step
+  roadmap showing what happens next (confirm → activation email →
+  attach docs → signer invited → signed/anchored). One line each;
+  the goal is reducing "what now?" friction at the point of highest
+  organiser uncertainty.
+- **Per-doc trust annotation on the manage hero.** Each ticked
+  reference doc renders its DKIM trust pill and signer domain
+  inline (`[x] doc.pdf · DKIM-VERIFIED · @gmail.com ·
+  2026-05-12`) for declaration, or aggregate progress for
+  attestation (`[2x] doc.pdf · 2 attestors signed`). One render
+  pathway per mode (see followup #1 below).
+- **Per-doc expandable proof receipts.** Replaces the single combined
+  drawer with one expandable `<summary>` row per doc, each showing
+  that doc's commit and DKIM/OTS state. Smaller drawers, easier to
+  cite a specific doc.
+
+Followups inside the same module:
+
+- **Reverted a misguided per-sign initiator email.** A first pass
+  emailed the initiator on every counted signer reply; the organiser
+  already receives the forwarded original, so the extra mail was
+  noise. Reverted and locked the behaviour with a regression test
+  that asserts the signer gets the final `[gitdone] Signed —` ack on
+  the completing reply (no leakage into the initiator inbox).
+- **Render fix: attestation reference-docs row was never ticking.**
+  The strict render assumed `reference_docs[i].signed_at`, which is
+  declaration-only — attestation stores per-attestor sha256 sets in
+  `event.attestor_progress[hash]`. Now branches on mode and aggregates
+  per doc.
+
+### Crypto rework module 4c — strict signing, signer attaches matching files
+
+The big module of the rework. When a crypto event has both
+`reference_url` set AND `reference_docs[]` registered (via the new
+`attach+` channel from module 4a), the event enters **strict signing
+mode**: the signer/attestor MUST attach files whose SHA-256 hashes
+match the registered manifest before their reply counts. No file
+bytes are stored — only the hashes are compared.
+
+**Matching rule.** Exact hash set match. Partial signing is allowed
+across multiple replies — matches accumulate per signer (declaration)
+or per per-attestor-progress bucket (attestation). Filename match
+with different bytes is rejected with a diff in the ack; extras
+(unrelated attachments alongside the matching set) are ignored.
+
+**New reject reasons.**
+
+- `attachment_set_mismatch` — at least one filename matched a
+  registered doc but the bytes differ. The ack lists the offending
+  filename, the expected `sha256:head4…tail4`, and the received one.
+  Encourages the signer to fix the file rather than re-send the wrong
+  version blindly.
+- `strict_no_matching_attachments` — no attached file matched any
+  registered hash. The ack reproduces the manifest so the signer can
+  attach the right thing without leaving their inbox.
+
+**Per-doc signing state.**
+
+- Declaration: each `reference_docs[i]` gains `signed_at`,
+  `signed_trust_level`, `signed_sender_domain`,
+  `signed_commit_sequence`. Completion fires when every entry has a
+  `signed_at`.
+- Attestation: per-attestor progress lives at
+  `event.attestor_progress[salted_sender_hash].signed_doc_hashes` —
+  the per-attestor map shares the same salted-hash key shape as the
+  loose-attestation dedup ledger, so privacy posture is unchanged. An
+  attestor counts toward the threshold only when their bucket covers
+  every registered hash.
+
+Partial-signing acks (`[gitdone] Signed in progress — "<title>"`)
+carry a progress block listing which docs are ticked for that signer
+and which remain. The final reply that closes the manifest gets the
+normal `[gitdone] Signed — "<title>"` ack.
+
+Tests: `app/tests/integration/strict-signing.test.js` (9 tests
+covering the happy path, byte-mismatch with diff in ack, no-match
+rejection, partial-signing across two replies for declaration,
+attestation accumulation across distinct attestors, the unsigned-mail
++ `min_trust_level: unverified` accumulating path, and a final-ack
+regression).
+
+### Crypto rework module 4a — `attach+<id>@` channel and derived gating
+
+A new initiator-only public address registers the canonical reference
+documents for a crypto event. The flow:
+
+- Organiser sends a regular email to `attach+<id>@git-done.com` with
+  the doc(s) attached. DKIM-verified, envelope sender must match
+  `event.initiator`.
+- gitdone hashes every attachment (SHA-256 + filename + size), commits
+  a `kind: 'attach'` record to the per-event git repo, OTS-stamps it,
+  and discards the bytes. **No file content is stored** — same
+  privacy posture as participant attachments (PRD §0.1).
+- The doc set is **frozen on the first attach+ reply**. Subsequent
+  attach+ emails bounce with `[gitdone] attach+ rejected — doc set
+  frozen — "<title>"`. The "one-shot manifest" semantics let the
+  signer trust that what they see at invite time is what they'll be
+  asked to sign.
+- The first attach+ email **triggers the held signer invite** for
+  events that had `reference_url` set + no docs at activation. The
+  invite body lists the manifest (filename + hash + size per row) so
+  the signer can fetch + attach the exact bytes.
+- **Derived gating, no separate flag.** If `reference_url` is set but
+  no docs are registered, replies to `crypto+<id>@` bounce with a
+  pointer to the attach+ channel — the organiser can't accidentally
+  publish a "please sign" before the manifest exists.
+
+Manage hero now surfaces the doc list and the `attach+<id>@` address
+prominently. Every counted-reply ack lists the doc set so the signer
+can verify what they just attested to (separate from the `verify+`
+out-of-band path).
+
+### Crypto rework module 3 — optional reference_url field
+
+Crypto events (both modes) can now carry a single optional
+`reference_url` — a public HTTPS link to the thing being signed
+(contract, statement, position paper, etc.). Validation:
+
+- HTTPS only (rejects `http://` and non-URL strings; whitespace-only
+  rejected; bare strings without scheme rejected).
+- Max 2048 chars.
+- Round-trips correctly on form re-render (preview-before-create flow).
+
+When set, the manage hero renders it as a linkified row with
+`rel="noopener noreferrer"`. The field is the single toggle that
+enters strict signing mode (module 4c) when combined with a
+registered doc manifest (module 4a). On its own — URL set, no docs —
+it's just a pointer with no behavioural change beyond the rendered
+link.
+
 ### Link previews now show a real card (`og:image` wired)
 
 Sharing a git-done.com link in WhatsApp, Slack, Signal, Discord,

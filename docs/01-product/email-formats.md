@@ -44,6 +44,7 @@ can reply normally.
 | 20 | Re-verify report | Inbound to `reverify+<id>-<seq>@` | Sender |
 | 21 | Proof anchored (OTS) | Last pending OTS proof anchors to Bitcoin | Initiator + signers/participants |
 | 22 | Initiator command — bundle | Inbound to `bundle+<id>@` | Sender (initiator) |
+| 23 | Initiator command — attach (register reference docs) | Inbound to `attach+<id>@` | Sender (initiator) |
 
 ## 1. Sign-in magic link
 
@@ -114,11 +115,37 @@ event a **Crypto Declaration** in body copy.
 
 | # | Reason | Subject |
 |---|--------|---------|
-| 4d | accepted | `[gitdone] Signed — <title>` |
+| 4d | accepted (full strict match) | `[gitdone] Signed — <title>` |
+| 4d-partial | accepted, partial strict match (declaration only) | `[gitdone] Signed in progress — <title>` |
 | 5d | `missing_attachment` | `[gitdone] Attachment required — <title>` |
+| 5d-mismatch | `attachment_set_mismatch` (filename matched, bytes differ) | `[gitdone] Attachment hash mismatch — <title>` |
+| 5d-strict | `strict_no_matching_attachments` (no file matched any registered hash) | `[gitdone] No matching attachments — <title>` |
+| 5d-awaiting | `awaiting_reference_docs` (`reference_url` set but no docs registered yet) | `[gitdone] Awaiting reference documents — <title>` |
 | 6d | `event archived` | `[gitdone] Crypto Declaration archived — <title>` |
 | 7d | `event not activated` | `[gitdone] Crypto Declaration not yet activated — <title>` |
 | 8d | `event closed` | `[gitdone] Crypto Declaration closed — <title>` |
+
+Under **strict signing mode** (§4.2.3 of the PRD — `reference_url`
+set AND `reference_docs[]` registered), the signer/attestor MUST
+attach files whose SHA-256 hashes match the registered manifest.
+Matching is by hash, not filename. Three outcomes:
+
+- **Full match** (every registered doc has been signed): the
+  declaration completes; subject is the normal `Signed —` ack and
+  the body confirms the final state.
+- **Partial match** (declaration only — a subset of docs ticked):
+  subject is `Signed in progress —` and the body carries a progress
+  block: `[x] doc1.pdf · signed` / `[ ] doc2.pdf · awaiting`. Matches
+  accumulate across replies. Attestation does not surface a partial
+  ack to the attestor — their per-attestor bucket fills up silently
+  and only counts toward the threshold when complete.
+- **Filename match, bytes differ** (`attachment_set_mismatch`): the
+  ack lists the offending filename, the expected
+  `sha256:head4…tail4`, and the received one, so the signer can fix
+  the file instead of guessing.
+- **No matching hashes** (`strict_no_matching_attachments`): the
+  ack reproduces the manifest so the signer can attach the right
+  thing without leaving their inbox.
 
 Accepted body:
 
@@ -396,6 +423,62 @@ or activated but no inbound mail), so there's nothing to package.
 - **Subject.** `[gitdone] no proof yet — "<title>"`
 - **Body.** Plain text explaining the audit trail is empty and that a
   later `bundle+` after a reply arrives will return the archive.
+
+## 23. Initiator command — attach (register reference docs)
+
+Crypto-only. Registers the canonical reference doc(s) on a crypto
+event whose `reference_url` is set, freezing the manifest the signer
+will be asked to attach (PRD §4.2.3). gitdone hashes every attachment
+(SHA-256 + filename + size), commits a `kind: 'attach'` record to the
+per-event git repo, OTS-stamps it, and **discards the file bytes** —
+no document content is ever stored. The doc set is frozen on the
+first reply.
+
+- **Trigger.** DKIM-authenticated reply to `attach+<id>@<domain>`.
+- **Auth.** Same as other initiator commands — DKIM-verified AND
+  envelope sender matches `event.initiator`.
+- **Sent by.** `app/bin/receive.js` (commit in `app/src/gitrepo.js:commitAttach`).
+- **Recipient.** Sender (must equal initiator).
+
+All outcomes (success, frozen, auth failure, etc.) share the same
+subject `[gitdone] attach+ — <title>` so the organiser's MUA threads
+every attempt on the manifest together. The body distinguishes the
+outcome.
+
+### Step 1 — first attach+ reply (registration)
+
+The first DKIM-authenticated reply with attachments hashes them,
+commits the manifest (`kind: 'attach'`, OTS-stamped), freezes the
+doc set, AND fires the held signer invite if the event was activated
+with `reference_url` set but no docs (the invite body lists the
+manifest with filename + hash + size per row).
+
+- **Body.** Per-doc line: `filename · sha256:head4…tail4 · <size>`,
+  then a paragraph that the signer invite has been sent (or was
+  already in flight) and the strict-signing rule (signer must attach
+  files whose hashes match this manifest exactly).
+
+### Step 2 — subsequent attach+ replies (frozen)
+
+The manifest is one-shot. Any later attach+ reply bounces:
+
+- **Body.** Names the manifest as it stands, explains that the doc
+  set was frozen at first registration to give the signer a stable
+  target, and points at the dashboard for editing options (currently
+  none — the manifest is immutable; future modules may add a
+  versioning path).
+
+### Edge cases
+
+- **No attachments** — bounces with a body explaining the reply
+  needs at least one attached file.
+- **Wrong event type** (workflow, not crypto) — bounces with a body
+  noting `attach+` is crypto-only.
+- **Sender ≠ initiator** — auth fails like any other initiator
+  command; the reply is dropped per audit-trail policy and no ack
+  is sent.
+- **Event already complete / closed / archived** — bounce with the
+  matching lifecycle subject; no commit written.
 
 ## Worked example
 

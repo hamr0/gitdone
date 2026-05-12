@@ -37,6 +37,15 @@ a dashboard.
   community statements. Three counting modes: unique (one per signer),
   latest (replaceable), accumulating (every reply counts).
 
+Optionally pin a **reference URL** (the contract, position paper, or
+statement being signed). When you also register canonical document(s)
+on the event — email them once to `attach+<id>@git-done.com` — gitdone
+hashes them, freezes the manifest, and the event enters **strict
+signing**: every signer must attach files whose SHA-256 hashes match
+exactly. Wrong bytes get a clear ack with a diff; partial sets across
+multiple replies accumulate. Bytes are never stored — only the
+hashes go in the proof.
+
 ---
 
 ## How participation works
