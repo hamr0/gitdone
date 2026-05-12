@@ -2509,23 +2509,52 @@ function renderReferenceDocsRow(event) {
   if (!event || event.type !== 'crypto') return raw('');
   const docs = Array.isArray(event.reference_docs) ? event.reference_docs : [];
   const frozen = isReferenceDocSetFrozen(event);
+  // For attestation, signing state lives in event.attestor_progress
+  // (per-attestor sha256 sets); for declaration it's reference_docs[i].signed_at.
+  // Precompute a per-doc count of attestors who signed this hash.
+  const isAttestation = event.mode === 'attestation';
+  const attestorProgress = event.attestor_progress || {};
+  const perDocAttestorCount = isAttestation
+    ? docs.map((d) => {
+        if (!d || !d.sha256) return 0;
+        let n = 0;
+        for (const k of Object.keys(attestorProgress)) {
+          const hashes = attestorProgress[k] && attestorProgress[k].signed_doc_hashes;
+          if (Array.isArray(hashes) && hashes.includes(d.sha256)) n++;
+        }
+        return n;
+      })
+    : null;
   const docsBlock = docs.length
     ? html`<div class="proof-row">
         <div class="proof-key">Reference docs</div>
         <div class="proof-value" style="display:flex;flex-direction:column;gap:0.18rem">
           ${docs.map((d, i) => {
             const sz = formatBytes(d.size);
-            const sig = d.signed_at ? '[x]' : '[ ]';
-            const sigColor = d.signed_at ? '#3fb950' : '#6e7681';
-            // Module 4d#5: trust annotation per signed doc.
-            const trust = d.signed_trust_level;
-            const trustLabel = trust ? (TRUST_LABEL[trust] || trust) : null;
-            const trustColor = trust ? (TRUST_COLOR[trust] || '#c9d1d9') : '#8b949e';
-            const dom = d.signed_sender_domain;
-            const dateStr = d.signed_at ? String(d.signed_at).slice(0, 10) : null;
-            const annot = d.signed_at
-              ? html` · <span style="color:${raw(trustColor)}">${trustLabel || 'signed'}</span>${dom ? html` · <span style="color:#8b949e">@${dom}</span>` : raw('')}${dateStr ? html` · <span style="color:#8b949e">${dateStr}</span>` : raw('')}`
-              : raw('');
+            let sig, sigColor, annot;
+            if (isAttestation) {
+              const n = perDocAttestorCount[i];
+              if (n > 0) {
+                sig = `[${n}x]`;
+                sigColor = '#3fb950';
+                annot = html` · <span style="color:#8b949e">${String(n)} attestor${n === 1 ? '' : 's'} signed</span>`;
+              } else {
+                sig = '[ ]';
+                sigColor = '#6e7681';
+                annot = raw('');
+              }
+            } else {
+              sig = d.signed_at ? '[x]' : '[ ]';
+              sigColor = d.signed_at ? '#3fb950' : '#6e7681';
+              const trust = d.signed_trust_level;
+              const trustLabel = trust ? (TRUST_LABEL[trust] || trust) : null;
+              const trustColor = trust ? (TRUST_COLOR[trust] || '#c9d1d9') : '#8b949e';
+              const dom = d.signed_sender_domain;
+              const dateStr = d.signed_at ? String(d.signed_at).slice(0, 10) : null;
+              annot = d.signed_at
+                ? html` · <span style="color:${raw(trustColor)}">${trustLabel || 'signed'}</span>${dom ? html` · <span style="color:#8b949e">@${dom}</span>` : raw('')}${dateStr ? html` · <span style="color:#8b949e">${dateStr}</span>` : raw('')}`
+                : raw('');
+            }
             return html`<div><span style="color:${raw(sigColor)};font-family:JetBrains Mono,monospace">${sig}</span> <code>${d.filename || `doc-${String(i + 1)}`}</code> <span class="mg-receipt-mono" style="color:#6e7681">${truncHash(d.sha256)}</span>${sz ? html` <span style="color:#6e7681">· ${sz}</span>` : raw('')}${annot}</div>`;
           })}
           ${frozen ? html`<div style="color:#8b949e;font-size:0.85em">doc set frozen at first reply</div>` : raw('')}
