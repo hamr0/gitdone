@@ -15,6 +15,41 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Crypto rework module 6.5 — strict attestation: re-signing doesn't double-count
+
+Under strict mode, the reference-doc manifest is finite and frozen.
+An attestor whose bucket is already complete has nothing further to
+attest to — but until this fix, a second matching reply from the
+same sender still ticked the count under accumulating dedup. So on
+a 1-doc manifest, threshold-2 event, msn.com could send the right
+file twice and consume two of the two threshold slots solo.
+
+New rule: **under strict mode, a reply counts only if it adds at
+least one new manifest hash to the attestor's bucket.** Re-signing
+the same doc(s) is committed to the audit trail (with a friendly
+`[gitdone] Already signed — "<title>"` ack explaining the audit
+trail captured it but it doesn't move the count) but doesn't tick
+the user-facing number. Same rule across all three dedup rules —
+unique / latest / accumulating — because the manifest is the
+load-bearing finite resource, not the dedup ledger.
+
+Counter consequence: the dashboard count for strict-mode attestations
+now reflects **distinct attestors with complete buckets** rather than
+raw `replies.length`. The "Counted replies" row in Event details
+renames to **"Counted signers"** under strict mode. The hero
+headline switches its noun from "replies" to "signers" for the
+strict-mode accumulating case. Loose attestation is unchanged.
+
+Two new reject reasons:
+- `strict_already_signed` — covered above.
+- Existing `attachment_set_mismatch` / `strict_no_matching_attachments`
+  unchanged.
+
+Unit tests in completion.test.js: redundant re-sign on a complete
+bucket rejects with `strict_already_signed`; partial-bucket case
+where same-hash re-send rejects while new-hash advances works. 539
+tests pass (+2 new).
+
 ### Crypto rework module 6 — dual count on attestation acks + manage list
 
 Attestation surfaces now distinguish the **counted** number from the

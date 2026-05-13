@@ -1173,6 +1173,7 @@ async function main() {
       || reason === 'awaiting_reference_docs'
       || reason === 'attachment_set_mismatch'
       || reason === 'strict_no_matching_attachments'
+      || reason === 'strict_already_signed'
       || reason === 'event already complete'
       || reason === 'event not activated'
       || reason === 'event archived'
@@ -1372,6 +1373,24 @@ async function main() {
           formatProgressBlock(event),
           ``,
           `Reply again to ${fromAddr} with the file${event.reference_docs.length === 1 ? '' : 's'} attached.`,
+        ].join('\n');
+      } else if (reason === 'strict_already_signed') {
+        // Module 6.5 — re-signing an already-complete bucket. Audit
+        // trail captures it; the count doesn't move because there's
+        // nothing further to attest to (manifest is finite and you
+        // already signed every doc on it).
+        subject = `[gitdone] Already signed — ${event.title}`;
+        body = [
+          `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`,
+          ``,
+          `You've already signed every required document for this`,
+          `attestation. Your reply is recorded in the audit trail for the`,
+          `record, but it does NOT add to the count — there's nothing`,
+          `further to attest to (the manifest is finite and frozen).`,
+          ``,
+          formatProgressBlock(event),
+          ``,
+          `Requester: ${event.initiator}`,
         ].join('\n');
       } else if (reason === 'awaiting_reference_docs') {
         subject = `[gitdone] Awaiting reference documents — ${event.title}`;

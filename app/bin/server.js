@@ -1619,11 +1619,31 @@ function summariseEvent(ev) {
     // "Verified" is the DKIM-verified subset. Surface both when they
     // diverge so the organiser sees the trust shape of their
     // signatures at a glance, not just the bare count.
+    //
+    // Module 6.5 — strict mode overrides dedup: counted = distinct
+    // attestors with complete buckets (re-signing the same manifest
+    // doesn't tick the count). Verified is the subset of those whose
+    // most-recent completing reply was DKIM-verified.
     const replies = ev.replies || [];
     const dedup = ev.dedup || 'unique';
+    const strict = !!ev.reference_url
+      && Array.isArray(ev.reference_docs)
+      && ev.reference_docs.length > 0;
     let counted;
     let verified;
-    if (dedup === 'unique') {
+    if (strict) {
+      const progressMap = ev.attestor_progress || {};
+      const completeKeys = Object.keys(progressMap).filter((k) => progressMap[k] && progressMap[k].complete);
+      counted = completeKeys.length;
+      // Per-attestor: did any of their counted replies come in
+      // DKIM-verified? (replies[] only carries counted ones post-6.5,
+      // and the strict branch under unique/latest already requires
+      // trust_level=verified; this catches accumulating.)
+      const verifiedHashes = new Set(
+        replies.filter((r) => r.trust_level === 'verified' && r.sender_hash).map((r) => r.sender_hash)
+      );
+      verified = completeKeys.filter((k) => verifiedHashes.has(k)).length;
+    } else if (dedup === 'unique') {
       const seenAll = new Set();
       const seenVerified = new Set();
       for (const r of replies) {
@@ -2725,8 +2745,19 @@ function renderAttestationHero(event, commits) {
   const replies = event.replies || [];
   const dedup = event.dedup || 'unique';
   const { counts, modal } = aggregateTrust(replies);
+  // Module 6.5 — under strict mode the user-facing count is distinct
+  // attestors whose buckets are complete, regardless of dedup. That
+  // matches the "a signer is a signer" intuition: re-signing the same
+  // manifest doesn't move the count even under accumulating dedup.
+  // Loose attestation keeps the original dedup-based count.
+  const strict = !!event.reference_url
+    && Array.isArray(event.reference_docs)
+    && event.reference_docs.length > 0;
   let count;
-  if (dedup === 'unique') {
+  if (strict) {
+    const progress = event.attestor_progress || {};
+    count = Object.values(progress).filter((p) => p && p.complete).length;
+  } else if (dedup === 'unique') {
     const seen = new Set();
     for (const r of replies) if (r.sender_hash) seen.add(r.sender_hash);
     count = seen.size;
@@ -2743,7 +2774,10 @@ function renderAttestationHero(event, commits) {
   let headline;
   if (accumulating && thresholdReached) {
     const dateStr = thresholdReachedAt ? String(thresholdReachedAt).slice(0, 10) : '';
-    headline = html`${modalLabel} · ${String(count)} replies · threshold reached ${dateStr}`;
+    // Strict mode counts distinct signers (not raw replies) so the
+    // headline noun changes to match.
+    const noun = strict ? 'signers' : 'replies';
+    headline = html`${modalLabel} · ${String(count)} ${noun} · threshold reached ${dateStr}`;
   } else if (complete) {
     const dateStr = String(event.completion.completed_at).slice(0, 10);
     headline = html`${modalLabel} · ${String(count)} of ${String(event.threshold)} · complete ${dateStr}`;
@@ -2792,11 +2826,19 @@ function renderAttestationHero(event, commits) {
           // including rejected ones (audit-trail policy). Showing only
           // "Total replies: 2" while the ledger surfaces 3 rows is
           // confusing — split them so the difference is named.
-          const counted = replies.length;
+          //
+          // Module 6.5 — under strict mode, the user-facing count is
+          // distinct attestors with complete buckets, not raw
+          // counted replies. Re-signs from an already-complete bucket
+          // are rejected as `strict_already_signed` (audit-only).
+          const counted = strict
+            ? Object.values(event.attestor_progress || {}).filter((p) => p && p.complete).length
+            : replies.length;
           const totalCommits = (commits || []).length;
-          const auditOnly = Math.max(0, totalCommits - counted);
+          const auditOnly = Math.max(0, totalCommits - replies.length);
+          const label = strict ? 'Counted signers' : 'Counted replies';
           return html`
-            <div class="proof-row"><div class="proof-key">Counted replies</div><div class="proof-value">${String(counted)}${auditOnly > 0 ? html` <span style="color:#8b949e;font-size:0.88em">· ${String(auditOnly)} audit-only (uncounted, in audit trail)</span>` : raw('')}</div></div>
+            <div class="proof-row"><div class="proof-key">${label}</div><div class="proof-value">${String(counted)}${auditOnly > 0 ? html` <span style="color:#8b949e;font-size:0.88em">· ${String(auditOnly)} audit-only (uncounted, in audit trail)</span>` : raw('')}</div></div>
           `;
         })()}
       </div>

@@ -399,6 +399,75 @@ test('strict attestation 4e: stores attestor email on bucket-completing reply', 
   assert.equal(r.event.attestor_progress.s1.email, 'alice@gmail.com');
 });
 
+// Module 6.5 — under strict mode, a reply only counts if it adds at
+// least one new manifest hash to the attestor's bucket. Re-signing
+// the same doc set goes to audit only. This makes strict counting
+// consistent across all three dedup rules: a signer is a signer,
+// counted once when their bucket fills.
+test('strict attestation 6.5: re-signing an already-complete bucket rejects as strict_already_signed', () => {
+  const H = 'sha256:' + 'd'.repeat(64);
+  const attach = [{ filename: 'x.pdf', sha256: H, size: 10 }];
+  // Seed event with an attestor whose bucket is already complete.
+  let ev = mkAttestation({
+    threshold: 5,
+    dedup: 'accumulating', // would normally count every reply
+    reference_url: 'https://example.com/x',
+    reference_docs: [{ filename: 'x.pdf', sha256: H, size: 10 }],
+    attestor_progress: {
+      s1: {
+        signed_doc_hashes: [H],
+        complete: true,
+        completed_at: '2026-05-13T00:00:00Z',
+        first_seen_at: '2026-05-13T00:00:00Z',
+        sender_domain: 'gmail.com',
+      },
+    },
+    replies: [{ sequence: 1, sender_hash: 's1', trust_level: 'verified',
+                received_at: '2026-05-13T00:00:00Z', sender_domain: 'gmail.com' }],
+  });
+  // Same sender re-signs the same doc — bucket already covers it.
+  const r = applyReply(ev, mkCommit({
+    sender_hash: 's1', step_id: null, sequence: 2,
+    attachments: attach,
+  }));
+  assert.equal(r.applied, false, 'redundant re-sign must NOT count');
+  assert.equal(r.decision.reason, 'strict_already_signed');
+});
+
+test('strict attestation 6.5: partial bucket + reply with same hash also rejects', () => {
+  const H1 = 'sha256:' + 'e'.repeat(64);
+  const H2 = 'sha256:' + 'f'.repeat(64);
+  // Two-doc manifest, attestor has signed doc1 only.
+  let ev = mkAttestation({
+    threshold: 2,
+    dedup: 'unique',
+    reference_url: 'https://example.com/x',
+    reference_docs: [
+      { filename: 'a.pdf', sha256: H1, size: 10 },
+      { filename: 'b.pdf', sha256: H2, size: 10 },
+    ],
+    attestor_progress: {
+      s1: { signed_doc_hashes: [H1], complete: false, first_seen_at: '2026-05-13T00:00:00Z' },
+    },
+    replies: [{ sequence: 1, sender_hash: 's1', trust_level: 'verified',
+                received_at: '2026-05-13T00:00:00Z', sender_domain: 'gmail.com' }],
+  });
+  // Re-sends doc1 only — already in bucket. Rejected.
+  const r1 = applyReply(ev, mkCommit({
+    sender_hash: 's1', step_id: null, sequence: 2,
+    attachments: [{ filename: 'a.pdf', sha256: H1, size: 10 }],
+  }));
+  assert.equal(r1.applied, false);
+  assert.equal(r1.decision.reason, 'strict_already_signed');
+  // Now sends doc2 — adds a new hash, bucket completes. Counted.
+  const r2 = applyReply(ev, mkCommit({
+    sender_hash: 's1', step_id: null, sequence: 3,
+    attachments: [{ filename: 'b.pdf', sha256: H2, size: 10 }],
+  }));
+  assert.equal(r2.applied, true);
+  assert.equal(r2.event.attestor_progress.s1.complete, true);
+});
+
 test('strict attestation 4e: post-redaction reply does NOT re-introduce email', () => {
   const H = 'sha256:' + 'c'.repeat(64);
   // accumulating dedup so we can keep applying past threshold

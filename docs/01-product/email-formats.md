@@ -120,6 +120,7 @@ event a **Crypto Declaration** in body copy.
 | 5d | `missing_attachment` | `[gitdone] Attachment required — <title>` |
 | 5d-mismatch | `attachment_set_mismatch` (filename matched, bytes differ) | `[gitdone] Attachment hash mismatch — <title>` |
 | 5d-strict | `strict_no_matching_attachments` (no file matched any registered hash) | `[gitdone] No matching attachments — <title>` |
+| 5d-already | `strict_already_signed` (matching reply but bucket already complete; Module 6.5) | `[gitdone] Already signed — <title>` |
 | 5d-awaiting | `awaiting_reference_docs` (`reference_url` set but no docs registered yet) | `[gitdone] Awaiting reference documents — <title>` |
 | 6d | `event archived` | `[gitdone] Crypto Declaration archived — <title>` |
 | 7d | `event not activated` | `[gitdone] Crypto Declaration not yet activated — <title>` |

@@ -325,6 +325,16 @@ reply counts. Matching rule:
 - No matching hashes at all is rejected
   (`strict_no_matching_attachments`) with the manifest reproduced
   inline.
+- **A reply counts only when it adds at least one new manifest hash
+  to the attestor's bucket** (Module 6.5). Re-signing the same
+  doc(s) is committed to the audit trail but rejected as
+  `strict_already_signed` and does NOT tick the user-facing count —
+  the manifest is finite and frozen, so a fully-signed bucket has
+  nothing further to attest to. This rule applies across all three
+  dedup rules: a signer is a signer, counted once when their bucket
+  fills, whether under unique / latest / accumulating semantics.
+  The dashboard count for strict attestations is therefore
+  "distinct attestors with complete buckets," not raw `replies.length`.
 - Extras (unrelated attachments alongside the matching set) are
   ignored.
 

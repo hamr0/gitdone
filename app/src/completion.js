@@ -265,6 +265,25 @@ function shouldCountAttestation(event, commit) {
     if (matchRes.matched.length === 0) {
       return { count: false, reason: 'strict_no_matching_attachments', match_result: matchRes };
     }
+    // Module 6.5 — under strict mode the manifest is finite and frozen.
+    // A reply only counts if it adds at least one new manifest hash to
+    // the attestor's bucket; re-signing the same doc(s) lands in the
+    // audit trail but doesn't tick the user-facing count. This makes
+    // strict-mode counting consistent across all three dedup rules —
+    // a signer is a signer, counted once when their bucket fills,
+    // regardless of unique / latest / accumulating semantics.
+    const senderKey = commit.sender_hash || 'unknown';
+    const prior = event.attestor_progress && event.attestor_progress[senderKey];
+    if (prior && Array.isArray(prior.signed_doc_hashes)) {
+      const seen = new Set(prior.signed_doc_hashes);
+      const addsNew = matchRes.matched.some((m) => {
+        const h = (event.reference_docs[m.ref_index] || {}).sha256;
+        return h && !seen.has(h);
+      });
+      if (!addsNew) {
+        return { count: false, reason: 'strict_already_signed', match_result: matchRes };
+      }
+    }
     return { count: true, match_result: matchRes, strict: true };
   }
   return { count: true };
