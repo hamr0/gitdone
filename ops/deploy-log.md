@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-13T16:04Z · `df69e66` · crypto rework module 7: three share buttons on the manage hero
 - 2026-05-13T15:56Z · `4c2da5e` · ux: unified stat band on crypto hero (signers / verified tiles)
 - 2026-05-13T14:55Z · `2e39505` · crypto rework module 6.5: re-signing a complete bucket goes to audit only
 - 2026-05-13T11:36Z · `d7c0d97` · deploy-log: bdacea1
