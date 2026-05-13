@@ -15,6 +15,34 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Manage hero — unified stat band (signers / verified tiles)
+
+The numbers that matter on a crypto manage page (how many distinct
+signers, how many of them DKIM-verified, audit-only count, threshold
+date) were diluted across three places: hero headline, a per-reply
+"3 VERIFIED" tile that counted replies rather than signers, and a
+"Counted signers" row buried deep in Event Details.
+
+New shape on both declaration and attestation, sitting right under
+the mode badge:
+
+```
+[ N / threshold ]   [ M ]      X audit-only · threshold reached YYYY-MM-DD
+  signers / signed    verified
+```
+
+- **signers** — distinct attestors with complete buckets (Module 6.5
+  metric for attestation); 0/1 for declaration.
+- **verified** — DKIM-verified subset of those signers.
+- **meta strip** — audit-only count + threshold-reached / completion
+  date in a single right-aligned line.
+
+Same shape across modes for at-a-glance consistency. Drops the
+per-reply trust tile section (the trust ladder already conveys
+posture; this is now the canonical metrics surface) and the
+redundant "Counted signers" row from Event Details (promoted up
+into the stat band).
+
 ### Crypto rework module 6.5 — strict attestation: re-signing doesn't double-count
 
 Under strict mode, the reference-doc manifest is finite and frozen.
