@@ -248,13 +248,31 @@ function renderProofBlock(event, commits, { recipient } = {}) {
     ].join('\n');
   }
   if (event.type === 'crypto' && event.mode === 'attestation') {
-    const ag = proofRender.aggregateTrust(commits);
+    // Module 9 — when any senders are revoked, the raw commits.length
+    // overstates the effective count. The proof block surfaces both so
+    // the durable record matches the audit trail AND tells a reader
+    // what counted post-revoke. Aggregate trust counts are over the
+    // effective (live, non-revoked) subset — that's what "verified"
+    // means in the proof context.
+    const revokedSet = new Set(
+      ((event.revoked_senders) || []).map((r) => r && r.sender_hash).filter(Boolean)
+    );
+    const liveCommits = revokedSet.size > 0
+      ? commits.filter((c) => !c.sender_hash || !revokedSet.has(c.sender_hash))
+      : commits;
+    const ag = proofRender.aggregateTrust(liveCommits);
     const lines = [
       'Cryptographic receipt',
       '---------------------',
-      `Replies counted   ${commits.length}`,
-      `Modal trust       ${ag.modal || 'unknown'}`,
     ];
+    if (revokedSet.size > 0) {
+      lines.push(`Replies in audit  ${commits.length}`);
+      lines.push(`Revoked           ${commits.length - liveCommits.length}`);
+      lines.push(`Effective         ${liveCommits.length}`);
+    } else {
+      lines.push(`Replies counted   ${commits.length}`);
+    }
+    lines.push(`Modal trust       ${ag.modal || 'unknown'}`);
     const c = ag.counts;
     if (c.verified) lines.push(`Verified          ${c.verified}`);
     if (c.forwarded) lines.push(`Forwarded         ${c.forwarded}`);
@@ -503,7 +521,9 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
         // verify what was attested to without opening the repo.
         const receipts = proofBlock ? ['', proofBlock].join('\n') : '';
         body = [
-          `The attestation you organised has reached its threshold.`,
+          isClosedEarly
+            ? `The attestation you organised has been closed early.`
+            : `The attestation you organised has reached its threshold.`,
           ``,
           commits ? 'This email is your durable proof. Keep it forever -- it verifies' : '',
           commits ? 'offline against the per-event git repository, even if gitdone goes' : '',
@@ -512,7 +532,7 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
           `Event: ${event.title}`,
           `Event ID: ${event.id}`,
           modeLine,
-          `Reached: ${completedAt}`,
+          `${isClosedEarly ? 'Closed' : 'Reached'}: ${completedAt}`,
           `Reason: ${reasonLabel}`,
           refUrlLine,
           refDocsBlock,
@@ -561,22 +581,34 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
         ].filter((l) => l !== '').join('\n');
       }
     }
-    // Workflow keeps [done/total]; attestation gains [counted/threshold]
-    // (already in the per-reply ack so no over-share); declaration has
-    // no natural counter.
+    // Workflow keeps [done/total]; attestation gains [effective/threshold]
+    // (revoke-filtered — the subject must match what the body says, and
+    // post-Module-9 the user-facing count drops revoked sender_hashes);
+    // declaration has no natural counter.
     let counterTag = '';
     if (isWorkflow && Array.isArray(event.steps) && event.steps.length) {
       const done = event.steps.filter((s) => s.status === 'complete').length;
       counterTag = ` [${done}/${event.steps.length}]`;
     } else if (isAttestation && event.threshold) {
       const replies = Array.isArray(event.replies) ? event.replies : [];
-      const counted = event.dedup === 'unique'
-        ? new Set(replies.map((r) => r.sender_hash).filter(Boolean)).size
-        : replies.length;
+      const revokedSubjSet = new Set(
+        ((event.revoked_senders) || []).map((r) => r && r.sender_hash).filter(Boolean)
+      );
+      let counted;
+      if (event.dedup === 'unique' || event.dedup === 'latest') {
+        const distinct = new Set(replies.map((r) => r.sender_hash).filter(Boolean));
+        counted = Array.from(distinct).filter((h) => !revokedSubjSet.has(h)).length;
+      } else {
+        counted = replies.reduce((n, r) => n + (revokedSubjSet.has(r.sender_hash) ? 0 : 1), 0);
+      }
       counterTag = ` [${counted}/${event.threshold}]`;
     }
+    // Module 9 — when closed early, the subject says so. Otherwise the
+    // proof recipient can't tell from the subject alone whether the
+    // event reached threshold naturally or was cut short.
+    const closedEarlyTag = (isClosedEarly && isAttestation) ? ' — closed early' : '';
     const subject = commits
-      ? `[gitdone] proof — "${event.title}"${counterTag}`
+      ? `[gitdone] proof — "${event.title}"${closedEarlyTag}${counterTag}`
       : `[gitdone] "${event.title}" — ${subjectVerb}${counterTag}`;
     return sendOne({
       to,

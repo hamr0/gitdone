@@ -3020,7 +3020,15 @@ function renderAttestationHero(event, commits) {
     ? String(event.completion.completed_at).slice(0, 10) : null;
   const reopenedAt = event.completion && event.completion.reopened_at;
   const reopenedDate = reopenedAt ? String(reopenedAt).slice(0, 10) : null;
-  const onceReachedNowBelow = !!(reopenedAt && thresholdDateStr && count < (event.threshold || 0));
+  // Module 9 — "originally reached, since revoked" subtitle fires when:
+  //   - the event historically reached threshold (threshold_reached_at
+  //     is a durable anchor; executeClose does NOT wipe it)
+  //   - revocation has happened (otherwise the subtitle is noise)
+  //   - the effective count is now below threshold
+  // Earlier draft gated on completion.reopened_at, but executeClose
+  // overwrites the whole completion object — so a closed-early event
+  // lost the subtitle even when the historical truth still held.
+  const onceReachedNowBelow = !!(thresholdDateStr && revokedCount > 0 && count < (event.threshold || 0));
   const metaBits = [];
   if (auditOnlyN > 0) metaBits.push(`${auditOnlyN} audit-only`);
   if (complete && !accumulating && completedDateStr) {

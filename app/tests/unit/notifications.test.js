@@ -155,6 +155,38 @@ test('renderProofBlock for attestation summarises modal trust + counts', () => {
   assert.match(block, /Forwarded\s+1/);
 });
 
+test('renderProofBlock attestation: revoked senders surface as audit/revoked/effective triple', () => {
+  // Module 9 — durable proof must match the audit trail AND tell the
+  // reader what counted after revocation. Trust counts are computed
+  // over the effective (non-revoked) subset.
+  const event = {
+    id: 'a2', type: 'crypto', mode: 'attestation', title: 'A', threshold: 2,
+    replies: [],
+    revoked_senders: [{ sender_hash: 'h-msn' }],
+  };
+  const block = renderProofBlock(event, [
+    { ...sampleVerifiedCommit, sender_hash: 'h-msn', sequence: 1 },
+    { ...sampleVerifiedCommit, sender_hash: 'h-msn', sequence: 2 },
+    { ...sampleVerifiedCommit, sender_hash: 'h-gmail', sequence: 3 },
+  ]);
+  // Raw commit counts; threshold-level dedup is the subject's job.
+  assert.match(block, /Replies in audit\s+3/);
+  assert.match(block, /Revoked\s+2/);
+  assert.match(block, /Effective\s+1/);
+  // Trust counts are over effective subset only — gmail.
+  assert.match(block, /Verified\s+1/);
+  // The pre-revoke "Replies counted" label is gone when revoke present.
+  assert.doesNotMatch(block, /Replies counted/);
+});
+
+test('renderProofBlock attestation: no revoked_senders → keeps original "Replies counted" label', () => {
+  // Regression guard for the existing test contract above.
+  const event = { id: 'a3', type: 'crypto', mode: 'attestation', threshold: 2, replies: [] };
+  const block = renderProofBlock(event, [{ ...sampleVerifiedCommit, sequence: 1 }]);
+  assert.match(block, /Replies counted\s+1/);
+  assert.doesNotMatch(block, /Replies in audit/);
+});
+
 test('renderProofBlock returns "" when no commits provided', () => {
   const event = { id: 'x', type: 'event', steps: [] };
   assert.equal(renderProofBlock(event, []), '');

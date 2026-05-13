@@ -15,6 +15,30 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Module 9 hotfix — proof email + subtitle persistence
+
+Live-deploy test of Module 9 surfaced two follow-ups:
+
+- **Proof email for an attestation closed-early after revoke was lying.**
+  Body opened "has reached its threshold" even when the organiser cut
+  short; the receipt block surfaced raw audit counts (`Replies counted
+  5 · Verified 5`) without distinguishing revoked from effective;
+  subject said `[2/2]` and didn't mention close. Fixed:
+  - Body opening: "has been closed early." when closed by initiator.
+  - Date label: `Closed:` (was `Reached:`) on close-early.
+  - Proof block: when any revoke present, replaces `Replies counted`
+    with the triple `Replies in audit / Revoked / Effective`, and
+    trust counts (`Modal trust`, `Verified`, etc.) are computed over
+    the effective subset.
+  - Subject: appends `— closed early` when closed by initiator;
+    `[counted/threshold]` now revoke-filters under `unique`/`latest`
+    and skips revoked sender_hashes under `accumulating`.
+- **"Originally reached, since revoked" subtitle survives close-early.**
+  Was gated on `completion.reopened_at`, which `executeClose`
+  overwrites — so a closed-early event with revocation lost the
+  subtitle even when the historical fact still held. Now gated on
+  the durable `threshold_reached_at` anchor.
+
 ### Module 9 — visible revocation + ack-body fixes
 
 Live-deploy smoke test of Module 8 surfaced three real bugs and one
