@@ -1339,6 +1339,14 @@ function renderCryptoForm({ values = {}, errors = [] } = {}) {
             el.classList.toggle('dim', isDec);
             el.classList.toggle('att', isDec);
           });
+          // pointer-events: none stops mouse but keyboard tab still
+          // focuses the dimmed input — so flag the actual control as
+          // disabled. Also clears the value so a stray pre-toggle entry
+          // doesn't ride the submission ("signer's email" lingering
+          // into an attestation POST and triggering MX-check noise).
+          signerLabel.querySelector('input').disabled = !isDec;
+          if (!isDec) signerLabel.querySelector('input').value = '';
+          [threshLabel.querySelector('input'), dedupLabel.querySelector('select')].forEach(function(c){ c.disabled = isDec; });
           if (note) note.textContent = isDec
             ? 'declaration · one signer replies, one permanent record'
             : 'attestation · anyone you share the reply address with can sign';
@@ -1349,6 +1357,10 @@ function renderCryptoForm({ values = {}, errors = [] } = {}) {
         form.addEventListener('change', function(e){
           if (e.target && e.target.name === 'mode') setMode(e.target.value);
         });
+        // Apply the disabled state on first render so the dimmed
+        // fields don't accept input before the user touches the radio.
+        var checked = form.querySelector('input[name="mode"]:checked');
+        if (checked) setMode(checked.value);
       })();
     `)}</script>
   `;
@@ -2730,7 +2742,7 @@ function renderAttestationHero(event, commits) {
       ${renderTrustLadder({ achieved })}
       <div class="proof-headline ${headlineCls}">${headline}</div>
       <div class="proof-sub">"${event.title}" · id <code>${event.id}</code></div>
-      <div class="proof-mode-badge attn">Attestation <span class="sep">·</span> ${dedup} <span class="sep">·</span> <span class="dedup">${dedupBlurb}</span></div>
+      <div class="proof-mode-badge attn">Attestation <span class="sep">·</span> <span class="dedup">${dedupBlurb}</span></div>
       ${tilesHTML}
       <div class="proof-secondary">
         <h4>Event details</h4>
@@ -2741,7 +2753,19 @@ function renderAttestationHero(event, commits) {
         <div class="proof-row"><div class="proof-key">Initiator</div><div class="proof-value"><code class="copyable">${event.initiator}</code></div></div>
         <div class="proof-row"><div class="proof-key">Reply address</div><div class="proof-value"><code class="copyable">event+${event.id}@${config.domain}</code></div></div>
         <div class="proof-row"><div class="proof-key">Threshold</div><div class="proof-value">${String(event.threshold)}</div></div>
-        <div class="proof-row"><div class="proof-key">Total replies</div><div class="proof-value">${String(replies.length)}</div></div>
+        ${(() => {
+          // Two numbers, not one. event.replies only carries counted
+          // attestations; the per-event repo holds every inbound reply
+          // including rejected ones (audit-trail policy). Showing only
+          // "Total replies: 2" while the ledger surfaces 3 rows is
+          // confusing — split them so the difference is named.
+          const counted = replies.length;
+          const totalCommits = (commits || []).length;
+          const auditOnly = Math.max(0, totalCommits - counted);
+          return html`
+            <div class="proof-row"><div class="proof-key">Counted replies</div><div class="proof-value">${String(counted)}${auditOnly > 0 ? html` <span style="color:#8b949e;font-size:0.88em">· ${String(auditOnly)} audit-only (uncounted, in audit trail)</span>` : raw('')}</div></div>
+          `;
+        })()}
       </div>
       ${commits.length ? html`
         <details class="proof-details">
