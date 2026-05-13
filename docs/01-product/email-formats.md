@@ -179,6 +179,21 @@ dedup the count caps at `threshold` by construction; for
 fresh ack with an overshot tag — `[3/2]`, `[5/2]`, etc — paired with
 the body tail below that flags the overshoot.
 
+**Module 6 — dual count on subject + body.** When the DKIM-verified
+subset of counted replies is **less than** the counted count
+(possible under accumulating dedup, which accepts both verified and
+unverified mail), the subject appends a `· N verified` qualifier and
+the body inlines the same split:
+
+| Shape | Subject | Body tail |
+|---|---|---|
+| counted == verified (common; always true under strict + unique/latest) | `[3/10]` | `Replies so far: 3/10. …` |
+| counted > verified (some unsigned mail counted) | `[3/10 · 1 verified]` | `Replies so far: 3 (1 verified)/10. …` |
+
+The compact form on equal-counts keeps the subject readable in the
+overwhelming majority of cases; the qualified form fires only when
+the trust shape is load-bearing to disclose.
+
 Accepted body (partial — threshold not yet reached):
 
 ```

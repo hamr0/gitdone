@@ -1248,32 +1248,50 @@ async function main() {
         } else {
           counted = replies.length;
         }
+        // Module 6 — dual count. "Counted" reflects the dedup rule;
+        // "verified" is the DKIM-verified subset, which is what
+        // matters for vouching / legal / load-bearing use cases. For
+        // unique/latest dedup the two are equal (engine requires
+        // DKIM-verified); for accumulating they can diverge. Surfacing
+        // both gives the attestor honest signal about the trust shape
+        // of what they just joined.
+        let verified;
+        if (dedup === 'unique') {
+          const verifiedSenders = new Set();
+          for (const r of replies) if (r.trust_level === 'verified' && r.sender_hash) verifiedSenders.add(r.sender_hash);
+          verified = verifiedSenders.size;
+        } else {
+          verified = replies.filter((r) => r.trust_level === 'verified').length;
+        }
         const lockingDedup = dedup !== 'accumulating';
-        // For unique/latest, threshold-reach completes the event (locking).
-        // For accumulating, threshold is the proof anchor but the event
-        // stays open and keeps counting — never use the "complete" subject.
         const reachedThreshold = lockingDedup
           ? !!completion.completed_event
           : (!!event.threshold_reached_at);
-        // Mirror the workflow step counter ([1/N]) on attestation
-        // subjects so the participant sees their position at a glance.
-        // Locking dedups (unique/latest) cap at threshold by definition;
-        // accumulating dedup is allowed to overshoot — [5/2] is a valid,
-        // intentional shape that reads as "5 counted, threshold was 2".
+        // Subject counter: `[counted/threshold]` is the original shape;
+        // append `· N verified` only when verified != counted (i.e.
+        // there's actually a non-verified contribution to disambiguate
+        // from — keeps the subject compact in the common case).
         const counterTag = event.threshold
-          ? ` [${counted}/${event.threshold}]`
+          ? (verified === counted
+              ? ` [${counted}/${event.threshold}]`
+              : ` [${counted}/${event.threshold} · ${verified} verified]`)
           : '';
         subject = (lockingDedup && reachedThreshold)
           ? `[gitdone] Attestation complete — ${event.title}${counterTag}`
           : `[gitdone] Attestation reply recorded — ${event.title}${counterTag}`;
+        // Body always carries both numbers when they diverge, even if
+        // the subject elides — the body is the durable record.
+        const trustQual = (verified === counted)
+          ? `${counted}`
+          : `${counted} (${verified} verified)`;
         let tail;
         if (lockingDedup && reachedThreshold) {
           tail = `Threshold reached (${event.threshold}). The audit trail is sealed.`;
         } else if (!lockingDedup && reachedThreshold) {
           const dateStr = String(event.threshold_reached_at).slice(0, 10);
-          tail = `Replies so far: ${counted} (threshold of ${event.threshold} reached on ${dateStr}). The attestation keeps counting; only the organiser can close it.`;
+          tail = `Replies so far: ${trustQual} (threshold of ${event.threshold} reached on ${dateStr}). The attestation keeps counting; only the organiser can close it.`;
         } else {
-          tail = `Replies so far: ${counted}/${event.threshold}. The attestation stays open until the threshold is met.`;
+          tail = `Replies so far: ${trustQual}/${event.threshold}. The attestation stays open until the threshold is met.`;
         }
         const refDocsBlock = (event.reference_docs && event.reference_docs.length)
           ? `\n\nReference documents (${event.reference_docs.length}):\n${formatReferenceDocList(event.reference_docs)}`

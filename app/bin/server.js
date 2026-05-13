@@ -1614,8 +1614,32 @@ function summariseEvent(ev) {
   } else if (ev.type === 'crypto' && ev.mode === 'declaration') {
     progress = terminal ? 'signed' : 'awaiting signature';
   } else if (ev.type === 'crypto' && ev.mode === 'attestation') {
-    const got = (ev.replies || []).length;
-    progress = `${got} of ${ev.threshold || '?'} signers`;
+    // Module 6 — dual count. "Counted" reflects the dedup rule
+    // (unique = distinct senders, latest/accumulating = replies[]).
+    // "Verified" is the DKIM-verified subset. Surface both when they
+    // diverge so the organiser sees the trust shape of their
+    // signatures at a glance, not just the bare count.
+    const replies = ev.replies || [];
+    const dedup = ev.dedup || 'unique';
+    let counted;
+    let verified;
+    if (dedup === 'unique') {
+      const seenAll = new Set();
+      const seenVerified = new Set();
+      for (const r of replies) {
+        if (!r.sender_hash) continue;
+        seenAll.add(r.sender_hash);
+        if (r.trust_level === 'verified') seenVerified.add(r.sender_hash);
+      }
+      counted = seenAll.size;
+      verified = seenVerified.size;
+    } else {
+      counted = replies.length;
+      verified = replies.filter((r) => r.trust_level === 'verified').length;
+    }
+    progress = verified === counted
+      ? `${counted} of ${ev.threshold || '?'} signers`
+      : `${counted} of ${ev.threshold || '?'} signers · ${verified} verified`;
   }
   return { status, pillClass, progress, terminal, completed, closed, archived, pending };
 }

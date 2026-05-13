@@ -248,10 +248,12 @@ test('integration: attestation reply ack reflects the just-counted reply (no off
       { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
     assert.equal(r1.code, 0, r1.stderr);
     const ack1 = await findAck('alice@ex.com');
-    assert.match(ack1, /Replies so far: 1\/3/);
+    // Module 6 — unsigned mail under accumulating dedup yields a
+    // counted=1, verified=0 split. Body surfaces both numbers; subject
+    // appends "· 0 verified" only when they diverge.
+    assert.match(ack1, /Replies so far: 1 \(0 verified\)\/3/);
     assert.doesNotMatch(ack1, /Replies so far: 0\/3/);
-    // Subject carries the [counted/threshold] tag (workflow-style).
-    assert.match(ack1, /Subject: \[gitdone\] Attestation reply recorded — tell me that you know me \[1\/3\]/);
+    assert.match(ack1, /Subject: \[gitdone\] Attestation reply recorded — tell me that you know me \[1\/3 · 0 verified\]/);
 
     const eml2 = buildEml([
       'From: bob@ex.com', 'To: event+att01@git-done.com', 'Subject: same here',
@@ -261,9 +263,9 @@ test('integration: attestation reply ack reflects the just-counted reply (no off
       { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
     assert.equal(r2.code, 0, r2.stderr);
     const ack2 = await findAck('bob@ex.com');
-    assert.match(ack2, /Replies so far: 2\/3/);
+    assert.match(ack2, /Replies so far: 2 \(0 verified\)\/3/);
     assert.doesNotMatch(ack2, /Replies so far: 1\/3/);
-    assert.match(ack2, /Subject: \[gitdone\] Attestation reply recorded — tell me that you know me \[2\/3\]/);
+    assert.match(ack2, /Subject: \[gitdone\] Attestation reply recorded — tell me that you know me \[2\/3 · 0 verified\]/);
   } finally {
     delete process.env.GITDONE_OTS_BIN;
     delete process.env.GITDONE_SENDMAIL_BIN;
@@ -310,11 +312,13 @@ test('integration: accumulating attestation subject keeps counting past threshol
       throw new Error(`no ack for ${sender}`);
     };
 
-    // 5th sender's ack should carry [5/2] in the subject and a body
-    // tail that flags the overshoot ("threshold of 2 reached on …").
+    // 5th sender's ack should carry the counted/threshold tag plus
+    // the verified-count qualifier (Module 6). All senders are unsigned
+    // → counted=5, verified=0 → subject "[5/2 · 0 verified]" and body
+    // "Replies so far: 5 (0 verified) (threshold of 2 reached on …)".
     const ack5 = await ackFor('a5@ex.com');
-    assert.match(ack5, /Subject: \[gitdone\] Attestation reply recorded — how many know me \[5\/2\]/);
-    assert.match(ack5, /Replies so far: 5 \(threshold of 2 reached on \d{4}-\d{2}-\d{2}\)/);
+    assert.match(ack5, /Subject: \[gitdone\] Attestation reply recorded — how many know me \[5\/2 · 0 verified\]/);
+    assert.match(ack5, /Replies so far: 5 \(0 verified\) \(threshold of 2 reached on \d{4}-\d{2}-\d{2}\)/);
   } finally {
     delete process.env.GITDONE_OTS_BIN;
     delete process.env.GITDONE_SENDMAIL_BIN;

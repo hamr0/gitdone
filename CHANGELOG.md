@@ -15,6 +15,39 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Crypto rework module 6 — dual count on attestation acks + manage list
+
+Attestation surfaces now distinguish the **counted** number from the
+**DKIM-verified** subset — important for vouching / petition / legal
+use cases where "we have 100 signatures" is not the same statement
+as "we have 100 DKIM-verified signatures." Two surfaces gained the
+split:
+
+- **Per-reply ack.** Body always shows both numbers when they
+  diverge: `Replies so far: 5 (2 verified)/10`. Subject appends a
+  `· N verified` qualifier only when verified ≠ counted (keeps the
+  common case compact — under strict mode + unique/latest dedup the
+  two are equal by construction): `[5/10 · 2 verified]` vs `[5/10]`.
+- **/manage list row.** Attestation row gains a trailing `· N
+  verified` suffix in the same divergence-only shape.
+
+Workflow + declaration unchanged. Hero headline + dashboard receipt
+block already carried this information via the trust tiles and
+modal-trust pill, so no churn there. ~50 LOC including the test
+update to existing integration tests that exercised unsigned-mail
+flows.
+
+### Activate flash — scrolls into view + brief attention pulse
+
+The post-activate "Activated — your reply address is now live"
+message sat between the back link and the metadata strip on the
+per-event dashboard. Technically visible but easy to miss when the
+user's eye was on the proof hero. Now: 1.6s soft-pulse animation
+on first paint, scrollIntoView({behavior:'smooth'}) followed by a
+24px upward nudge so the message sits a comfortable distance below
+the viewport top. Font-size bumped 0.9em → 1em, weight 400 → 500
+for independent visual weight. No test impact.
+
 ### Completion proof email — mode-aware bodies, role-aware splits, ref docs surfaced
 
 The `[gitdone] proof —` durable receipt now reads correctly for each
