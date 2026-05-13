@@ -45,6 +45,7 @@ can reply normally.
 | 21 | Proof anchored (OTS) | Last pending OTS proof anchors to Bitcoin | Initiator + signers/participants |
 | 22 | Initiator command — bundle | Inbound to `bundle+<id>@` | Sender (initiator) |
 | 23 | Initiator command — attach (register reference docs) | Inbound to `attach+<id>@` | Sender (initiator) |
+| 24 | Initiator command — revoke (drop an attestor) | Inbound to `revoke+<id>@` | Sender (initiator) |
 
 ## 1. Sign-in magic link
 
@@ -578,6 +579,123 @@ The manifest is one-shot. Any later attach+ reply bounces:
   is sent.
 - **Event already complete / closed / archived** — bounce with the
   matching lifecycle subject; no commit written.
+
+## 24. Initiator command — revoke (drop an attestor)
+
+- **Trigger.** Initiator emails `revoke+<id>@git-done.com` with one
+  attestor email per body line. Optional `reason: <free-form>` line
+  is captured separately. Crypto attestation events only —
+  declarations have a single signer (no revocation surface) and
+  workflows have no signature semantics to revoke.
+- **Sent by.** `app/bin/receive.js` (handler block parses body via
+  `parseRevokeBody`, resolves emails to sender_hashes against
+  `event.salt`, applies `applyRevoke` from `app/src/completion.js`,
+  writes a `kind: 'revoke'` commit, sends the ack).
+- **Recipient.** The initiator (the sender of the revoke email).
+- **From.** `revoke+<id>@<domain>`.
+- **Subject.** `[gitdone] revoke+ — <event title>` on success;
+  `[gitdone] revoke+ — <id>` if the event couldn't be loaded.
+
+**Auth.** DKIM-verified + envelope sender == `event.initiator`
+(same as `stats+ / remind+ / close+ / attach+`). Wrong sender →
+rejected ack explaining "Only the event initiator can revoke
+attestors via `revoke+<id>@`".
+
+**Body grammar (input).** One attestor email per line. Lines
+starting with `>` (quoted reply) and the `-- ` signature delimiter
+are skipped. An optional `reason: <free-form>` (or `reason= ...`)
+line is captured separately. Parsing scans at most the first 80
+non-quoted lines.
+
+Example body:
+
+```
+bob@example.com
+carol@example.com
+reason: signed in error
+```
+
+**Effect.** Each parsed email is hashed (`hashSender(email,
+event.salt)`) and looked up in the union of `attestor_progress`
+keys (strict mode) and `replies[].sender_hash` (loose). Matches
+are appended as new entries on `event.revoked_senders[]`:
+
+```json
+{
+  "sender_hash": "sha256:…",
+  "revoked_at": "2026-05-13T01:00:00Z",
+  "reason": "signed in error",
+  "revoke_commit_sequence": 7
+}
+```
+
+Original signature commits are **never** removed — the per-event
+git repo is append-only. Revocation lands as a separate
+`kind: 'revoke'` commit (OpenTimestamped). The offline verifier
+sees the full history.
+
+**Counter behaviour.** Every counted-replies surface (manage hero
+stat band, dashboard row, ack subject's dual-count, `stats+` body)
+filters revoked sender_hashes out:
+
+- strict attestation: distinct attestors with complete buckets
+  minus revoked hashes
+- loose `unique`: distinct sender_hashes minus revoked
+- loose `latest`: revoked hashes drop from both deduped replies
+  list and count
+- loose `accumulating`: every non-revoked reply counts (originals
+  + revokes still committed for the audit trail)
+
+**Completion re-evaluation.** Under locking dedup (`unique` +
+`latest`), if the count drops below `event.threshold` and the event
+was previously complete, `event.completion` flips back to
+`{ status: 'open', reopened_at, reopened_reason: 'revoke dropped
+count below threshold' }`. Accumulating events never auto-complete
+via threshold, so completion stays as it was; the
+`threshold_reached_at` anchor is preserved as a historical record.
+
+**Body (ack).**
+
+```
+Revoked 1 attestor on "<event title>":
+
+  bob@example.com
+
+Reason recorded: signed in error
+
+New count: 1 / 2.
+
+Event was complete; count dropped below threshold so completion
+has reopened. A new reply that fills the bucket will re-complete it.
+
+Audit trail preserved: the original signature commits stay in the
+event's git repo. Revocation lands as a separate commit
+(kind: 'revoke'), OpenTimestamped.
+```
+
+When some body addresses don't match a known attestor, the ack
+appends a "Not found (skipped — no matching reply on file)" list.
+When the revoke doesn't drop completion (e.g. threshold still met,
+or accumulating dedup), the "completion has reopened" paragraph is
+omitted.
+
+**Edge cases.**
+
+- **No emails in body** — "no targets" ack with the expected
+  grammar shown back to the initiator.
+- **None of the supplied emails match a known attestor** — "None
+  of the addresses … match a known attestor" with the supplied list
+  echoed; no `revoke` commit written.
+- **Wrong event type** (declaration or workflow) — bounces with a
+  body noting `revoke+` only applies to attestation events.
+- **Unknown event id** — "No such event" bounce.
+- **Sender ≠ initiator** — rejected ack; no commit written, no
+  state change.
+
+**Silent on the attestor side.** Revocation does not email the
+revoked attestor. Module 9 will paint the visible strikethrough on
+the public ledger when they revisit. Avoids accusation-by-email and
+keeps the initiator's reason private to the initiator's ack.
 
 ## Worked example
 

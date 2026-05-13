@@ -778,6 +778,7 @@ Per the moat (§0.1.4 — "invisible beats correct"), the initiator's day-to-day
 | `remind+{id}@` | initiator: resend reminders to pending-step participants | same |
 | `close+{id}@` | initiator: close event early — **two-step confirm**; first reply replies with a 30-min token, second reply quoting `CONFIRM <token>` actually closes | same |
 | `attach+{id}@` | initiator: register the canonical reference doc(s) on a crypto event with `reference_url` set — first reply freezes the manifest (§4.2.3) | same |
+| `revoke+{id}@` | initiator: revoke one or more attestors on a crypto attestation event — body lists attestor email(s), optional `reason: ...` line; audit trail preserved, counter drops, locking dedup can flip completion back to open | same |
 | `reverify+{id}-{commitN}@` | initiator or auditor: re-run verification on a specific commit with supplied evidence (raw `.eml`, attachment) | none |
 
 **Initiator authentication via DKIM:** when an inbound message is DKIM-verified and its envelope sender matches `event.initiator`, that's cryptographic proof that the initiator authorised the command. As strong as (and often stronger than) a magic link — DKIM can't be spoofed, magic links can be forwarded.

@@ -15,6 +15,58 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Crypto rework module 8 — `revoke+<id>@` channel
+
+The initiator of an attestation event can now revoke individual
+attestors after they've signed. The mechanic is a dedicated inbound
+address `revoke+<id>@git-done.com`, DKIM-gated to the event's
+initiator (same auth as `stats+ / remind+ / close+ / attach+`).
+
+**Body grammar:** one attestor email per line, plus an optional
+`reason: <free-form>` line. Quoted-reply prefixes (`>`) and the
+`-- ` signature delimiter are ignored, and parsing caps at the
+first 80 lines of body to bound pathological input. Multiple
+attestors can be revoked in a single email.
+
+**State change:** each parsed email is hashed (`hashSender(email,
+event.salt)`) and matched against the event's known attestor hashes
+(`attestor_progress` keys for strict mode + `replies[].sender_hash`
+for loose). Matches are appended to a new `event.revoked_senders[]`
+array — one entry per revoke, recording the sender hash, the
+revoke timestamp, the initiator's reason, and the revoke commit
+sequence.
+
+**Audit trail is preserved.** The original signature commits stay
+in the per-event git repo untouched; revocation lands as a separate
+`kind: 'revoke'` commit (OpenTimestamped). The offline verifier
+sees the full ledger — what was signed, what was revoked, when,
+and why.
+
+**Counter behaviour.** Every counted-replies surface (manage hero
+stat band, dashboard row, ack subject's dual-count, organiser
+stats body) now drops revoked hashes from totals. Strict-mode
+distinct-attestor count, loose-unique distinct senders, loose-latest
+deduped replies, and loose-accumulating raw-replies all converge on
+the same rule: revoked sender_hashes don't tick the counter.
+
+**Completion re-evaluation.** Locking dedup (`unique` + `latest`)
+auto-completes at threshold; a revoke that drops the count below
+threshold flips `event.completion` back to `open` with
+`reopened_at` + `reopened_reason` stamped. Accumulating dedup never
+auto-completes via threshold, so revoking leaves completion alone
+(the `threshold_reached_at` anchor stays as a historical record).
+
+**Silent on the attestor side.** Revocation does not email the
+revoked attestor — Module 9 will paint the visible strikethrough on
+the public ledger when they revisit. Avoids accusation-by-email and
+keeps revoke reasons private to the initiator's ack.
+
+Module 9 will surface revoked counts on the manage UI (triple-count
+`N attested · R revoked · E effective` + strikethrough ledger rows);
+Module 10 will gate revoke against post-close events so committing a
+revoke after explicit close lands in the audit trail without moving
+the counter.
+
 ### Crypto rework module 7 — three share buttons on the manage hero
 
 Every crypto manage page now carries a row of three share controls

@@ -1629,11 +1629,16 @@ function summariseEvent(ev) {
     const strict = !!ev.reference_url
       && Array.isArray(ev.reference_docs)
       && ev.reference_docs.length > 0;
+    // Module 8 — revoked sender_hashes drop from counted + verified;
+    // the audit trail (replies[]) is unchanged.
+    const revokedSet = new Set(
+      ((ev.revoked_senders) || []).map((r) => r && r.sender_hash).filter(Boolean)
+    );
     let counted;
     let verified;
     if (strict) {
       const progressMap = ev.attestor_progress || {};
-      const completeKeys = Object.keys(progressMap).filter((k) => progressMap[k] && progressMap[k].complete);
+      const completeKeys = Object.keys(progressMap).filter((k) => progressMap[k] && progressMap[k].complete && !revokedSet.has(k));
       counted = completeKeys.length;
       // Per-attestor: did any of their counted replies come in
       // DKIM-verified? (replies[] only carries counted ones post-6.5,
@@ -1647,15 +1652,16 @@ function summariseEvent(ev) {
       const seenAll = new Set();
       const seenVerified = new Set();
       for (const r of replies) {
-        if (!r.sender_hash) continue;
+        if (!r.sender_hash || revokedSet.has(r.sender_hash)) continue;
         seenAll.add(r.sender_hash);
         if (r.trust_level === 'verified') seenVerified.add(r.sender_hash);
       }
       counted = seenAll.size;
       verified = seenVerified.size;
     } else {
-      counted = replies.length;
-      verified = replies.filter((r) => r.trust_level === 'verified').length;
+      const live = replies.filter((r) => !revokedSet.has(r.sender_hash));
+      counted = live.length;
+      verified = live.filter((r) => r.trust_level === 'verified').length;
     }
     progress = verified === counted
       ? `${counted} of ${ev.threshold || '?'} signers`
@@ -2898,19 +2904,27 @@ function renderAttestationHero(event, commits) {
   // matches the "a signer is a signer" intuition: re-signing the same
   // manifest doesn't move the count even under accumulating dedup.
   // Loose attestation keeps the original dedup-based count.
+  // Module 8 — every count surface drops sender_hashes the initiator
+  // has revoked (audit trail kept; counter doesn't see them).
   const strict = !!event.reference_url
     && Array.isArray(event.reference_docs)
     && event.reference_docs.length > 0;
+  const revokedSet = new Set(
+    ((event.revoked_senders) || []).map((r) => r && r.sender_hash).filter(Boolean)
+  );
   let count;
   if (strict) {
     const progress = event.attestor_progress || {};
-    count = Object.values(progress).filter((p) => p && p.complete).length;
+    count = Object.entries(progress)
+      .filter(([k, p]) => p && p.complete && !revokedSet.has(k)).length;
   } else if (dedup === 'unique') {
     const seen = new Set();
-    for (const r of replies) if (r.sender_hash) seen.add(r.sender_hash);
+    for (const r of replies) {
+      if (r.sender_hash && !revokedSet.has(r.sender_hash)) seen.add(r.sender_hash);
+    }
     count = seen.size;
   } else {
-    count = replies.length;
+    count = replies.reduce((n, r) => n + (revokedSet.has(r.sender_hash) ? 0 : 1), 0);
   }
   const complete = event.completion && event.completion.status === 'complete';
   const accumulating = dedup === 'accumulating';
@@ -2946,7 +2960,7 @@ function renderAttestationHero(event, commits) {
   let signersN; let verifiedN;
   if (strict) {
     const progressMap = event.attestor_progress || {};
-    const completeKeys = Object.keys(progressMap).filter((k) => progressMap[k] && progressMap[k].complete);
+    const completeKeys = Object.keys(progressMap).filter((k) => progressMap[k] && progressMap[k].complete && !revokedSet.has(k));
     signersN = completeKeys.length;
     const verifiedHashes = new Set(
       replies.filter((r) => r.trust_level === 'verified' && r.sender_hash).map((r) => r.sender_hash)
@@ -2956,15 +2970,16 @@ function renderAttestationHero(event, commits) {
     const seenAll = new Set();
     const seenVerified = new Set();
     for (const r of replies) {
-      if (!r.sender_hash) continue;
+      if (!r.sender_hash || revokedSet.has(r.sender_hash)) continue;
       seenAll.add(r.sender_hash);
       if (r.trust_level === 'verified') seenVerified.add(r.sender_hash);
     }
     signersN = seenAll.size;
     verifiedN = seenVerified.size;
   } else {
-    signersN = replies.length;
-    verifiedN = replies.filter((r) => r.trust_level === 'verified').length;
+    const live = replies.filter((r) => !revokedSet.has(r.sender_hash));
+    signersN = live.length;
+    verifiedN = live.filter((r) => r.trust_level === 'verified').length;
   }
   const auditOnlyN = Math.max(0, (commits || []).length - replies.length);
   const thresholdDateStr = thresholdReachedAt ? String(thresholdReachedAt).slice(0, 10) : null;

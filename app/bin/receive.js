@@ -15,15 +15,15 @@ const config = require('../src/config');
 const { parseEnvelope } = require('../src/envelope');
 const { preFilter, extractHeaderBlock } = require('../src/prefilter');
 const { classifyTrust } = require('../src/classifier');
-const { parseEventTag, parseAddress, parseVerifyTag, parseReverifyTag, parseInitiatorCommand, parseAttachTag } = require('../src/router');
+const { parseEventTag, parseAddress, parseVerifyTag, parseReverifyTag, parseInitiatorCommand, parseAttachTag, parseRevokeTag } = require('../src/router');
 const { loadEvent, findStep, senderMatchesStep, recordStepSendErrors } = require('../src/event-store');
-const { commitReply, commitCompletion, commitAttach, saltedSenderHash } = require('../src/gitrepo');
+const { commitReply, commitCompletion, commitAttach, commitRevoke, saltedSenderHash } = require('../src/gitrepo');
 const { fetchDkimKey, pickSignatureToArchive } = require('../src/dkim-archive');
 const { buildVerificationReport, formatVerifyReportBody } = require('../src/verify');
 const { sendmail, buildRawMessage } = require('../src/outbound');
 const { forwardToOwner } = require('../src/forward');
 const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
-const { applyReply, updateEventAtomic } = require('../src/completion');
+const { applyReply, applyRevoke, updateEventAtomic, hashSender } = require('../src/completion');
 const { notifyWorkflowParticipants, notifyEventCompletion, notifyOrganiserOfStepProgress } = require('../src/notifications');
 const { authenticateInitiatorCommand, statsBody, executeRemind, executeCloseRequest } = require('../src/email-commands');
 const { bundleToBuffer, bundleFilename, buildAttachmentMessage } = require('../src/bundle');
@@ -183,6 +183,43 @@ function humanSize(n) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / 1024 / 1024).toFixed(2)} MB`;
+}
+
+// Module 8 — parse a revoke+ email body. One email per line; optional
+// final/standalone `reason: <free-form>` line captured separately.
+// Quoted-reply lines (leading `>`) and signature delimiters (`-- `)
+// are skipped. We scan at most the first 80 non-quoted lines to keep
+// pathological bodies bounded. Returns { emails: string[], reason: string|null }
+// with emails deduped (case-insensitive), in first-seen order.
+const REVOKE_EMAIL_RE = /([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i;
+function parseRevokeBody(text) {
+  const out = { emails: [], reason: null };
+  if (!text || typeof text !== 'string') return out;
+  const seen = new Set();
+  const lines = text.split(/\r?\n/);
+  let scanned = 0;
+  for (const rawLine of lines) {
+    if (scanned >= 80) break;
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith('>')) continue;
+    if (line === '--' || line === '-- ') break;
+    scanned += 1;
+    const reasonMatch = /^reason\s*[:=]\s*(.+)$/i.exec(line);
+    if (reasonMatch) {
+      if (!out.reason) out.reason = reasonMatch[1].trim();
+      continue;
+    }
+    const emailMatch = REVOKE_EMAIL_RE.exec(line);
+    if (emailMatch) {
+      const lower = emailMatch[1].toLowerCase();
+      if (!seen.has(lower)) {
+        seen.add(lower);
+        out.emails.push(lower);
+      }
+    }
+  }
+  return out;
 }
 
 async function main() {
@@ -864,6 +901,195 @@ async function main() {
     return;
   }
 
+  // Module 8 — revoke+{id}@: initiator-only attestation revocation
+  // channel. Body lists one attestor email per line plus optional
+  // `reason: ...`; we hash each against event.salt, find matches in
+  // attestor_progress / replies, append to event.revoked_senders[],
+  // and re-run completion (locking dedup can flip back to open). The
+  // original signature commits stay in the audit trail untouched.
+  const revokeTag = parseRevokeTag(envelope.recipient);
+  if (revokeTag && !filter.rejected) {
+    const revokeEvent = await loadEvent(revokeTag.eventId).catch(() => null);
+    const receivedAtRev = new Date().toISOString();
+    const trustRev = classifyTrust(auth);
+    const senderRev = envelope.sender || (from.address || null);
+    const fromAddrRev = `revoke+${revokeTag.eventId}@${config.domain}`;
+    const to = senderRev;
+
+    const revokeOutcome = {
+      event_id: revokeTag.eventId,
+      accepted: false,
+      reason: null,
+      revoked: 0,
+      not_found: [],
+    };
+    let replyBody;
+
+    if (!revokeEvent) {
+      revokeOutcome.reason = 'unknown event';
+      replyBody = `No such event: ${revokeTag.eventId}. The revoke+ address is only valid for an existing crypto attestation event.`;
+    } else if (revokeEvent.type !== 'crypto' || revokeEvent.mode !== 'attestation') {
+      revokeOutcome.reason = 'not an attestation event';
+      replyBody = [
+        `Revocation rejected: "${revokeEvent.title}" is a ${revokeEvent.mode || revokeEvent.type} event.`,
+        ``,
+        `The revoke+ channel only applies to crypto attestation events,`,
+        `where individual attestors contribute toward a threshold. There`,
+        `is nothing analogous for workflow or declaration events.`,
+      ].join('\n');
+    } else {
+      const authR = authenticateInitiatorCommand(revokeEvent, { sender: senderRev, trustLevel: trustRev });
+      if (!authR.ok) {
+        revokeOutcome.reason = authR.reason;
+        replyBody = [
+          `Revocation rejected: ${authR.reason}.`,
+          ``,
+          `Only the event initiator can revoke attestors via`,
+          `${fromAddrRev}. Send from the initiator's address with DKIM`,
+          `signed and aligned.`,
+        ].join('\n');
+      } else {
+        const parsedBody = parseRevokeBody(parsed.text || '');
+        revokeOutcome.parsed_emails = parsedBody.emails;
+        revokeOutcome.parsed_reason = parsedBody.reason;
+        if (parsedBody.emails.length === 0) {
+          revokeOutcome.reason = 'no targets';
+          replyBody = [
+            `No revocation targets found in the body of your email.`,
+            ``,
+            `Write one attestor email per line. Optional final line:`,
+            `  reason: <free-form note>`,
+            ``,
+            `Example:`,
+            `  bob@example.com`,
+            `  carol@example.com`,
+            `  reason: signed in error`,
+          ].join('\n');
+        } else {
+          // Resolve each target email to its sender_hash and bucket
+          // into found / not_found relative to the event's known
+          // signers (attestor_progress keys + reply sender_hashes).
+          const knownHashes = new Set();
+          for (const k of Object.keys(revokeEvent.attestor_progress || {})) knownHashes.add(k);
+          for (const r of (revokeEvent.replies || [])) {
+            if (r && r.sender_hash) knownHashes.add(r.sender_hash);
+          }
+          const resolved = [];
+          for (const email of parsedBody.emails) {
+            const h = hashSender(email, revokeEvent.salt);
+            if (h && knownHashes.has(h)) {
+              resolved.push({ email, sender_hash: h });
+            } else {
+              revokeOutcome.not_found.push(email);
+            }
+          }
+          if (resolved.length === 0) {
+            revokeOutcome.reason = 'no matching attestors';
+            replyBody = [
+              `None of the addresses in your revoke email match a known`,
+              `attestor for "${revokeEvent.title}":`,
+              ``,
+              ...parsedBody.emails.map((e) => `  ${e}`),
+              ``,
+              `Check spelling. Only addresses that have actually replied to`,
+              `event+${revokeTag.eventId}@${config.domain} can be revoked.`,
+            ].join('\n');
+          } else {
+            const targetHashes = resolved.map((r) => r.sender_hash);
+            // Apply the transition + persist atomically.
+            let updatedEvent = revokeEvent;
+            let appliedResult = null;
+            const updRes = await updateEventAtomic(revokeTag.eventId, (current) => {
+              appliedResult = applyRevoke(current, targetHashes, {
+                reason: parsedBody.reason,
+                now: receivedAtRev,
+              });
+              if (!appliedResult.applied) return null;
+              updatedEvent = appliedResult.event;
+              return updatedEvent;
+            }, { syncMessage: `revoke -${targetHashes.length}` });
+            updatedEvent = updRes.event;
+            let gitRes = null;
+            try {
+              gitRes = await commitRevoke(revokeTag.eventId, updatedEvent, {
+                receivedAt: receivedAtRev,
+                sender_domain: from.address ? from.address.split('@')[1] : (senderRev ? senderRev.split('@')[1] : null),
+                sender: senderRev,
+                revoked: resolved.map((r) => ({ sender_hash: r.sender_hash })),
+                reason: parsedBody.reason || null,
+              });
+            } catch (err) {
+              revokeOutcome.commit_error = err.message || String(err);
+            }
+            revokeOutcome.accepted = true;
+            revokeOutcome.revoked = resolved.length;
+            revokeOutcome.commit_sequence = gitRes ? gitRes.sequence : null;
+            revokeOutcome.count_after = appliedResult ? appliedResult.countAfter : null;
+            revokeOutcome.reopened = !!(updatedEvent.completion
+              && updatedEvent.completion.status === 'open'
+              && updatedEvent.completion.reopened_at === receivedAtRev);
+
+            const lines = [
+              `Revoked ${resolved.length} attestor${resolved.length === 1 ? '' : 's'} on "${revokeEvent.title}":`,
+              ``,
+              ...resolved.map((r) => `  ${r.email}`),
+            ];
+            if (revokeOutcome.not_found.length) {
+              lines.push('', `Not found (skipped — no matching reply on file):`);
+              for (const e of revokeOutcome.not_found) lines.push(`  ${e}`);
+            }
+            if (parsedBody.reason) {
+              lines.push('', `Reason recorded: ${parsedBody.reason}`);
+            }
+            if (typeof revokeOutcome.count_after === 'number') {
+              const t = updatedEvent.threshold || 0;
+              lines.push('', `New count: ${revokeOutcome.count_after} / ${t}.`);
+            }
+            if (revokeOutcome.reopened) {
+              lines.push('', `Event was complete; count dropped below threshold so completion has reopened. A new reply that fills the bucket will re-complete it.`);
+            }
+            lines.push('',
+              `Audit trail preserved: the original signature commits stay`,
+              `in the event's git repo. Revocation lands as a separate`,
+              `commit (kind: 'revoke'), OpenTimestamped.`);
+            replyBody = lines.join('\n');
+          }
+        }
+      }
+    }
+
+    if (to && replyBody) {
+      const subject = revokeEvent
+        ? `[gitdone] revoke+ — ${revokeEvent.title}`
+        : `[gitdone] revoke+ — ${revokeTag.eventId}`;
+      const rawMessage = buildRawMessage({
+        from: `gitdone <${fromAddrRev}>`,
+        to, subject, body: replyBody,
+        inReplyTo: parsed.messageId || null,
+        references: parsed.messageId || null,
+        domain: config.domain,
+        autoSubmitted: 'auto-replied',
+      });
+      const sendRes = await sendmail({ from: fromAddrRev, rawMessage, to: [to] });
+      revokeOutcome.reply = { to, ok: sendRes.ok, reason: sendRes.reason || null };
+    }
+
+    logger.emit({
+      kind: 'revoke_command',
+      received_at: receivedAtRev,
+      envelope: {
+        client_ip: envelope.clientIp,
+        client_helo: envelope.clientHelo,
+        sender: envelope.sender,
+        recipient: envelope.recipient,
+      },
+      from: from.address || null,
+      trust_level: trustRev,
+      revoke: revokeOutcome,
+    });
+    return;
+  }
+
   // Routing: resolve plus-tag → event/step, look up event JSON, check
   // sender-vs-participant match. Accept-with-flag: never reject on routing
   // failure. Initiator policy decides.
@@ -1240,14 +1466,21 @@ async function main() {
       } else if (accepted && isCrypto && event.mode === 'attestation') {
         const dedup = event.dedup || 'unique';
         const replies = event.replies || [];
+        // Module 8 — drop revoked sender_hashes from both counted and
+        // verified; the ack reflects current state, not raw audit-trail.
+        const revokedSet = new Set(
+          ((event.revoked_senders) || []).map((r) => r && r.sender_hash).filter(Boolean)
+        );
         // Compute count using the same dedup rules as the engine.
         let counted;
         if (dedup === 'unique') {
           const seen = new Set();
-          for (const r of replies) if (r.sender_hash) seen.add(r.sender_hash);
+          for (const r of replies) {
+            if (r.sender_hash && !revokedSet.has(r.sender_hash)) seen.add(r.sender_hash);
+          }
           counted = seen.size;
         } else {
-          counted = replies.length;
+          counted = replies.reduce((n, r) => n + (revokedSet.has(r.sender_hash) ? 0 : 1), 0);
         }
         // Module 6 — dual count. "Counted" reflects the dedup rule;
         // "verified" is the DKIM-verified subset, which is what
@@ -1259,10 +1492,12 @@ async function main() {
         let verified;
         if (dedup === 'unique') {
           const verifiedSenders = new Set();
-          for (const r of replies) if (r.trust_level === 'verified' && r.sender_hash) verifiedSenders.add(r.sender_hash);
+          for (const r of replies) {
+            if (r.trust_level === 'verified' && r.sender_hash && !revokedSet.has(r.sender_hash)) verifiedSenders.add(r.sender_hash);
+          }
           verified = verifiedSenders.size;
         } else {
-          verified = replies.filter((r) => r.trust_level === 'verified').length;
+          verified = replies.filter((r) => r.trust_level === 'verified' && !revokedSet.has(r.sender_hash)).length;
         }
         const lockingDedup = dedup !== 'accumulating';
         const reachedThreshold = lockingDedup

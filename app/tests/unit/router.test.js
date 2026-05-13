@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { parseAddress, parseEventTag, parseReverifyTag, parseInitiatorCommand, parseAttachTag } = require('../../src/router');
+const { parseAddress, parseEventTag, parseReverifyTag, parseInitiatorCommand, parseAttachTag, parseRevokeTag } = require('../../src/router');
 
 test('parseAddress: standard event+tag form', () => {
   assert.deepEqual(parseAddress('event+abc123-step1@git-done.com'), {
@@ -159,4 +159,23 @@ test('parseAttachTag: rejects non-alphanumeric event ids', () => {
   assert.equal(parseAttachTag('attach+abc-def@git-done.com'), null);
   assert.equal(parseAttachTag('attach+@git-done.com'), null);
   assert.equal(parseAttachTag('attach+abc..xyz@git-done.com'), null);
+});
+
+// Module 8: revoke+ channel
+
+test('parseRevokeTag: alphanumeric event id', () => {
+  assert.deepEqual(parseRevokeTag('revoke+abc123@git-done.com'), { eventId: 'abc123' });
+  assert.deepEqual(parseRevokeTag('REVOKE+abc123@git-done.com'), { eventId: 'abc123' });
+});
+
+test('parseRevokeTag: non-revoke kinds return null', () => {
+  assert.equal(parseRevokeTag('event+abc123@git-done.com'), null);
+  assert.equal(parseRevokeTag('attach+abc123@git-done.com'), null);
+  assert.equal(parseRevokeTag('close+abc123@git-done.com'), null);
+  assert.equal(parseRevokeTag('verify+abc123@git-done.com'), null);
+});
+
+test('parseRevokeTag: rejects non-alphanumeric event ids', () => {
+  assert.equal(parseRevokeTag('revoke+abc-def@git-done.com'), null);
+  assert.equal(parseRevokeTag('revoke+@git-done.com'), null);
 });

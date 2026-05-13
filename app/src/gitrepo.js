@@ -534,6 +534,64 @@ async function commitAttach(eventId, event, ctx) {
   };
 }
 
+// Module 8 — append a kind:'revoke' commit recording one or more
+// attestor revocations. The initiator emailed revoke+<id>@; receive.js
+// parsed the body for known attestor emails, hashed each against
+// event.salt, and produced the matching sender_hashes. This writes the
+// list plus the initiator's reason to the ledger and OTS-stamps it.
+// The original signature commits stay untouched (append-only audit
+// trail); recount logic in completion.js subtracts revoked hashes from
+// totals.
+async function commitRevoke(eventId, event, ctx) {
+  if (!EVENT_ID_RE.test(eventId)) throw new Error(`invalid eventId: ${eventId}`);
+  const { root } = await initRepoIfNeeded(eventId, event);
+  const seq = await nextSequence(root);
+  const seqStr = padSeq(seq);
+  const rel = path.join('commits', `commit-${seqStr}.json`);
+  const abs = path.join(root, rel);
+
+  const metadata = {
+    schema_version: 1,
+    sequence: seq,
+    kind: 'revoke',
+    event_id: eventId,
+    received_at: ctx.receivedAt,
+    sender_domain: ctx.sender_domain || null,
+    sender_hash: ctx.sender ? saltedSenderHash(ctx.sender, event.salt) : null,
+    revoked: ctx.revoked || [],
+    reason: ctx.reason || null,
+    ots_proof_file: null,
+  };
+
+  const expectedProofRel = path.join('ots_proofs', `commit-${seqStr}.ots`);
+  metadata.ots_proof_file = expectedProofRel;
+  await fs.writeFile(abs, JSON.stringify(metadata, null, 2) + '\n');
+
+  const stampRes = await stampFile(abs);
+  const filesToAdd = [rel];
+  if (stampRes.proof_path) {
+    const targetAbs = path.join(root, expectedProofRel);
+    await fs.rename(stampRes.proof_path, targetAbs);
+    filesToAdd.push(expectedProofRel);
+  } else {
+    metadata.ots_proof_file = null;
+    metadata.ots_archive = { error: stampRes.error || 'ots stamp failed' };
+    await fs.writeFile(abs, JSON.stringify(metadata, null, 2) + '\n');
+  }
+
+  const git = simpleGit(root);
+  await git.add(filesToAdd);
+  const nRev = metadata.revoked.length;
+  const commitRes = await git.commit(`revoke ${seqStr}: ${eventId} -${nRev} attestor${nRev === 1 ? '' : 's'}`);
+  return {
+    sequence: seq,
+    sha: commitRes.commit || null,
+    file: rel,
+    ots_proof_file: metadata.ots_proof_file,
+    repo_path: root,
+  };
+}
+
 // Sync the per-event repo's working-tree event.json with the master
 // `data/events/<id>.json`. The repo IS the proof artifact (PRD §0.1):
 // once an event is activated and a repo exists, every state transition
@@ -606,5 +664,6 @@ module.exports = {
   commitReverify,
   commitCompletion,
   commitAttach,
+  commitRevoke,
   syncEventJson,
 };

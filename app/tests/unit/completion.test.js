@@ -9,10 +9,13 @@ const {
   shouldCount,
   applyReply,
   applyDedup,
+  applyRevoke,
   isComplete,
   firstPendingStep,
   meetsTrust,
   hashSender,
+  revokedHashSet,
+  countCompleteAttestors,
 } = require('../../src/completion');
 
 // -- builders --
@@ -544,4 +547,132 @@ test('applyDedup latest: keeps one per sender, count == distinct', () => {
   // the `a` entry kept is the latest-inserted (seq 2)
   const aEntry = r.replies.find((x) => x.sender_hash === 'a');
   assert.equal(aEntry.sequence, 2);
+});
+
+// Module 8 — revocation
+
+test('applyDedup unique: revoked sender drops from count, replies stays full', () => {
+  const replies = [
+    { sender_hash: 'a', sequence: 1 },
+    { sender_hash: 'b', sequence: 2 },
+    { sender_hash: 'c', sequence: 3 },
+  ];
+  const r = applyDedup(replies, 'unique', new Set(['b']));
+  assert.equal(r.count, 2);
+  assert.equal(r.replies.length, 3);
+});
+
+test('applyDedup accumulating: revoked sender drops from count', () => {
+  const replies = [
+    { sender_hash: 'a', sequence: 1 },
+    { sender_hash: 'a', sequence: 2 },
+    { sender_hash: 'b', sequence: 3 },
+  ];
+  const r = applyDedup(replies, 'accumulating', new Set(['a']));
+  assert.equal(r.count, 1);
+  assert.equal(r.replies.length, 3);
+});
+
+test('applyDedup latest: revoked sender drops from both count and visible replies', () => {
+  const replies = [
+    { sender_hash: 'a', sequence: 1 },
+    { sender_hash: 'a', sequence: 2 },
+    { sender_hash: 'b', sequence: 3 },
+  ];
+  const r = applyDedup(replies, 'latest', new Set(['a']));
+  assert.equal(r.count, 1);
+  assert.equal(r.replies.length, 1);
+  assert.equal(r.replies[0].sender_hash, 'b');
+});
+
+test('revokedHashSet: builds set from revoked_senders[]', () => {
+  const s = revokedHashSet({ revoked_senders: [{ sender_hash: 'h1' }, { sender_hash: 'h2' }, { sender_hash: null }] });
+  assert.equal(s.size, 2);
+  assert.equal(s.has('h1'), true);
+  assert.equal(s.has('h2'), true);
+});
+
+test('countCompleteAttestors: subtracts revoked from complete buckets', () => {
+  const event = {
+    attestor_progress: {
+      h1: { complete: true },
+      h2: { complete: true },
+      h3: { complete: false },
+    },
+    revoked_senders: [{ sender_hash: 'h1' }],
+  };
+  assert.equal(countCompleteAttestors(event), 1);
+});
+
+test('applyRevoke: empty/duplicate hashes → no-op', () => {
+  const event = { type: 'crypto', mode: 'attestation', dedup: 'unique', threshold: 2, replies: [] };
+  const r1 = applyRevoke(event, []);
+  assert.equal(r1.applied, false);
+  const r2 = applyRevoke({ ...event, revoked_senders: [{ sender_hash: 'h1' }] }, ['h1']);
+  assert.equal(r2.applied, false);
+});
+
+test('applyRevoke: loose unique attestation count drops, completion flips back to open', () => {
+  // Pre-state: threshold 2, two distinct counted senders, event is complete.
+  const event = {
+    type: 'crypto', mode: 'attestation', dedup: 'unique', threshold: 2,
+    replies: [
+      { sender_hash: 'h1', sequence: 1, trust_level: 'verified' },
+      { sender_hash: 'h2', sequence: 2, trust_level: 'verified' },
+    ],
+    completion: { status: 'complete', completed_at: '2026-05-13T00:00:00Z', commit_sequence: 2 },
+  };
+  const r = applyRevoke(event, ['h2'], { reason: 'mis-sent', now: '2026-05-13T01:00:00Z' });
+  assert.equal(r.applied, true);
+  assert.equal(r.countAfter, 1);
+  assert.equal(r.event.completion.status, 'open');
+  assert.equal(r.event.completion.reopened_at, '2026-05-13T01:00:00Z');
+  // Audit trail intact — replies untouched.
+  assert.equal(r.event.replies.length, 2);
+  // Revoke entry recorded with reason.
+  assert.equal(r.event.revoked_senders.length, 1);
+  assert.equal(r.event.revoked_senders[0].sender_hash, 'h2');
+  assert.equal(r.event.revoked_senders[0].reason, 'mis-sent');
+});
+
+test('applyRevoke: accumulating attestation count drops, completion not flipped (was open)', () => {
+  const event = {
+    type: 'crypto', mode: 'attestation', dedup: 'accumulating', threshold: 2,
+    replies: [
+      { sender_hash: 'h1', sequence: 1, trust_level: 'verified' },
+      { sender_hash: 'h2', sequence: 2, trust_level: 'unverified' },
+      { sender_hash: 'h3', sequence: 3, trust_level: 'verified' },
+    ],
+    completion: { status: 'open', completed_at: null, commit_sequence: null },
+    threshold_reached_at: '2026-05-13T00:00:00Z',
+    threshold_reached_count: 3,
+  };
+  const r = applyRevoke(event, ['h2'], { now: '2026-05-13T01:00:00Z' });
+  assert.equal(r.applied, true);
+  assert.equal(r.countAfter, 2);
+  // Accumulating completion never auto-set; revoke doesn't reopen.
+  assert.equal(r.event.completion.status, 'open');
+  // threshold_reached_at preserved (proof anchor).
+  assert.equal(r.event.threshold_reached_at, '2026-05-13T00:00:00Z');
+});
+
+test('applyRevoke: strict attestation drops count via attestor_progress', () => {
+  const event = {
+    type: 'crypto', mode: 'attestation', dedup: 'unique', threshold: 2,
+    reference_url: 'https://example.com/doc',
+    reference_docs: [{ sha256: 'abc', filename: 'doc.pdf' }],
+    replies: [
+      { sender_hash: 'h1', sequence: 1, trust_level: 'verified' },
+      { sender_hash: 'h2', sequence: 2, trust_level: 'verified' },
+    ],
+    attestor_progress: {
+      h1: { complete: true, signed_doc_hashes: ['abc'] },
+      h2: { complete: true, signed_doc_hashes: ['abc'] },
+    },
+    completion: { status: 'complete', completed_at: '2026-05-13T00:00:00Z', commit_sequence: 2 },
+  };
+  const r = applyRevoke(event, ['h2'], { now: '2026-05-13T01:00:00Z' });
+  assert.equal(r.applied, true);
+  assert.equal(r.countAfter, 1);
+  assert.equal(r.event.completion.status, 'open');
 });

@@ -89,7 +89,20 @@ function parseAttachTag(recipient) {
   return { eventId: a.extension };
 }
 
+// revoke+{eventId}@ — initiator-only attestation-revocation channel
+// (Module 8). Body lists one email per line (optional `reason: ...`); the
+// handler hashes each against event.salt and appends matches to
+// event.revoked_senders[]. Audit trail is preserved — original replies
+// stay in the per-event repo; revoked sender_hashes just drop from the
+// counted/verified totals and may flip completion back to open.
+function parseRevokeTag(recipient) {
+  const a = parseAddress(recipient);
+  if (!a || a.kind !== 'revoke') return null;
+  if (!EVENT_ID_RE.test(a.extension)) return null;
+  return { eventId: a.extension };
+}
+
 module.exports = {
   parseAddress, parseEventTag, parseVerifyTag, parseReverifyTag,
-  parseInitiatorCommand, parseAttachTag,
+  parseInitiatorCommand, parseAttachTag, parseRevokeTag,
 };

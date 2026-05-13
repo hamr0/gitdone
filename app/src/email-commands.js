@@ -93,16 +93,25 @@ function cryptoStatsBody(event) {
   } else {
     const replies = event.replies || [];
     const dedup = event.dedup || 'unique';
+    // Module 8 — drop revoked sender_hashes from the user-facing count.
+    const revokedSet = new Set(
+      ((event.revoked_senders) || []).map((r) => r && r.sender_hash).filter(Boolean)
+    );
     let count;
     if (dedup === 'unique') {
       const seen = new Set();
-      for (const r of replies) if (r.sender_hash) seen.add(r.sender_hash);
+      for (const r of replies) {
+        if (r.sender_hash && !revokedSet.has(r.sender_hash)) seen.add(r.sender_hash);
+      }
       count = seen.size;
     } else {
-      count = replies.length;
+      count = replies.reduce((n, r) => n + (revokedSet.has(r.sender_hash) ? 0 : 1), 0);
     }
     lines.push(`Threshold: ${event.threshold} · Dedup: ${dedup}`);
     lines.push(`Replies received: ${count}`);
+    if (revokedSet.size > 0) {
+      lines.push(`Revoked: ${revokedSet.size}`);
+    }
     if (event.threshold_reached_at) {
       lines.push(`Threshold reached at: ${event.threshold_reached_at}`);
     }

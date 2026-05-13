@@ -298,10 +298,27 @@ function shouldCount(event, commit) {
 
 // --- attestation dedup ---
 
-// Returns { replies: deduped, count: number }
-function applyDedup(replies, rule) {
+// Module 8 — set of sender_hashes the initiator has revoked. Used by
+// every count call site (applyDedup + strict-attestation completed
+// counter + the dashboard/email surfaces) to drop revoked replies from
+// totals. The original commits stay in the audit trail; only the
+// user-facing counters move.
+function revokedHashSet(event) {
+  const out = new Set();
+  for (const r of (event && event.revoked_senders) || []) {
+    if (r && r.sender_hash) out.add(r.sender_hash);
+  }
+  return out;
+}
+
+// Returns { replies: deduped, count: number }. Optional revokedSet
+// drops matching sender_hashes from the count (and from the deduped
+// `replies` list for 'latest', where the visible state IS the count).
+function applyDedup(replies, rule, revokedSet) {
+  const revoked = revokedSet || new Set();
   if (rule === 'accumulating') {
-    return { replies, count: replies.length };
+    const count = replies.reduce((n, r) => n + (revoked.has(r.sender_hash) ? 0 : 1), 0);
+    return { replies, count };
   }
   // unique | latest — count distinct senders
   const bySender = new Map();
@@ -309,12 +326,32 @@ function applyDedup(replies, rule) {
     if (!r.sender_hash) continue;
     bySender.set(r.sender_hash, r);   // latest-wins
   }
+  const distinctNonRevoked = Array.from(bySender.keys()).filter((h) => !revoked.has(h));
   if (rule === 'latest') {
-    // replies[] is pruned to the latest per sender (stored in insertion-latest-wins order)
-    return { replies: Array.from(bySender.values()), count: bySender.size };
+    // replies[] is pruned to the latest per sender (insertion-latest-wins).
+    // Revoked senders stay in the audit list (replies stays full) but the
+    // surface dedup result drops them.
+    return {
+      replies: Array.from(bySender.values()).filter((r) => !revoked.has(r.sender_hash)),
+      count: distinctNonRevoked.length,
+    };
   }
   // unique: keep all replies in replies[] (audit trail) but count distinct
-  return { replies, count: bySender.size };
+  return { replies, count: distinctNonRevoked.length };
+}
+
+// Module 8 — distinct complete attestors under strict mode, with revoked
+// hashes filtered out. Three surfaces (manage hero, summariseEvent,
+// dual-count ack subject) converge on this so the visible signers count
+// matches the ledger after a revoke.
+function countCompleteAttestors(event) {
+  const progress = (event && event.attestor_progress) || {};
+  const revoked = revokedHashSet(event);
+  let n = 0;
+  for (const [hash, entry] of Object.entries(progress)) {
+    if (entry && entry.complete && !revoked.has(hash)) n += 1;
+  }
+  return n;
 }
 
 // --- state transitions (pure) ---
@@ -438,7 +475,8 @@ function applyReply(event, commit, { now = new Date().toISOString() } = {}) {
         sender_domain: commit.sender_domain || prior.sender_domain || null,
         email: storeEmail ? commit.sender_email : (prior.email || null),
       };
-      const completeAttestors = Object.keys(progress).filter((k) => progress[k].complete).length;
+      const revoked = revokedHashSet(event);
+      const completeAttestors = Object.keys(progress).filter((k) => progress[k].complete && !revoked.has(k)).length;
       const threshold = event.threshold || 0;
       const reachedThreshold = completeAttestors >= threshold;
       const firstCrossing = !wasComplete && nowComplete && reachedThreshold && !event.threshold_reached_at;
@@ -483,7 +521,7 @@ function applyReply(event, commit, { now = new Date().toISOString() } = {}) {
     }
     const all = [...(event.replies || []), newReply];
     const dedup = event.dedup || 'unique';
-    const { replies, count } = applyDedup(all, dedup);
+    const { replies, count } = applyDedup(all, dedup, revokedHashSet(event));
     const threshold = event.threshold || 0;
     const reachedThreshold = count >= threshold;
 
@@ -528,6 +566,67 @@ function applyReply(event, commit, { now = new Date().toISOString() } = {}) {
   }
 
   return { event, applied: false, decision: { count: false, reason: 'unreachable' } };
+}
+
+// Module 8 — pure revocation transition. The initiator emailed
+// revoke+<id>@ with a list of attestor emails (already resolved by
+// receive.js to sender_hashes via hashSender(email, event.salt)). We
+// append non-duplicate entries to event.revoked_senders[] and re-run
+// completion: locking dedup events flip from complete → open when the
+// remaining count drops below threshold; accumulating events never
+// auto-complete via threshold so completion stays as it was (organiser
+// closes explicitly). Audit trail (replies[] + attestor_progress) is
+// left intact — only the counter and completion gate move.
+//
+// Module 10 will gate this on event.completion?.status !== 'closed'
+// to prevent post-close revokes from moving the counter. Today,
+// revocation is fully effective at any time.
+function applyRevoke(event, hashes, { reason = null, now = new Date().toISOString(), commitSequence = null } = {}) {
+  const incoming = Array.from(new Set((hashes || []).filter(Boolean)));
+  const already = new Set(((event.revoked_senders) || []).map((r) => r && r.sender_hash).filter(Boolean));
+  const fresh = incoming.filter((h) => !already.has(h));
+  if (fresh.length === 0) {
+    return { event, applied: false, revoked: [], skipped: incoming, countAfter: null };
+  }
+  const newEntries = fresh.map((sender_hash) => ({
+    sender_hash,
+    revoked_at: now,
+    reason: reason || null,
+    revoke_commit_sequence: commitSequence,
+  }));
+  const updatedRevoked = [...((event.revoked_senders) || []), ...newEntries];
+  // Project the post-revoke event so the recount/completion logic sees
+  // the new revoked_senders[] when computing totals.
+  const updated = { ...event, revoked_senders: updatedRevoked };
+
+  if (event.type === 'crypto' && event.mode === 'attestation') {
+    const dedup = event.dedup || 'unique';
+    const lockingDedup = dedup !== 'accumulating';
+    let countAfter;
+    if (isStrictSigningEvent(updated)) {
+      countAfter = countCompleteAttestors(updated);
+    } else {
+      const { count } = applyDedup(updated.replies || [], dedup, revokedHashSet(updated));
+      countAfter = count;
+    }
+    const threshold = event.threshold || 0;
+    const wasComplete = !!(event.completion && event.completion.status === 'complete');
+    if (lockingDedup && wasComplete && countAfter < threshold) {
+      updated.completion = {
+        status: 'open',
+        completed_at: null,
+        commit_sequence: null,
+        reopened_at: now,
+        reopened_reason: 'revoke dropped count below threshold',
+      };
+    }
+    return { event: updated, applied: true, revoked: fresh, skipped: incoming.filter((h) => already.has(h)), countAfter };
+  }
+
+  // declaration / workflow — revoke isn't meaningful for those modes
+  // today; callers should reject before reaching here. Return as a
+  // safety no-op if we ever get here.
+  return { event: updated, applied: true, revoked: fresh, skipped: incoming.filter((h) => already.has(h)), countAfter: null };
 }
 
 // --- persistence helper ---
@@ -598,6 +697,7 @@ module.exports = {
   shouldCount,
   applyReply,
   applyDedup,
+  applyRevoke,
   isComplete,
   firstPendingStep,
   stepDepsMet,
@@ -610,5 +710,7 @@ module.exports = {
   redactAttestorEmails,
   matchAttachmentsAgainstRefDocs,
   isStrictSigningEvent,
+  revokedHashSet,
+  countCompleteAttestors,
   TRUST_ORDER,
 };
