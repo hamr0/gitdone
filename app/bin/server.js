@@ -2497,11 +2497,17 @@ const MANAGE_CSS = `
 .proof-secondary h4 { margin:0 0 0.4rem; font-size:0.7rem; text-transform:uppercase;
                       letter-spacing:0.07em; color:#8b949e; font-weight:500; }
 .proof-row { display:flex; gap:0.6rem; padding:0.32rem 0; font-size:0.82rem;
-             align-items:baseline; border-bottom:1px dotted #30363d; }
+             align-items:baseline; border-bottom:1px dotted #30363d; min-width:0; }
 .proof-row:last-of-type { border-bottom:none; }
 .proof-key { color:#8b949e; min-width:7rem; text-transform:uppercase;
-             letter-spacing:0.04em; font-size:0.7rem; }
-.proof-value { color:#c9d1d9; }
+             letter-spacing:0.04em; font-size:0.7rem; flex-shrink:0; }
+/* Module 9 — narrow-viewport guard. The reference-URL anchor was
+   spilling past the right edge on phones (~360px). flex children
+   ignore their content's intrinsic width by default; min-width:0
+   on the row + flex:1 with overflow-wrap on the value lets long
+   links wrap inside the column instead of pushing the layout. */
+.proof-value { color:#c9d1d9; flex:1; min-width:0; overflow-wrap:anywhere; word-break:break-word; }
+.proof-value a { overflow-wrap:anywhere; word-break:break-word; }
 .proof-tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:0.5rem;
                margin:0.6rem 0 0.4rem; }
 .proof-tile { border:1px solid currentColor; padding:0.55rem 0.4rem; text-align:center; }
