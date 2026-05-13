@@ -189,9 +189,20 @@ function humanSize(n) {
 // final/standalone `reason: <free-form>` line captured separately.
 // Quoted-reply lines (leading `>`) and signature delimiters (`-- `)
 // are skipped. We scan at most the first 80 non-quoted lines to keep
-// pathological bodies bounded. Returns { emails: string[], reason: string|null }
-// with emails deduped (case-insensitive), in first-seen order.
-const REVOKE_EMAIL_RE = /([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i;
+// pathological bodies bounded.
+//
+// Strict line shape: the trimmed line must consist of ONLY the email
+// (with optional `<>` wrap and optional leading `revoke:` prefix).
+// This rejects gmail/apple-mail attribution lines like
+// `On Tue, bob <bob@ex.com> wrote:` that clients sometimes flatten
+// without the `>` quote prefix — those would otherwise revoke bob.
+// Common forms accepted:
+//   bob@example.com
+//   <bob@example.com>
+//   revoke: bob@example.com
+// Returns { emails: string[], reason: string|null } with emails
+// deduped (case-insensitive), in first-seen order.
+const REVOKE_LINE_RE = /^(?:revoke\s*[:=]\s*)?<?\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\s*>?\s*$/i;
 function parseRevokeBody(text) {
   const out = { emails: [], reason: null };
   if (!text || typeof text !== 'string') return out;
@@ -210,7 +221,7 @@ function parseRevokeBody(text) {
       if (!out.reason) out.reason = reasonMatch[1].trim();
       continue;
     }
-    const emailMatch = REVOKE_EMAIL_RE.exec(line);
+    const emailMatch = REVOKE_LINE_RE.exec(line);
     if (emailMatch) {
       const lower = emailMatch[1].toLowerCase();
       if (!seen.has(lower)) {
@@ -966,23 +977,45 @@ async function main() {
             `  reason: signed in error`,
           ].join('\n');
         } else {
-          // Resolve each target email to its sender_hash and bucket
-          // into found / not_found relative to the event's known
-          // signers (attestor_progress keys + reply sender_hashes).
-          const knownHashes = new Set();
-          for (const k of Object.keys(revokeEvent.attestor_progress || {})) knownHashes.add(k);
-          for (const r of (revokeEvent.replies || [])) {
-            if (r && r.sender_hash) knownHashes.add(r.sender_hash);
-          }
-          const resolved = [];
-          for (const email of parsedBody.emails) {
-            const h = hashSender(email, revokeEvent.salt);
-            if (h && knownHashes.has(h)) {
-              resolved.push({ email, sender_hash: h });
-            } else {
-              revokeOutcome.not_found.push(email);
+          // Resolve each target email to its sender_hash INSIDE the
+          // atomic block so the resolution uses the freshly-loaded
+          // event.salt / attestor_progress / replies (not the outer
+          // snapshot, which could be stale if an inbound reply landed
+          // between loadEvent and the mutex acquisition). The ack
+          // body then uses the resolution actually applied.
+          let resolved = [];
+          let notFound = [];
+          let appliedResult = null;
+          let updatedEvent = revokeEvent;
+          const updRes = await updateEventAtomic(revokeTag.eventId, (current) => {
+            const knownHashes = new Set();
+            for (const k of Object.keys(current.attestor_progress || {})) knownHashes.add(k);
+            for (const r of (current.replies || [])) {
+              if (r && r.sender_hash) knownHashes.add(r.sender_hash);
             }
-          }
+            resolved = [];
+            notFound = [];
+            for (const email of parsedBody.emails) {
+              const h = hashSender(email, current.salt);
+              if (h && knownHashes.has(h)) {
+                resolved.push({ email, sender_hash: h });
+              } else {
+                notFound.push(email);
+              }
+            }
+            if (resolved.length === 0) {
+              appliedResult = { applied: false, countAfter: null };
+              return null;
+            }
+            appliedResult = applyRevoke(current, resolved.map((r) => r.sender_hash), {
+              reason: parsedBody.reason,
+              now: receivedAtRev,
+            });
+            if (!appliedResult.applied) return null;
+            updatedEvent = appliedResult.event;
+            return updatedEvent;
+          }, { syncMessage: `revoke -${parsedBody.emails.length}` });
+          revokeOutcome.not_found = notFound;
           if (resolved.length === 0) {
             revokeOutcome.reason = 'no matching attestors';
             replyBody = [
@@ -995,19 +1028,6 @@ async function main() {
               `event+${revokeTag.eventId}@${config.domain} can be revoked.`,
             ].join('\n');
           } else {
-            const targetHashes = resolved.map((r) => r.sender_hash);
-            // Apply the transition + persist atomically.
-            let updatedEvent = revokeEvent;
-            let appliedResult = null;
-            const updRes = await updateEventAtomic(revokeTag.eventId, (current) => {
-              appliedResult = applyRevoke(current, targetHashes, {
-                reason: parsedBody.reason,
-                now: receivedAtRev,
-              });
-              if (!appliedResult.applied) return null;
-              updatedEvent = appliedResult.event;
-              return updatedEvent;
-            }, { syncMessage: `revoke -${targetHashes.length}` });
             updatedEvent = updRes.event;
             let gitRes = null;
             try {
@@ -1046,7 +1066,9 @@ async function main() {
               lines.push('', `New count: ${revokeOutcome.count_after} / ${t}.`);
             }
             if (revokeOutcome.reopened) {
-              lines.push('', `Event was complete; count dropped below threshold so completion has reopened. A new reply that fills the bucket will re-complete it.`);
+              lines.push('', `Event was complete; count dropped below threshold so completion has reopened. A fresh reply from a different (non-revoked) attestor will re-complete it. The revoked attestor cannot un-revoke themselves; revocation is permanent.`);
+            } else {
+              lines.push('', `Revocation is permanent — the revoked attestor cannot re-sign and have it count.`);
             }
             lines.push('',
               `Audit trail preserved: the original signature commits stay`,
@@ -1248,7 +1270,16 @@ async function main() {
         completed_step: applied && applied.completedStep ? applied.completedStep : null,
       };
 
-      if (changed && applied.completedEvent) {
+      // Module 8 — once the proof email has fired for an event, a later
+      // revoke-and-re-complete cycle must NOT re-fire it. The completion
+      // commit ledger is honest (every transition is recorded) but the
+      // user-facing notification is idempotent: first completion only.
+      // Locking-dedup re-completion is otherwise indistinguishable from
+      // a first-time crossing because `applyReply` rewrites the whole
+      // completion object on each transition. Accumulating's
+      // `threshold_reached_at` already protects against re-firing on
+      // that path; this flag is the equivalent gate for unique/latest.
+      if (changed && applied.completedEvent && !nextEvent.proof_email_sent_at) {
         const summary = nextEvent.type === 'event'
           ? { steps_completed: nextEvent.steps.length }
           : nextEvent.mode === 'declaration'
@@ -1327,6 +1358,18 @@ async function main() {
               process.stderr.write(`attestor-email-redact: ${err.message || err}\n`);
               completion.attestor_email_redact_error = err.message || String(err);
             }
+          }
+          // Module 8 — stamp proof_email_sent_at so any future
+          // revoke-and-re-complete cycle (locking dedup only; accumulating
+          // already gates on threshold_reached_at) doesn't re-fire the
+          // proof email. Best-effort: failure here means a re-complete
+          // could re-fire, but the completion ledger itself is correct.
+          try {
+            await updateEventAtomic(tag.eventId, (ev) => (
+              ev.proof_email_sent_at ? null : { ...ev, proof_email_sent_at: receivedAt }
+            ), { syncMessage: 'proof email sent' });
+          } catch (err) {
+            process.stderr.write(`proof-email-stamp: ${err.message || err}\n`);
           }
           // Persist the FIRST recipient's Message-Id so the OTS-anchored
           // follow-up can thread to the proof email.

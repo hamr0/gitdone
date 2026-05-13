@@ -250,6 +250,79 @@ test('revoke+: declaration event → rejected', async () => {
   } finally { await fs.rm(tmp, { recursive: true, force: true }); }
 });
 
+test('revoke+: attribution-style line ("On Tue, bob <bob@ex.com> wrote:") → no targets', async () => {
+  // Module 8 I3 hardening — a stray attribution line (some mobile clients
+  // flatten reply quoting and drop the `>` prefix) must NOT match as a
+  // revoke target. The strict line shape requires the trimmed line to
+  // consist of ONLY the email (optionally angle-wrapped, optionally
+  // `revoke:` prefixed).
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-revoke-attr-'));
+  try {
+    const { fake } = makeFakeSendmail(tmp);
+    const id = 'r6';
+    const salt = `salt-${id}`;
+    const h1 = hashSender('bob@ex.com', salt);
+    await writeAttEvent(tmp, id, {
+      replies: [{ sender_hash: h1, sender_domain: 'ex.com', sequence: 1, received_at: '2026-05-10T00:00:00Z', trust_level: 'verified' }],
+    });
+    const eml = buildPlainEml({
+      from: 'chair@ex.com', to: `revoke+${id}@git-done.com`,
+      body: 'On Tue, bob <bob@ex.com> wrote:\nhi all',
+    });
+    const r = await runReceive(eml,
+      ['1.2.3.4', 'ex.com', 'chair@ex.com', `revoke+${id}@git-done.com`],
+      { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
+    assert.equal(r.code, 0, r.stderr);
+    const out = JSON.parse(r.stdout.trim());
+    assert.equal(out.revoke.accepted, false);
+    assert.match(out.revoke.reason, /no targets/);
+    // Bob is still counted — the attribution line did not revoke him.
+    const ev = JSON.parse(await fs.readFile(path.join(tmp, 'events', `${id}.json`), 'utf8'));
+    assert.ok(!ev.revoked_senders || ev.revoked_senders.length === 0);
+  } finally { await fs.rm(tmp, { recursive: true, force: true }); }
+});
+
+test('revoke+: re-revoking the same attestor is a dedup no-op', async () => {
+  // Module 8 — repeated revoke commits should not double-write
+  // revoked_senders[] entries. applyRevoke dedups against the
+  // pre-existing hash set.
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-revoke-dedup-'));
+  try {
+    const { fake } = makeFakeSendmail(tmp);
+    const id = 'r7';
+    const salt = `salt-${id}`;
+    const h1 = hashSender('bob@ex.com', salt);
+    const h2 = hashSender('carol@ex.com', salt);
+    await writeAttEvent(tmp, id, {
+      replies: [
+        { sender_hash: h1, sender_domain: 'ex.com', sequence: 1, received_at: '2026-05-10T00:00:00Z', trust_level: 'verified' },
+        { sender_hash: h2, sender_domain: 'ex.com', sequence: 2, received_at: '2026-05-11T00:00:00Z', trust_level: 'verified' },
+      ],
+    });
+    // First revoke: bob.
+    const eml1 = buildPlainEml({
+      from: 'chair@ex.com', to: `revoke+${id}@git-done.com`,
+      body: 'bob@ex.com',
+    });
+    let r = await runReceive(eml1,
+      ['1.2.3.4', 'ex.com', 'chair@ex.com', `revoke+${id}@git-done.com`],
+      { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
+    assert.equal(r.code, 0, r.stderr);
+    // Second revoke: same email, expected no-op at the data layer.
+    const eml2 = buildPlainEml({
+      from: 'chair@ex.com', to: `revoke+${id}@git-done.com`,
+      body: 'bob@ex.com',
+    });
+    r = await runReceive(eml2,
+      ['1.2.3.4', 'ex.com', 'chair@ex.com', `revoke+${id}@git-done.com`],
+      { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
+    assert.equal(r.code, 0, r.stderr);
+    const ev = JSON.parse(await fs.readFile(path.join(tmp, 'events', `${id}.json`), 'utf8'));
+    assert.equal(ev.revoked_senders.length, 1);
+    assert.equal(ev.revoked_senders[0].sender_hash, h1);
+  } finally { await fs.rm(tmp, { recursive: true, force: true }); }
+});
+
 test('revoke+: unknown event id → rejected', async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-revoke-ghost-'));
   try {

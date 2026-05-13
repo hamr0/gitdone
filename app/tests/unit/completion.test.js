@@ -656,6 +656,25 @@ test('applyRevoke: accumulating attestation count drops, completion not flipped 
   assert.equal(r.event.threshold_reached_at, '2026-05-13T00:00:00Z');
 });
 
+test('applyRevoke: declaration event → applied:false, no state mutation (guard)', () => {
+  const event = {
+    type: 'crypto', mode: 'declaration', signer: 's@x.com',
+    completion: { status: 'complete', completed_at: '2026-05-13T00:00:00Z', commit_sequence: 1 },
+  };
+  const r = applyRevoke(event, ['h-some-hash']);
+  assert.equal(r.applied, false);
+  assert.equal(r.reason, 'not_attestation');
+  // No revoked_senders[] added.
+  assert.equal(r.event.revoked_senders, undefined);
+});
+
+test('applyRevoke: workflow event → applied:false, no state mutation (guard)', () => {
+  const event = { type: 'event', steps: [] };
+  const r = applyRevoke(event, ['h']);
+  assert.equal(r.applied, false);
+  assert.equal(r.event.revoked_senders, undefined);
+});
+
 test('applyRevoke: strict attestation drops count via attestor_progress', () => {
   const event = {
     type: 'crypto', mode: 'attestation', dedup: 'unique', threshold: 2,

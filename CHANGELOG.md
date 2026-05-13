@@ -15,6 +15,52 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Module 8 hotfix — idempotent proof email + tighter body parser
+
+Code-review pass on Module 8 caught four issues; all four fixed in a
+single follow-up:
+
+- **Critical: duplicate proof-email on revoke→re-complete.** When a
+  locking-dedup event auto-completed, then a revoke dropped it back
+  below threshold, then a fresh attestor's reply re-filled the
+  threshold, the proof email and `kind: 'completion'` commit fired a
+  second time. Audit-honest behaviour is to write the completion
+  commit (every transition is recorded) but suppress the
+  user-facing email. Now gated on a new `event.proof_email_sent_at`
+  field stamped after the first proof email; receive.js skips
+  `notifyEventCompletion` + `commitCompletion` when set.
+  Accumulating dedup was already protected via `threshold_reached_at`.
+- **Theoretical race: loadEvent outside the mutex.** The revoke
+  handler resolved body emails to sender_hashes against the OUTER
+  event snapshot, before the atomic block. A concurrent inbound
+  could have shifted `attestor_progress` between snapshot and lock.
+  Resolution moved INSIDE `updateEventAtomic`'s updater so it
+  always uses the freshly-loaded `current.salt` /
+  `attestor_progress` / `replies`.
+- **`applyRevoke` guard on declaration/workflow.** Calling the
+  pure transition directly on a non-attestation event would have
+  silently persisted `revoked_senders[]`. Guard added at the top
+  of the function — returns `applied: false` with
+  `reason: 'not_attestation'`. (Receive.js already rejects these
+  routes; the guard hardens the pure function against direct
+  test calls or future surfaces.)
+- **Body parser false positive on attribution lines.** The previous
+  `REVOKE_EMAIL_RE` matched any email anywhere in a non-quoted line,
+  so a mobile client's flattened `On Tue, bob <bob@ex.com> wrote:`
+  attribution would have revoked bob. Tightened to require the
+  trimmed line to consist of ONLY the email (with optional `<>`
+  wrap, optional `revoke:` prefix).
+
+**Permanence made explicit (was implicit).** The ack body and the
+email-formats §24 doc now state that revocation is one-way: a
+revoked attestor cannot un-revoke themselves, their
+`attestor_progress[h].complete` flag stays true, and re-signs reject
+under `strict_already_signed`. The only path to re-complete is a
+brand-new (different) attestor.
+
+Tests 559 → 563 (+4: applyRevoke declaration/workflow guards,
+attribution-line body parsing, re-revoke dedup).
+
 ### Crypto rework module 8 — `revoke+<id>@` channel
 
 The initiator of an attestation event can now revoke individual

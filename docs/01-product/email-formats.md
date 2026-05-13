@@ -697,6 +697,24 @@ revoked attestor. Module 9 will paint the visible strikethrough on
 the public ledger when they revisit. Avoids accusation-by-email and
 keeps the initiator's reason private to the initiator's ack.
 
+**Revocation is permanent.** A revoked attestor's hash stays in
+`revoked_senders[]` forever; their `attestor_progress[h].complete`
+flag stays true; strict-mode re-signs of the same manifest reject
+as `strict_already_signed` per Module 6.5. The only way for the
+event to re-complete is a brand-new (different, non-revoked)
+attestor's reply that fills their bucket. There is no
+`unrevoke+` channel today — revocation is a one-way operation,
+matching the audit-first ethos of the rest of the system. The
+initiator's ack explicitly states this.
+
+**Idempotent proof email.** If a locking-dedup event had previously
+auto-completed and emitted a proof email, then a revoke dropped it
+below threshold and reopened it, then a fresh attestor refilled the
+threshold: a `kind: 'completion'` commit is still written (audit
+honesty — every transition is recorded) but the proof email does
+**not** re-fire. `event.proof_email_sent_at` is stamped on the
+first proof email; the gate in `receive.js` won't re-emit.
+
 ## Worked example
 
 A two-step workflow with both steps requiring an attachment and

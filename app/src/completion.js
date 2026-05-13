@@ -582,6 +582,13 @@ function applyReply(event, commit, { now = new Date().toISOString() } = {}) {
 // to prevent post-close revokes from moving the counter. Today,
 // revocation is fully effective at any time.
 function applyRevoke(event, hashes, { reason = null, now = new Date().toISOString(), commitSequence = null } = {}) {
+  // Guard: revoke is meaningful only for attestation events. Receive.js
+  // rejects non-attestation routes before reaching here; this branch
+  // exists so direct test calls or future surfaces can't accidentally
+  // persist revoked_senders[] on a declaration or workflow event.
+  if (!event || event.type !== 'crypto' || event.mode !== 'attestation') {
+    return { event, applied: false, revoked: [], skipped: (hashes || []).filter(Boolean), countAfter: null, reason: 'not_attestation' };
+  }
   const incoming = Array.from(new Set((hashes || []).filter(Boolean)));
   const already = new Set(((event.revoked_senders) || []).map((r) => r && r.sender_hash).filter(Boolean));
   const fresh = incoming.filter((h) => !already.has(h));
@@ -623,10 +630,9 @@ function applyRevoke(event, hashes, { reason = null, now = new Date().toISOStrin
     return { event: updated, applied: true, revoked: fresh, skipped: incoming.filter((h) => already.has(h)), countAfter };
   }
 
-  // declaration / workflow — revoke isn't meaningful for those modes
-  // today; callers should reject before reaching here. Return as a
-  // safety no-op if we ever get here.
-  return { event: updated, applied: true, revoked: fresh, skipped: incoming.filter((h) => already.has(h)), countAfter: null };
+  // Unreachable: the guard at the top of applyRevoke rejects non-
+  // attestation events. Keep the explicit return for completeness.
+  return { event, applied: false, revoked: [], skipped: incoming, countAfter: null, reason: 'not_attestation' };
 }
 
 // --- persistence helper ---
