@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-13T10:37Z · `9b639ec` · docs: bump 0.20.0 -> 0.21.0; PRD + README catch up on proof-email split
 - 2026-05-13T10:16Z · `a482086` · proof email: mode-aware bodies, role-aware splits, ref docs echoed
 - 2026-05-13T09:19Z · `5d9ba64` · ux: signer-field disable in attestation mode + mode-badge + counts clarity
 - 2026-05-12T21:39Z · `7de26e1` · revert: drop the 4e diagnostic — missing email was gmail spam, not a bug
