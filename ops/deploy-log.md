@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-13T16:55Z · `d2a5bbb` · module 8 hotfix: idempotent proof email + tighter revoke body parser
 - 2026-05-13T16:41Z · `a0460ed` · crypto rework module 8: revoke+<id>@ attestation revocation channel
 - 2026-05-13T16:04Z · `df69e66` · crypto rework module 7: three share buttons on the manage hero
 - 2026-05-13T15:56Z · `4c2da5e` · ux: unified stat band on crypto hero (signers / verified tiles)
