@@ -235,22 +235,105 @@ The attestation keeps counting; only the organiser can close it.
 - **Body.** Which step finished and by whom, what's now active, and
   the step list with `▸` markers.
 
-## 11. Completion notice
+## 11. Completion proof
 
+The durable record of an event closing. Body shape diverges by **mode**
+(workflow / declaration / attestation) and **role** (organiser /
+contributor) because each combination has a different stake in the
+record:
+
+- **Workflow** — organiser holds the multi-step audit; each participant
+  holds proof of their step only.
+- **Declaration** — symmetric two-sided notary; signer and organiser
+  hold the same proof, neither has more right to it than the other.
+- **Attestation, organiser** — the *aggregate* (count, trust posture,
+  who attested to what) is why they ran it.
+- **Attestation, attestor** — privacy-conservative receipt: confirms
+  their contribution is preserved and the event closed, but does NOT
+  surface the count of others or aggregate trust. The aggregate is
+  the organiser's view.
+
+Common contract across every body:
 - **Trigger.** Event reaches `complete` (all steps done, declaration
-  signed, attestation threshold met, or `close+` initiator command).
-- **Sent by.** `notifyEventCompletion`.
-- **Recipient.** Initiator + every distinct contributor (one email per
-  address).
-- **Subject.** `[gitdone] "<title>" — completed [<done>/<total>]` or
-  `[gitdone] "<title>" — closed early [<done>/<total>]`. Crypto events
-  drop the `[N/M]` since they have no step counter.
-- **Body.** Two variants:
-  - **Organiser.** Title, ID, completion timestamp, reason label, the
-    final-step pointer (which step closed it), the full step table,
-    and a paragraph on the offline-verifiable audit trail.
-  - **Participant.** Slim version — no step table (private to the
-    organiser); just title, reason, and the audit-trail guarantee.
+  signed, attestation threshold reached, or `close+` initiator command).
+- **Sent by.** `notifyEventCompletion` in `app/src/notifications.js`.
+- **Subject.** `[gitdone] proof — "<title>"<counterTag>` where
+  `counterTag` is `[<done>/<total>]` for workflow, `[<counted>/<threshold>]`
+  for attestation, omitted for declaration. When no commits are
+  available (rare edge case) it falls back to
+  `[gitdone] "<title>" — completed` or `… — closed early`.
+- **Mode line.** Every body now carries an explicit `Mode:` line
+  (`Workflow` / `Declaration (one signer, one record)` /
+  `Attestation - <dedup-blurb> - threshold N`) so the recipient
+  reading the email three years later can recover what shape of proof
+  this was without opening the repo.
+- **Reason label.** Mode-aware — `threshold reached` for attestation,
+  `the signer replied` for declaration, `all steps completed` for
+  workflow, `closed early by the organiser` for any mode when the
+  initiator ended it via `close+` / the dashboard.
+
+### 11a. Workflow — organiser
+
+- **Recipient.** `event.initiator`.
+- **Body.** Title + ID + Mode + completion timestamp + reason label +
+  final-step pointer ("Final step: #3 'CEO sign' by ceo@example.com"),
+  the **full step table** (status per step), and a per-step
+  cryptographic-receipt block (one DKIM+OTS receipt per counted
+  reply). Closes with the "proofs outlive the service" paragraph and
+  the `gitdone-verify <id>` hint.
+
+### 11b. Workflow — participant
+
+- **Recipient.** Every distinct `event.steps[*].participant`, deduped
+  against the organiser address.
+- **Body.** Slim — title + Mode + reason + their **own** step's
+  receipt only (no step table, that's organiser-private). Same verify
+  hint + audit-trail guarantee paragraph.
+
+### 11c. Declaration — both recipients (symmetric)
+
+- **Recipients.** `event.initiator` AND `event.signer`. Same body.
+  The signer holds the receipt because they signed; the organiser
+  holds it because they asked. Two-sided notary semantics.
+- **Body.** Title + ID + Mode (`Declaration (one signer, one record)`)
+  + `Signed: <iso>` + `Signer: <email>` + `Organiser: <email>` +
+  `Reference: <url>` (when set) + reference-doc manifest (when set:
+  `filename  sha256:head8...tail8` per row) + the single cryptographic
+  receipt + verify hint + audit-trail paragraph.
+- **Difference between recipients.** Only the lede: organiser sees
+  *"The declaration you organised has been signed."*, signer sees
+  *"Your signature on a declaration has been recorded."* — everything
+  else (record content, receipt, verify command) is identical.
+
+### 11d. Attestation — organiser
+
+- **Recipient.** `event.initiator`.
+- **Body.** Title + ID + Mode (`Attestation - <dedup> - threshold N`)
+  + `Reached: <iso>` + `Reason: threshold reached` + `Reference: <url>`
+  (when set) + reference-doc manifest (when set) + the **aggregate
+  cryptographic-receipt block** (`Replies counted N`, `Modal trust
+  verified`, per-trust-level counts) + verify hint + audit-trail
+  paragraph. This is the WHY-they-ran-it view.
+
+### 11e. Attestation — attestor (strict mode only)
+
+- **Recipient.** Each counted attestor whose plaintext email was
+  persisted by completion.js's strict branch (4e). Loose attestation
+  has no attestor recipients here — only salted hashes are stored.
+- **Body.** Privacy-conservative. Opens with *"An attestation you
+  contributed to is now complete and accountable. Your reply is
+  preserved as part of the cryptographic record."* Carries: title +
+  Mode + `Threshold reached: <iso>` + `Reference: <url>` (when set) +
+  reference-doc manifest (when set) + a **"Your receipt"** block
+  containing only their own commit's DKIM+OTS receipt (looked up
+  by recomputing their salted sender_hash against `event.salt` — much
+  tighter than domain-matching when multiple attestors share a domain).
+  Verify hint + audit-trail paragraph closes with an explicit
+  *"The aggregate result is private to the organiser; this email is
+  YOUR record only."* line.
+- **What's deliberately absent.** Counted-replies count, modal trust,
+  per-trust-level aggregate, other attestors' domains or commits.
+  Anything that would let one attestor enumerate the others.
 
 ## 12. Bounce alert (DSN)
 

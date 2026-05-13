@@ -522,6 +522,34 @@ test('strict attestation 4e: completion notification reaches attestors + redact 
     assert.ok(proofRecipients.has('alice@ex.com'), 'attestor 1 must receive the proof email (4e)');
     assert.ok(proofRecipients.has('bob@ex.com'), 'attestor 2 must receive the proof email (4e)');
 
+    // Body shape contract: organiser gets aggregate, attestor does NOT.
+    // The privacy split is the whole point of separate bodies for
+    // organiser vs attestor on attestation events.
+    let organiserBody = '';
+    let aliceBody = '';
+    for (const f of captureFiles) {
+      const body = await fs.readFile(path.join(captureDir, f), 'utf8');
+      const subjectLine = body.split(/\r?\n/).find((l) => /^Subject:/i.test(l)) || '';
+      if (!/\[gitdone\] proof /.test(subjectLine)) continue;
+      const toLine = body.split(/\r?\n/).find((l) => /^To:/i.test(l)) || '';
+      if (/chair@ex\.com/i.test(toLine)) organiserBody = body;
+      if (/alice@ex\.com/i.test(toLine)) aliceBody = body;
+    }
+    assert.ok(organiserBody && aliceBody, 'expected both organiser and alice bodies captured');
+    // Organiser body MUST surface aggregate trust posture.
+    assert.match(organiserBody, /Replies counted/i, 'organiser body should include the aggregate receipt block');
+    assert.match(organiserBody, /Mode: Attestation/i, 'organiser body should declare mode');
+    // Alice's body MUST NOT include aggregate counts (over-share guard).
+    assert.doesNotMatch(aliceBody, /Replies counted/i, 'attestor body must NOT leak aggregate count');
+    assert.doesNotMatch(aliceBody, /Modal trust/i, 'attestor body must NOT leak modal trust');
+    assert.match(aliceBody, /Your receipt/i, 'attestor body should carry their OWN receipt block');
+    assert.match(aliceBody, /YOUR record only/, 'attestor body should state the privacy framing explicitly');
+    // Reference URL + doc manifest should be echoed in both.
+    assert.match(organiserBody, /Reference: https:\/\/example\.com\/post/);
+    assert.match(aliceBody, /Reference: https:\/\/example\.com\/post/);
+    assert.match(organiserBody, /doc\.pdf\s+sha256:/);
+    assert.match(aliceBody, /doc\.pdf\s+sha256:/);
+
     // Post-send: emails must be redacted; stamp must be set.
     ev = JSON.parse(await fs.readFile(path.join(tmp, 'events', 'sa4e.json'), 'utf8'));
     for (const [k, p] of Object.entries(ev.attestor_progress)) {

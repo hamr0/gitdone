@@ -312,37 +312,64 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
     }
   }
 
-  // Keep vocabulary in sync with the /manage hub pills: "completed"
-  // means every step ran its full course; "closed early" means the
-  // organiser ended it with work still pending. Declaration is its
-  // own natural completion.
+  const isWorkflow = event.type === 'event';
+  const isDeclaration = event.type === 'crypto' && event.mode === 'declaration';
+  const isAttestation = event.type === 'crypto' && event.mode === 'attestation';
   const isClosedEarly = reason === 'closed_by_initiator';
-  const isDeclaration = reason === 'declaration_signed';
+
+  // Mode-aware reason label so the body doesn't lie about what closed
+  // the event ("Reason: all steps completed" on a crypto event was the
+  // bug). subjectVerb stays generic so non-proof completion emails
+  // (commits===undefined) keep working.
   const reasonLabel = isClosedEarly
     ? 'closed early by the organiser'
-    : (isDeclaration ? 'the signer replied' : 'all steps completed');
+    : (isDeclaration
+        ? 'the signer replied'
+        : (isAttestation ? 'threshold reached' : 'all steps completed'));
   const subjectVerb = isClosedEarly ? 'closed early' : 'completed';
+
+  // "Mode:" line for the body — clarifies what KIND of completion this
+  // is, with the dedup rule when it changes the semantics. The
+  // organiser already knows; the signer/attestor may not. Either way
+  // the durable proof email should carry the answer.
+  const dedupBlurb = isAttestation
+    ? (event.dedup === 'unique'
+        ? 'unique (one count per sender)'
+        : (event.dedup === 'latest'
+            ? 'latest (latest counts per sender)'
+            : 'accumulating (every reply counts)'))
+    : null;
+  const modeLine = isWorkflow
+    ? 'Mode: Workflow'
+    : (isDeclaration
+        ? 'Mode: Declaration (one signer, one record)'
+        : `Mode: Attestation - ${dedupBlurb} - threshold ${event.threshold || '?'}`);
+
+  // Reference URL + manifest get echoed when set — they are the WHAT
+  // being signed and belong in the durable receipt. Hash-truncated so
+  // the email stays readable; the full hash lives in the commit JSON.
+  const refUrlLine = event.reference_url ? `Reference: ${event.reference_url}` : '';
+  const refDocsBlock = (Array.isArray(event.reference_docs) && event.reference_docs.length)
+    ? [
+        '',
+        `Reference documents (${event.reference_docs.length}):`,
+        ...event.reference_docs.map((d) => {
+          const h = (d.sha256 || '').replace(/^sha256:/, '');
+          const head = h.slice(0, 8);
+          const tail = h.slice(-8);
+          return `  ${d.filename || '(unnamed)'}  sha256:${head}...${tail}`;
+        }),
+      ].join('\n')
+    : '';
+
   const greetingParticiple = isClosedEarly ? 'been closed' : 'completed';
   const repoHint = event.id ? `  Event repo: git-done.com/events/${event.id} (auth required)` : '';
   const steps = (event.steps || []).map((s, i) => {
     const status = s.status === 'complete' ? 'DONE' : (s.status || 'pending').toUpperCase();
-    return `  ${i + 1}. ${s.name} — ${status}`;
+    return `  ${i + 1}. ${s.name} - ${status}`;
   }).join('\n');
 
-  // ASCII-only middle dot replacement: receive.js outbound rule is
-  // strict. plainReceipt + the rest of this body have to stay 7-bit.
   const proofBlock = renderProofBlock(event, commits, {});
-  // Bound the per-recipient receipt: organisers see all step receipts,
-  // participants see only their own step.
-  const receiptForParticipant = (participantEmail) => {
-    if (!commits) return '';
-    if (event.type !== 'event') return renderProofBlock(event, commits, { recipient: participantEmail });
-    const own = commits.filter((c) => {
-      const step = (event.steps || []).find((s) => s.id === c.step_id);
-      return step && step.participant && step.participant.toLowerCase() === participantEmail.toLowerCase();
-    });
-    return renderProofBlock(event, own, {});
-  };
   const verifyHint = event.id
     ? [
         '',
@@ -351,79 +378,205 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
       ].join('\n')
     : '';
 
+  // Per-attestor own-receipt. We pinpoint THIS attestor's commit(s) by
+  // recomputing their salted sender_hash from the event salt — much
+  // tighter than matching by sender_domain (multiple gmail attestors
+  // would collide). Strict attestation only stores plaintext emails
+  // briefly (4e), so this lookup is local to this function.
+  const ownReceiptForAttestor = (attestorEmail) => {
+    if (!commits || !event.salt) return '';
+    const hash = require('./completion').hashSender(attestorEmail, event.salt);
+    const own = commits.filter((c) => c && c.sender_hash === hash);
+    if (own.length === 0) return '';
+    return [
+      'Your receipt',
+      '------------',
+      ...own.map((c) => proofRender.plainReceipt(c)),
+    ].join('\n');
+  };
+  const ownReceiptForStepParticipant = (participantEmail) => {
+    if (!commits) return '';
+    const own = commits.filter((c) => {
+      const step = (event.steps || []).find((s) => s.id === c.step_id);
+      return step && step.participant && step.participant.toLowerCase() === participantEmail.toLowerCase();
+    });
+    return renderProofBlock(event, own, {});
+  };
+
   const jobs = [...recipients].map((to) => {
     const isOrganiser = event.initiator && to === event.initiator.toLowerCase();
     let body;
-    if (isOrganiser) {
-      const receipts = proofBlock
-        ? ['', proofBlock].join('\n')
-        : '';
+    if (isWorkflow) {
+      // Workflow: organiser sees the full step table + per-step
+      // receipts; participants see only their own step's receipt.
+      if (isOrganiser) {
+        const receipts = proofBlock ? ['', proofBlock].join('\n') : '';
+        body = [
+          `The event you organized has ${greetingParticiple}.`,
+          ``,
+          commits ? 'This email is your durable proof of completion. Keep it forever --' : '',
+          commits ? 'it verifies offline against the per-event git repository, even if' : '',
+          commits ? 'gitdone goes away.' : '',
+          commits ? '' : '',
+          `Event: ${event.title}`,
+          `Event ID: ${event.id}`,
+          modeLine,
+          `${isClosedEarly ? 'Closed' : 'Completed'}: ${completedAt}`,
+          `Reason: ${reasonLabel}`,
+          finalStep ? `Final step: #${finalIdx + 1} "${finalStep.name}" by ${finalStep.participant}` : '',
+          ``,
+          steps ? `Steps:` : '',
+          steps,
+          steps ? `` : '',
+          receipts,
+          verifyHint,
+          ``,
+          `The full audit trail is stored as a git repository with one commit per`,
+          `reply, DKIM keys archived, and OpenTimestamps proofs attached. Anyone`,
+          `can verify it offline with the gitdone-verify CLI, even if gitdone`,
+          `itself goes away -- the proofs outlive the service.`,
+          ``,
+          repoHint,
+          `  Organiser: ${event.initiator}`,
+        ].filter((l) => l !== '').join('\n');
+      } else {
+        const ownReceipt = ownReceiptForStepParticipant(to);
+        body = [
+          `An event you contributed to has ${greetingParticiple}.`,
+          ``,
+          commits ? 'This email is your durable proof of completion. Keep it forever --' : '',
+          commits ? "it verifies offline against the event's git audit trail." : '',
+          commits ? '' : '',
+          `Event: ${event.title}`,
+          modeLine,
+          `Reason: ${reasonLabel}`,
+          ``,
+          ownReceipt,
+          ownReceipt ? '' : '',
+          verifyHint,
+          ``,
+          `Your reply is recorded in the event's git audit trail (DKIM-verified,`,
+          `OpenTimestamped) and will stay verifiable offline even if gitdone`,
+          `itself goes away.`,
+          ``,
+          `  Organised by ${event.initiator}`,
+        ].filter((l) => l !== '').join('\n');
+      }
+    } else if (isDeclaration) {
+      // Symmetric two-recipient notary. Same body for organiser and
+      // signer — both have equal stake in the durable record. The
+      // signer's identity is in the receipt; whoever sees this email
+      // can verify offline who signed what, when.
+      const receipts = proofBlock ? ['', proofBlock].join('\n') : '';
       body = [
-        `The event you organized has ${greetingParticiple}.`,
+        isOrganiser
+          ? `The declaration you organised has been signed.`
+          : `Your signature on a declaration has been recorded.`,
         ``,
-        commits ? 'This email is your durable proof of completion. Keep it forever -- it' : '',
-        commits ? 'verifies offline against the per-event git repository, even if gitdone' : '',
-        commits ? 'goes away.' : '',
+        commits ? 'This email is your durable proof. Keep it forever -- it verifies' : '',
+        commits ? 'offline against the per-event git repository, even if gitdone goes' : '',
+        commits ? 'away.' : '',
         commits ? '' : '',
         `Event: ${event.title}`,
         `Event ID: ${event.id}`,
-        `${isClosedEarly ? 'Closed' : 'Completed'}: ${completedAt}`,
-        `Reason: ${reasonLabel}`,
-        finalStep ? `Final step: #${finalIdx + 1} "${finalStep.name}" by ${finalStep.participant}` : '',
+        modeLine,
+        `Signed: ${completedAt}`,
+        `Signer: ${event.signer || '(unknown)'}`,
+        `Organiser: ${event.initiator}`,
+        refUrlLine,
+        refDocsBlock,
         ``,
-        steps ? `Steps:` : '',
-        steps,
-        steps ? `` : '',
         receipts,
         verifyHint,
         ``,
-        `The full audit trail is stored as a git repository with one commit per`,
-        `reply, DKIM keys archived, and OpenTimestamps proofs attached. Anyone`,
-        `can verify it offline with the gitdone-verify CLI, even if gitdone itself`,
-        `goes away -- the proofs outlive the service.`,
+        `The audit trail is stored as a git repository with DKIM keys archived`,
+        `and OpenTimestamps proofs attached. Anyone can verify it offline`,
+        `with the gitdone-verify CLI, even if gitdone itself goes away --`,
+        `the proofs outlive the service.`,
         ``,
         repoHint,
-        `  Organiser: ${event.initiator}`,
       ].filter((l) => l !== '').join('\n');
-    } else {
-      // Slim participant version. Do NOT leak the step table — that's
-      // private to the organiser. Participants see only what they need:
-      // the event closed, reason, and how to verify their own record.
-      const ownReceipt = receiptForParticipant(to);
-      body = [
-        `An event you contributed to has ${greetingParticiple}.`,
-        ``,
-        commits ? 'This email is your durable proof of completion. Keep it forever -- it' : '',
-        commits ? "verifies offline against the event's git audit trail." : '',
-        commits ? '' : '',
-        `Event: ${event.title}`,
-        `Reason: ${reasonLabel}`,
-        ``,
-        ownReceipt,
-        ownReceipt ? '' : '',
-        verifyHint,
-        ``,
-        `Your reply is recorded in the event's git audit trail (DKIM-verified,`,
-        `OpenTimestamped) and will stay verifiable offline even if gitdone`,
-        `itself goes away.`,
-        ``,
-        `  Organised by ${event.initiator}`,
-      ].filter((l) => l !== '').join('\n');
+    } else if (isAttestation) {
+      if (isOrganiser) {
+        // Organiser sees the aggregate trust posture — that's WHY they
+        // ran the attestation. Reference URL/docs echoed so they can
+        // verify what was attested to without opening the repo.
+        const receipts = proofBlock ? ['', proofBlock].join('\n') : '';
+        body = [
+          `The attestation you organised has reached its threshold.`,
+          ``,
+          commits ? 'This email is your durable proof. Keep it forever -- it verifies' : '',
+          commits ? 'offline against the per-event git repository, even if gitdone goes' : '',
+          commits ? 'away.' : '',
+          commits ? '' : '',
+          `Event: ${event.title}`,
+          `Event ID: ${event.id}`,
+          modeLine,
+          `Reached: ${completedAt}`,
+          `Reason: ${reasonLabel}`,
+          refUrlLine,
+          refDocsBlock,
+          ``,
+          receipts,
+          verifyHint,
+          ``,
+          `The full audit trail is stored as a git repository with one commit`,
+          `per reply, DKIM keys archived, and OpenTimestamps proofs attached.`,
+          `Anyone can verify it offline with the gitdone-verify CLI, even if`,
+          `gitdone itself goes away -- the proofs outlive the service.`,
+          ``,
+          repoHint,
+        ].filter((l) => l !== '').join('\n');
+      } else {
+        // Attestor body — privacy-conservative. Tells them the
+        // attestation they contributed to is closed and accountable,
+        // their record is preserved, and what they attested to (ref
+        // url + docs they signed). NO aggregate trust counts and NO
+        // count-of-others — that's the organiser's view, not theirs.
+        const ownReceipt = ownReceiptForAttestor(to);
+        body = [
+          `An attestation you contributed to is now complete and accountable.`,
+          `Your reply is preserved as part of the cryptographic record.`,
+          ``,
+          commits ? 'This email is your durable proof. Keep it forever -- it verifies' : '',
+          commits ? "offline against your contribution's commit, even if gitdone goes" : '',
+          commits ? 'away.' : '',
+          commits ? '' : '',
+          `Event: ${event.title}`,
+          modeLine,
+          `Threshold reached: ${completedAt}`,
+          refUrlLine,
+          refDocsBlock,
+          ``,
+          ownReceipt,
+          ownReceipt ? '' : '',
+          verifyHint,
+          ``,
+          `Your reply is committed to the event's git audit trail (DKIM-verified,`,
+          `OpenTimestamped) and will stay verifiable offline even if gitdone`,
+          `itself goes away. The aggregate result is private to the organiser;`,
+          `this email is YOUR record only.`,
+          ``,
+          `  Organised by ${event.initiator}`,
+        ].filter((l) => l !== '').join('\n');
+      }
     }
-    // Workflow events get a [done/total] tag so the organiser sees at
-    // a glance whether everything ran ([5/5] = full completion) or
-    // closed early with pending work ([3/5]). Crypto events have no
-    // step counter.
+    // Workflow keeps [done/total]; attestation gains [counted/threshold]
+    // (already in the per-reply ack so no over-share); declaration has
+    // no natural counter.
     let counterTag = '';
-    if (event.type === 'event' && Array.isArray(event.steps) && event.steps.length) {
+    if (isWorkflow && Array.isArray(event.steps) && event.steps.length) {
       const done = event.steps.filter((s) => s.status === 'complete').length;
       counterTag = ` [${done}/${event.steps.length}]`;
+    } else if (isAttestation && event.threshold) {
+      const replies = Array.isArray(event.replies) ? event.replies : [];
+      const counted = event.dedup === 'unique'
+        ? new Set(replies.map((r) => r.sender_hash).filter(Boolean)).size
+        : replies.length;
+      counterTag = ` [${counted}/${event.threshold}]`;
     }
-    // When commits are supplied the email IS the durable proof — say
-    // so in the subject. Workflow keeps [N/M] for at-a-glance
-    // completion state; crypto drops the counter.
     const subject = commits
-      ? `[gitdone] proof — "${event.title}"${event.type === 'event' ? counterTag : ''}`
+      ? `[gitdone] proof — "${event.title}"${counterTag}`
       : `[gitdone] "${event.title}" — ${subjectVerb}${counterTag}`;
     return sendOne({
       to,

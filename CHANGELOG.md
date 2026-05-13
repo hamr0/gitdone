@@ -15,6 +15,54 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Completion proof email — mode-aware bodies, role-aware splits, ref docs surfaced
+
+The `[gitdone] proof —` durable receipt now reads correctly for each
+of the five (mode × role) combinations, and the body carries enough
+context that an organiser or signer reading the email three years
+later can recover what kind of proof this was without opening the
+per-event repo.
+
+What changed:
+
+- **`Reason: all steps completed`** no longer lies on crypto events.
+  The label is now mode-aware: `threshold reached` for attestation,
+  `the signer replied` for declaration, `all steps completed` for
+  workflow, `closed early by the organiser` for an initiator-closed
+  event in any mode.
+- **Explicit `Mode:` line in every body** — `Workflow` /
+  `Declaration (one signer, one record)` /
+  `Attestation - <dedup-blurb> - threshold N`. The recipient never
+  has to remember which kind of event they were on.
+- **Reference URL + manifest echoed** when the event has them — the
+  email now embeds the WHAT being signed (the URL plus per-doc
+  `filename  sha256:head8…tail8` lines), so the proof carries the
+  pointer to the document along with the cryptographic receipt.
+- **Declaration is symmetric.** Initiator and signer now get the same
+  body (modulo a one-line lede swap). Two-sided notary — both parties
+  have equal stake in the record, neither has more right to it. The
+  prior split rendered the signer a "participant" of their own
+  declaration, which read oddly.
+- **Attestation, organiser** keeps the aggregate (count, modal trust,
+  per-trust-level breakdown) — that's why they ran the attestation.
+- **Attestation, attestor (strict mode only)** is privacy-conservative
+  by design: confirms their contribution is preserved and the event
+  closed, surfaces their **own** DKIM+OTS receipt looked up by salted
+  hash (tighter than the prior domain-match which collided across
+  attestors at the same provider), and explicitly states *"The
+  aggregate result is private to the organiser; this email is YOUR
+  record only."* No count of others, no aggregate trust, no domains
+  of co-signers. Loose attestation is unchanged — only salted hashes
+  are ever stored, so there's no attestor recipient to address.
+- **Subject counter for attestation** — `[gitdone] proof — "<title>"
+  [N/threshold]` mirrors the workflow `[done/total]` shape. Same
+  numbers the attestor's per-reply ack already carried, so no
+  over-share.
+
+The PRD §6.2 already promises proofs that outlive the service; this
+brings the email body in line with that promise. `email-formats.md`
+§11 fully rewritten to document the five (mode × role) splits.
+
 ### Crypto rework module 4e — attestor completion notification (strict only)
 
 Until this module, the `[gitdone] proof — "<title>"` completion email
