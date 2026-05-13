@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-13T11:36Z · `d7c0d97` · deploy-log: bdacea1
 - 2026-05-13T11:13Z · `bdacea1` · ux: activate flash now scrolls into view + brief attention pulse
 - 2026-05-13T10:37Z · `9b639ec` · docs: bump 0.20.0 -> 0.21.0; PRD + README catch up on proof-email split
 - 2026-05-13T10:16Z · `a482086` · proof email: mode-aware bodies, role-aware splits, ref docs echoed
