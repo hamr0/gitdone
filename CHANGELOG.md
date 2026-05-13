@@ -15,6 +15,32 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Crypto rework module 7 — three share buttons on the manage hero
+
+Every crypto manage page now carries a row of three share controls
+sitting between the stat band and Event Details:
+
+- **Email** — `mailto:` with prefilled subject (`Sign attestation:
+  "<title>"` / `Sign declaration: "<title>"`) and a plain-text pitch
+  in the body. Opens the user's mail client, recipient empty so they
+  pick.
+- **Share** — Web Share API (`navigator.share`). Server renders the
+  button `hidden`; client JS unhides only when the API is present
+  (most desktops don't have it; mobile + some Safari do). Native
+  share sheet → Slack / WhatsApp / SMS / etc.
+- **Copy** — clipboard. Same pitch the Email / Share buttons use.
+  Brief inline toast ("Copied to clipboard") on success.
+
+The shared pitch is computed server-side from event title + ask +
+reply address + (strict-mode attachment hint when applicable) + the
+reference URL when set. Five lines, organiser-ready for pasting
+into any channel. Drops the friction of "what should I say when I
+share this?" entirely.
+
+Integration tests pin the surface: all three buttons present in the
+DOM, Web Share button starts hidden, mailto carries the right
+subject + reply address, data-share-pitch carries the full text.
+
 ### Manage hero — unified stat band (signers / verified tiles)
 
 The numbers that matter on a crypto manage page (how many distinct

@@ -569,6 +569,63 @@ test('GET /manage/event/:id (attestation with reference_url) renders a clickable
   assert.match(view.body, />Reference</);
 });
 
+// Module 7 — three share buttons on every crypto manage hero. Email
+// is a mailto: link with prefilled subject + body; Share is hidden
+// until JS feature-detects Web Share API; Copy is wired client-side
+// to the clipboard. Verify the server-rendered surface contains all
+// three buttons + the embedded pitch + the mailto: target.
+test('GET /manage/event/:id (attestation) surfaces three share buttons + mailto pitch', async () => {
+  const eventId = 'm7share1';
+  const event = {
+    id: eventId, type: 'crypto', mode: 'attestation',
+    title: 'i am the message',
+    initiator: 'm7owner@example.com',
+    threshold: 5, dedup: 'unique', replies: [],
+    details: 'attest please',
+    salt: 'salt-m7share1',
+    activated_at: '2026-01-01T00:00:00Z',
+  };
+  await fsp.mkdir(path.join(tmp, 'events'), { recursive: true });
+  await fsp.writeFile(path.join(tmp, 'events', `${eventId}.json`), JSON.stringify(event));
+  const cookie = mintCookie('m7owner@example.com');
+  const view = await get(`/manage/event/${eventId}`, cookie);
+  assert.equal(view.status, 200);
+  // The share-row container.
+  assert.match(view.body, /class="proof-share"/);
+  // All three buttons are rendered server-side; the Web Share one is
+  // hidden via the `hidden` attribute and the client JS unhides when
+  // navigator.share is present.
+  assert.match(view.body, /<button[^>]*>Email<\/button>/);
+  assert.match(view.body, /<button[^>]*data-share-action="web"[^>]*hidden/);
+  assert.match(view.body, /<button[^>]*data-share-action="copy">Copy<\/button>/);
+  // mailto: includes the event title in the subject and the reply
+  // address in the body, percent-encoded.
+  assert.match(view.body, /href="mailto:\?subject=[^"]*i%20am%20the%20message[^"]*&amp;body=[^"]*event%2Bm7share1%40[^"]+"/);
+  // data-share-pitch on the container carries the same pitch the
+  // copy button will paste.
+  assert.match(view.body, /data-share-pitch="[^"]*event\+m7share1@/);
+});
+
+test('GET /manage/event/:id (declaration) also surfaces share buttons', async () => {
+  const eventId = 'm7decl1';
+  const event = {
+    id: eventId, type: 'crypto', mode: 'declaration',
+    title: 'one signer asked',
+    initiator: 'm7owner2@example.com', signer: 'm7signer@example.com',
+    details: 'sign please',
+    salt: 'salt-m7decl1',
+    activated_at: '2026-01-01T00:00:00Z',
+  };
+  await fsp.mkdir(path.join(tmp, 'events'), { recursive: true });
+  await fsp.writeFile(path.join(tmp, 'events', `${eventId}.json`), JSON.stringify(event));
+  const cookie = mintCookie('m7owner2@example.com');
+  const view = await get(`/manage/event/${eventId}`, cookie);
+  assert.equal(view.status, 200);
+  assert.match(view.body, /class="proof-share"/);
+  // mailto reads "Sign declaration: ..." (not "attestation").
+  assert.match(view.body, /href="mailto:\?subject=Sign%20declaration[^"]*"/);
+});
+
 test('GET /manage/event/:id (crypto event without reference_url) does not render a Reference row', async () => {
   const eventId = 'prenoref1';
   const event = {

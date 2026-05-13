@@ -2506,6 +2506,21 @@ const MANAGE_CSS = `
 .proof-stat-tile .lbl { font-size:0.65rem; text-transform:uppercase; letter-spacing:0.06em;
                         color:#8b949e; margin-top:0.35rem; }
 .proof-stats-meta { display:flex; align-items:center; color:#8b949e; font-size:0.88em; }
+/* Module 7 — share buttons row, sits between the stat band and Event Details. */
+.proof-share { display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;
+               margin:0.2rem 0 0.9rem; }
+.proof-share .label { font-size:0.7rem; text-transform:uppercase; letter-spacing:0.07em;
+                      color:#8b949e; margin-right:0.3rem; }
+.proof-share button { background:#161b22; color:#3fb950; border:1px solid #3fb950;
+                      padding:0.4rem 0.75rem; font:inherit; font-size:0.85em;
+                      cursor:pointer; border-radius:0; letter-spacing:0.03em; }
+.proof-share button:hover { background:#3fb950; color:#0d1117; }
+.proof-share button:focus-visible { outline:2px solid #ffb000; outline-offset:1px; }
+.proof-share button[hidden] { display:none; }
+.proof-share a { text-decoration:none; }
+.proof-share .toast { font-size:0.85em; color:#3fb950; opacity:0;
+                      transition:opacity .15s ease-in; }
+.proof-share .toast.show { opacity:1; }
 details.proof-details { margin-top:0.7rem; border:1px solid #30363d; }
 details.proof-details summary { cursor:pointer; padding:0.45rem 0.7rem; background:#161b22;
                                 color:#ffb000; list-style:none; font-size:0.74rem;
@@ -2545,6 +2560,97 @@ details.proof-details[open] summary::after { content:' \\25b4'; }
   .proof-tiles { grid-template-columns:repeat(2,1fr); }
 }
 `;
+
+// Module 7 — three share buttons (Email / Share / Copy) on every crypto
+// manage hero. Email opens mailto: with prefilled subject + body;
+// Share uses the Web Share API on mobile (button hidden when not
+// supported); Copy puts the same plain-text pitch on the clipboard.
+//
+// The pitch text is computed server-side and embedded as data-* on the
+// container so the JS can read it without re-doing the templating.
+// Title + details + reply address + strict-mode attachment hint are
+// the load-bearing pieces; an organiser pasting this into a Slack /
+// Whatsapp / DM has the WHAT, the HOW (reply here), and a verify
+// pointer in five lines.
+function buildSharePitch(event) {
+  const replyAddr = `event+${event.id}@${config.domain}`;
+  const verbByMode = event.mode === 'declaration' ? 'declaration' : 'attestation';
+  const verbAction = event.mode === 'declaration' ? 'Sign' : 'Sign the';
+  const strict = !!event.reference_url
+    && Array.isArray(event.reference_docs) && event.reference_docs.length > 0;
+  const attachHint = strict
+    ? ` with the registered file${event.reference_docs.length === 1 ? '' : 's'} attached`
+    : '';
+  const lines = [
+    `${verbAction} ${verbByMode} "${event.title}":`,
+  ];
+  if (event.details) lines.push('', event.details);
+  lines.push('', `Reply to: ${replyAddr}${attachHint}`);
+  if (event.reference_url) lines.push('', `Reference: ${event.reference_url}`);
+  lines.push('', 'Verifies offline via gitdone-verify after completion. No accounts, no app.');
+  return lines.join('\n');
+}
+
+function renderShareButtons(event) {
+  if (!event || event.type !== 'crypto') return raw('');
+  const pitch = buildSharePitch(event);
+  const subj = `Sign ${event.mode === 'declaration' ? 'declaration' : 'attestation'}: "${event.title}"`;
+  // mailto: needs %0A linebreaks + percent-encoded subject/body.
+  const mailto = `mailto:?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(pitch)}`;
+  return html`
+    <div class="proof-share" data-share-pitch="${pitch}" data-share-subject="${subj}">
+      <span class="label">Share reply address</span>
+      <a href="${mailto}" target="_blank" rel="noopener"><button type="button">Email</button></a>
+      <button type="button" data-share-action="web" hidden>Share</button>
+      <button type="button" data-share-action="copy">Copy</button>
+      <span class="toast" aria-live="polite"></span>
+    </div>
+    <script>${raw(`
+      (function(){
+        var root = document.currentScript.previousElementSibling;
+        if (!root) return;
+        var pitch = root.getAttribute('data-share-pitch') || '';
+        var subj  = root.getAttribute('data-share-subject') || '';
+        var toast = root.querySelector('.toast');
+        var flash = function(msg){
+          if (!toast) return;
+          toast.textContent = msg;
+          toast.classList.add('show');
+          setTimeout(function(){ toast.classList.remove('show'); }, 1800);
+        };
+        // Feature-detect Web Share API. Most desktop browsers don't
+        // ship it; mobile + some desktop Safari do. Hidden until proven.
+        if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+          var btn = root.querySelector('[data-share-action="web"]');
+          if (btn) {
+            btn.hidden = false;
+            btn.addEventListener('click', function(){
+              navigator.share({ title: subj, text: pitch }).catch(function(){ /* user cancelled */ });
+            });
+          }
+        }
+        var copyBtn = root.querySelector('[data-share-action="copy"]');
+        if (copyBtn) copyBtn.addEventListener('click', function(){
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(pitch).then(
+              function(){ flash('Copied to clipboard'); },
+              function(){ flash('Copy failed — select + Ctrl-C'); }
+            );
+          } else {
+            // Fallback for ancient browsers — focus a hidden textarea.
+            var ta = document.createElement('textarea');
+            ta.value = pitch;
+            ta.style.position = 'fixed'; ta.style.left = '-9999px';
+            document.body.appendChild(ta); ta.select();
+            try { document.execCommand('copy'); flash('Copied to clipboard'); }
+            catch(_){ flash('Copy failed'); }
+            document.body.removeChild(ta);
+          }
+        });
+      })();
+    `)}</script>
+  `;
+}
 
 // Find the canonical "declaration" commit for a crypto declaration event:
 // the first counting reply (whose sequence equals
@@ -2717,6 +2823,7 @@ function renderDeclarationHero(event, commit, allCommits = []) {
       <div class="proof-sub">"${event.title}" · id <code>${event.id}</code></div>
       <div class="proof-mode-badge decl">Declaration <span class="sep">·</span> <span class="dedup">one signer, one record</span></div>
       ${statBand}
+      ${renderShareButtons(event)}
       <div class="proof-secondary">
         <h4>Event details</h4>
         <div class="proof-row"><div class="proof-key">Type</div><div class="proof-value">declaration</div></div>
@@ -2891,6 +2998,7 @@ function renderAttestationHero(event, commits) {
       <div class="proof-sub">"${event.title}" · id <code>${event.id}</code></div>
       <div class="proof-mode-badge attn">Attestation <span class="sep">·</span> <span class="dedup">${dedupBlurb}</span></div>
       ${tilesHTML}
+      ${renderShareButtons(event)}
       <div class="proof-secondary">
         <h4>Event details</h4>
         <div class="proof-row"><div class="proof-key">Type</div><div class="proof-value">attestation · ${dedup}</div></div>
