@@ -2309,7 +2309,16 @@ router.get('/manage/:token', async (req, res) => {
 const MANAGE_CSS = `
 .mg-meta { color:#8b949e; font-size:0.88em; margin:0 0 0.4rem; }
 .mg-meta code { background:#161b22; color:#ffb000; padding:0.08em 0.35em; border-radius:2px; }
-.mg-flash { background:rgba(63,185,80,.08); border:1px solid #3fb950; color:#3fb950; padding:0.55rem 0.85rem; border-radius:0; margin:0 0 1rem; font-size:0.9em; }
+.mg-flash { background:rgba(63,185,80,.08); border:1px solid #3fb950; color:#3fb950; padding:0.7rem 0.95rem; border-radius:0; margin:0 0 1rem; font-size:1em; font-weight:500;
+  /* Grab attention briefly — easy to miss otherwise. The pulse fades
+     out so it doesn't keep blinking long after the user has read it. */
+  animation: mgFlashAttn 1.6s ease-out 1 both;
+}
+@keyframes mgFlashAttn {
+  0% { box-shadow: 0 0 0 0 rgba(63,185,80,.55); transform: translateY(-4px); }
+  35% { box-shadow: 0 0 0 6px rgba(63,185,80,.18); transform: translateY(0); }
+  100% { box-shadow: 0 0 0 0 rgba(63,185,80,0); transform: translateY(0); }
+}
 .mg-section { padding-left:1.55rem; border-left:2px solid #30363d; margin:0.3rem 0 1rem; padding-bottom:0.4rem; }
 .mg-section h2 { font-size:0.78em; text-transform:uppercase; letter-spacing:0.12em; color:#8b949e; margin:0.9rem 0 0.45rem; font-weight:600; }
 .mg-steps { width:100%; border-collapse:collapse; font-size:0.9em; border:1px solid #30363d; }
@@ -3048,7 +3057,23 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
     <style>${raw(MANAGE_CSS)}</style>
     <p style="margin:0 0 0.5rem"><a href="/manage" style="color:#8b949e;font-size:0.88em">← back</a></p>
     <p class="mg-meta">Signed in as <code class="copyable">${initiatorEmail}</code> · Event <code>${event.id}</code> · ${pill}</p>
-    ${flash ? html`<div class="mg-flash">${flash}</div>` : raw('')}
+    ${flash ? html`<div class="mg-flash" id="mg-flash-target">${flash}</div>
+      <script>${raw(`
+        // The flash sits below the header + back link, so on a fresh
+        // navigation it can sit just-above-the-fold and read like part
+        // of the metadata strip. Smooth-scroll it into view a few
+        // pixels below the top so the eye lands on it directly.
+        (function(){
+          var el = document.getElementById('mg-flash-target');
+          if (!el || typeof el.scrollIntoView !== 'function') return;
+          requestAnimationFrame(function(){
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // Nudge a touch further so the message clears any fixed
+            // header chrome and sits in comfortable reading position.
+            setTimeout(function(){ window.scrollBy({ top: -24, behavior: 'smooth' }); }, 250);
+          });
+        })();
+      `)}</script>` : raw('')}
     ${pendingActivation ? (() => {
         // Auto-delete window: 72h from creation. Show the absolute
         // timestamp so the organiser knows exactly when it lapses, not
