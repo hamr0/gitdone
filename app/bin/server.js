@@ -2493,6 +2493,19 @@ const MANAGE_CSS = `
 .proof-tile .num { font-size:1.4rem; line-height:1; font-weight:600; }
 .proof-tile .lbl { font-size:0.65rem; text-transform:uppercase; letter-spacing:0.06em;
                    color:#8b949e; margin-top:0.3rem; }
+/* Unified stat band — two tiles (signers / verified) plus a meta line.
+   Shared across declaration + attestation hero rendering. Tiles are
+   wider than the per-trust tiles since there are only two; the meta
+   strip slots in to the right (or wraps below on narrow viewports). */
+.proof-stats { display:flex; align-items:stretch; gap:0.6rem;
+               margin:0.6rem 0 0.7rem; flex-wrap:wrap; }
+.proof-stat-tile { border:1px solid currentColor; padding:0.6rem 1.0rem;
+                   text-align:center; min-width:7rem; }
+.proof-stat-tile .num { font-size:1.6rem; line-height:1; font-weight:600; }
+.proof-stat-tile .num .of { font-size:0.65em; color:#6e7681; font-weight:400; }
+.proof-stat-tile .lbl { font-size:0.65rem; text-transform:uppercase; letter-spacing:0.06em;
+                        color:#8b949e; margin-top:0.35rem; }
+.proof-stats-meta { display:flex; align-items:center; color:#8b949e; font-size:0.88em; }
 details.proof-details { margin-top:0.7rem; border:1px solid #30363d; }
 details.proof-details summary { cursor:pointer; padding:0.45rem 0.7rem; background:#161b22;
                                 color:#ffb000; list-style:none; font-size:0.74rem;
@@ -2670,12 +2683,40 @@ function renderDeclarationHero(event, commit, allCommits = []) {
             ${renderProofReceipt(commit, event.id)}
           </details>`
         : raw(''));
+  // Unified stat band — same shape as attestation (signers / verified
+  // tiles + meta). For declaration the "signers" tile reads as
+  // "signed" (0 or 1) and "verified" mirrors it iff the signer's
+  // commit came in DKIM-verified. Audit-only count surfaces any
+  // rejected reply (wrong attachment, self-reply, etc.) so the
+  // organiser sees that an extra commit landed without counting.
+  const signedN = commit ? 1 : 0;
+  const verifiedN = (commit && commit.trust_level === 'verified') ? 1 : 0;
+  const declMeta = [];
+  // Audit-only = total commits minus the one counted commit (or 0
+  // for a pending declaration).
+  const declAudit = Math.max(0, (allCommits || []).length - signedN);
+  if (declAudit > 0) declMeta.push(`${declAudit} audit-only`);
+  if (commit && event.completion && event.completion.completed_at) {
+    declMeta.push(`signed ${String(event.completion.completed_at).slice(0, 10)}`);
+  }
+  const statBand = html`<div class="proof-stats">
+    <div class="proof-stat-tile" style="color:${raw(TRUST_COLOR.verified)}">
+      <div class="num">${String(signedN)}<span class="of"> / 1</span></div>
+      <div class="lbl">signed</div>
+    </div>
+    <div class="proof-stat-tile" style="color:${raw(TRUST_COLOR.verified)}">
+      <div class="num">${String(verifiedN)}</div>
+      <div class="lbl">verified</div>
+    </div>
+    ${declMeta.length ? html`<div class="proof-stats-meta">${declMeta.join(' · ')}</div>` : raw('')}
+  </div>`;
   return html`
     <div class="proof-hero">
       ${renderTrustLadder({ achieved })}
       <div class="proof-headline ${headlineCls}">${headline}</div>
       <div class="proof-sub">"${event.title}" · id <code>${event.id}</code></div>
       <div class="proof-mode-badge decl">Declaration <span class="sep">·</span> <span class="dedup">one signer, one record</span></div>
+      ${statBand}
       <div class="proof-secondary">
         <h4>Event details</h4>
         <div class="proof-row"><div class="proof-key">Type</div><div class="proof-value">declaration</div></div>
@@ -2784,23 +2825,62 @@ function renderAttestationHero(event, commits) {
   } else {
     headline = html`${modalLabel} · ${String(count)} of ${String(event.threshold)}`;
   }
-  // Tiles: skip zero-counts.
-  const tileEntries = [
-    { lv: 'verified', n: counts.verified },
-    { lv: 'forwarded', n: counts.forwarded },
-    { lv: 'authorized', n: counts.authorized },
-    { lv: 'unverified', n: counts.unverified },
-  ].filter((t) => t.n > 0);
-  const tilesHTML = tileEntries.length
-    ? html`<div class="proof-tiles">
-        ${tileEntries.map((t) => html`
-          <div class="proof-tile" style="color:${raw(TRUST_COLOR[t.lv])}">
-            <div class="num">${String(t.n)}</div>
-            <div class="lbl">${t.lv}</div>
-          </div>
-        `)}
-      </div>`
-    : raw('');
+  // Unified stat band — two prominent tiles (SIGNERS / VERIFIED) plus
+  // a meta strip (audit-only count, threshold-reached date). Replaces
+  // the prior per-reply trust tiles (3 verified) — the trust ladder
+  // above already conveys the trust posture, and the user-facing
+  // metric people actually want is "how many distinct signers" not
+  // "how many DKIM-verified replies".
+  //
+  // verified-signer logic: under strict mode, a complete attestor is
+  // verified iff any of their counted replies came in DKIM-verified.
+  // Under loose mode we fall back to the dedup-aware verified count
+  // (which is what the prior code surfaced).
+  let signersN; let verifiedN;
+  if (strict) {
+    const progressMap = event.attestor_progress || {};
+    const completeKeys = Object.keys(progressMap).filter((k) => progressMap[k] && progressMap[k].complete);
+    signersN = completeKeys.length;
+    const verifiedHashes = new Set(
+      replies.filter((r) => r.trust_level === 'verified' && r.sender_hash).map((r) => r.sender_hash)
+    );
+    verifiedN = completeKeys.filter((k) => verifiedHashes.has(k)).length;
+  } else if (dedup === 'unique') {
+    const seenAll = new Set();
+    const seenVerified = new Set();
+    for (const r of replies) {
+      if (!r.sender_hash) continue;
+      seenAll.add(r.sender_hash);
+      if (r.trust_level === 'verified') seenVerified.add(r.sender_hash);
+    }
+    signersN = seenAll.size;
+    verifiedN = seenVerified.size;
+  } else {
+    signersN = replies.length;
+    verifiedN = replies.filter((r) => r.trust_level === 'verified').length;
+  }
+  const auditOnlyN = Math.max(0, (commits || []).length - replies.length);
+  const thresholdDateStr = thresholdReachedAt ? String(thresholdReachedAt).slice(0, 10) : null;
+  const completedDateStr = (event.completion && event.completion.completed_at)
+    ? String(event.completion.completed_at).slice(0, 10) : null;
+  const metaBits = [];
+  if (auditOnlyN > 0) metaBits.push(`${auditOnlyN} audit-only`);
+  if (complete && !accumulating && completedDateStr) {
+    metaBits.push(`complete ${completedDateStr}`);
+  } else if (thresholdReached && thresholdDateStr) {
+    metaBits.push(`threshold reached ${thresholdDateStr}`);
+  }
+  const tilesHTML = html`<div class="proof-stats">
+    <div class="proof-stat-tile" style="color:${raw(TRUST_COLOR.verified)}">
+      <div class="num">${String(signersN)}${event.threshold ? html`<span class="of"> / ${String(event.threshold)}</span>` : raw('')}</div>
+      <div class="lbl">signers</div>
+    </div>
+    <div class="proof-stat-tile" style="color:${raw(TRUST_COLOR.verified)}">
+      <div class="num">${String(verifiedN)}</div>
+      <div class="lbl">verified</div>
+    </div>
+    ${metaBits.length ? html`<div class="proof-stats-meta">${metaBits.join(' · ')}</div>` : raw('')}
+  </div>`;
   const dedupBlurb = dedup === 'unique'
     ? 'one count per sender'
     : (dedup === 'latest' ? 'latest counts per sender' : 'every reply counts');
@@ -2820,27 +2900,6 @@ function renderAttestationHero(event, commits) {
         <div class="proof-row"><div class="proof-key">Initiator</div><div class="proof-value"><code class="copyable">${event.initiator}</code></div></div>
         <div class="proof-row"><div class="proof-key">Reply address</div><div class="proof-value"><code class="copyable">event+${event.id}@${config.domain}</code></div></div>
         <div class="proof-row"><div class="proof-key">Threshold</div><div class="proof-value">${String(event.threshold)}</div></div>
-        ${(() => {
-          // Two numbers, not one. event.replies only carries counted
-          // attestations; the per-event repo holds every inbound reply
-          // including rejected ones (audit-trail policy). Showing only
-          // "Total replies: 2" while the ledger surfaces 3 rows is
-          // confusing — split them so the difference is named.
-          //
-          // Module 6.5 — under strict mode, the user-facing count is
-          // distinct attestors with complete buckets, not raw
-          // counted replies. Re-signs from an already-complete bucket
-          // are rejected as `strict_already_signed` (audit-only).
-          const counted = strict
-            ? Object.values(event.attestor_progress || {}).filter((p) => p && p.complete).length
-            : replies.length;
-          const totalCommits = (commits || []).length;
-          const auditOnly = Math.max(0, totalCommits - replies.length);
-          const label = strict ? 'Counted signers' : 'Counted replies';
-          return html`
-            <div class="proof-row"><div class="proof-key">${label}</div><div class="proof-value">${String(counted)}${auditOnly > 0 ? html` <span style="color:#8b949e;font-size:0.88em">· ${String(auditOnly)} audit-only (uncounted, in audit trail)</span>` : raw('')}</div></div>
-          `;
-        })()}
       </div>
       ${commits.length ? html`
         <details class="proof-details">
