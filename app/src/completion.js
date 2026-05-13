@@ -227,6 +227,17 @@ function shouldCountAttestation(event, commit) {
   // there is no "complete" gate from threshold — explicit close only.
   if (!event.activated_at) return { count: false, reason: 'event not activated' };
   if (event.archived_at) return { count: false, reason: 'event archived' };
+  // Module 9 — a revoked sender_hash is a meta-rejection that overrides
+  // every downstream gate. Without this, a revoked sender re-replying
+  // lands in `strict_already_signed` (their attestor_progress bucket is
+  // still marked complete by design) and the ack body misleadingly says
+  // "you've already signed everything" without disclosing that the
+  // initiator revoked them. We commit to the audit trail upstream of
+  // this engine, so the reply is still on the public ledger.
+  const revokedSet = revokedHashSet(event);
+  if (commit && commit.sender_hash && revokedSet.has(commit.sender_hash)) {
+    return { count: false, reason: 'revoked_sender' };
+  }
   const dedup = event.dedup || 'unique';
   // Only unique/latest lock at threshold. Accumulating keeps counting
   // forever (completion comes from explicit close, not threshold).

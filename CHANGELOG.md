@@ -15,6 +15,47 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Module 9 — visible revocation + ack-body fixes
+
+Live-deploy smoke test of Module 8 surfaced three real bugs and one
+policy gap. All fixed in one commit, deployed as 0.24.0.
+
+- **Ack body now reads per-attestor progress.** In multi-doc
+  attestation events, the partial-sign / wrong-attachment / already-
+  signed acks rendered `[ ] [ ]` (all open) because `formatProgressBlock`
+  read `reference_docs[].signed_at` — a declaration-only field that's
+  never populated in attestation. Now reads
+  `attestor_progress[senderHash].signed_doc_hashes`, so the ack
+  correctly reflects what THIS sender has signed so far. Pulled into
+  a new `app/src/ack-progress.js` module with full unit coverage.
+- **Revocation is now visible in the UI.** Module 8 made revocation
+  mechanically correct but invisible — the manage hero still showed
+  `2 of 2 · complete` after a revoke. Module 9 adds:
+  - Triple-count stat band — when any revocations exist, the tiles
+    become `attested · revoked · effective` (amber on revoked, green
+    on effective).
+  - "Originally reached <date>, since revoked <date>" subtitle on the
+    hero when the effective count has dropped below threshold.
+  - Strikethrough + amber "revoked" badge on ledger rows whose
+    `sender_hash` is in `revoked_senders[]`.
+  - Revoke commits render as a distinct ledger row (amber accent,
+    `−N attestors`, inline reason).
+  - Dashboard row uses the same triple-count compaction.
+- **Revoked senders are now told.** Previously a revoked attestor's
+  re-reply landed in `strict_already_signed` and got an ack saying
+  "you've already signed every required document" — misleading,
+  because the engine had silently dropped them. New decision reason
+  `revoked_sender` fires first, and the ack reads "Your prior
+  signature on this attestation was revoked by the initiator and no
+  longer counts… the public proof page shows the revocation". No
+  reason text exposed; the initiator's reason stays on the ledger.
+- **Share buttons promoted above the trust ladder** on both
+  attestation and declaration heroes. Reading flow: action first
+  (share with someone), then audit (trust posture).
+- **Long URLs truncate to 30 chars** with `…` and a hover `title=`
+  showing the full URL. Fixes mobile viewport overflow on the crypto
+  manage view. New `truncateText` helper in templates.js.
+
 ### Module 8 hotfix — idempotent proof email + tighter body parser
 
 Code-review pass on Module 8 caught four issues; all four fixed in a

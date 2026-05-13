@@ -153,30 +153,7 @@ function formatReferenceDocList(docs) {
   }).join('\n');
 }
 
-// Module 4c — render a "matched / missing" block for the partial-sign
-// progress ack body. Reads event.reference_docs[] and surfaces each doc's
-// signed_at state.
-function formatProgressBlock(event) {
-  const docs = Array.isArray(event.reference_docs) ? event.reference_docs : [];
-  const signed = docs.filter((d) => d.signed_at);
-  const pending = docs.filter((d) => !d.signed_at);
-  const lines = [`Progress: ${signed.length} of ${docs.length} signed.`, ''];
-  if (signed.length) {
-    lines.push(`Matched:`);
-    for (const d of signed) {
-      lines.push(`  [x] ${d.filename || '(unnamed)'}`);
-    }
-  }
-  if (pending.length) {
-    if (signed.length) lines.push('');
-    lines.push(`Still needed:`);
-    for (const d of pending) {
-      const hashShort = d.sha256 ? d.sha256.replace(/^sha256:/, '').slice(0, 16) + '…' : '?';
-      lines.push(`  [ ] ${d.filename || '(unnamed)'}   sha256: ${hashShort}`);
-    }
-  }
-  return lines.join('\n');
-}
+const { formatProgressBlock } = require('../src/ack-progress');
 
 function humanSize(n) {
   if (!n && n !== 0) return '?';
@@ -1443,6 +1420,7 @@ async function main() {
       || reason === 'attachment_set_mismatch'
       || reason === 'strict_no_matching_attachments'
       || reason === 'strict_already_signed'
+      || reason === 'revoked_sender'
       || reason === 'event already complete'
       || reason === 'event not activated'
       || reason === 'event archived'
@@ -1452,6 +1430,12 @@ async function main() {
       // Crypto reply addresses are event+<id>@ (no step suffix); workflow
       // is event+<id>-<step>@. Synthesise the right reply-back address.
       const isCrypto = event.type === 'crypto';
+      // Per-attestor progress lookup key — needed by formatProgressBlock
+      // so the ack reflects cumulative state for THIS sender (not a
+      // declaration-only view that always reads "all open" for attestation).
+      const ackSenderHash = isCrypto && event.mode === 'attestation' && event.salt
+        ? saltedSenderHash(envelope.sender || from.address, event.salt)
+        : null;
       const fromAddr = isCrypto
         ? `event+${tag.eventId}@${config.domain}`
         : `event+${tag.eventId}-${tag.stepId}@${config.domain}`;
@@ -1485,7 +1469,7 @@ async function main() {
             `Reply is DKIM-verified, OpenTimestamped, and committed to the audit`,
             `trail.`,
             ``,
-            formatProgressBlock(event),
+            formatProgressBlock(event, { senderHash: ackSenderHash }),
             ``,
             `Reply again to ${fromAddr} attaching the remaining file${event.reference_docs.filter((d) => !d.signed_at).length === 1 ? '' : 's'}.`,
             ``,
@@ -1638,7 +1622,7 @@ async function main() {
           `You can spread the docs across multiple replies; we'll track`,
           `progress.`,
           ``,
-          formatProgressBlock(event),
+          formatProgressBlock(event, { senderHash: ackSenderHash }),
         ].join('\n');
       } else if (reason === 'strict_no_matching_attachments') {
         subject = `[gitdone] No matching attachments — ${event.title}`;
@@ -1648,9 +1632,29 @@ async function main() {
           `This event requires you to attach the registered reference document${event.reference_docs.length === 1 ? '' : 's'}.`,
           `Your reply is in the audit trail but does NOT count.`,
           ``,
-          formatProgressBlock(event),
+          formatProgressBlock(event, { senderHash: ackSenderHash }),
           ``,
           `Reply again to ${fromAddr} with the file${event.reference_docs.length === 1 ? '' : 's'} attached.`,
+        ].join('\n');
+      } else if (reason === 'revoked_sender') {
+        // Module 9 — a revoked attestor re-replied. The audit trail
+        // (commitReply above) records the reply; this ack tells the
+        // sender their prior signature was withdrawn by the initiator
+        // and points to the public proof page where the revocation is
+        // visible. No reason string surfaced — the initiator's reason
+        // is on the ledger, not in this email.
+        subject = `[gitdone] Reply not counted — ${event.title}`;
+        const publicBase = (process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`).replace(/\/+$/, '');
+        body = [
+          `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`,
+          ``,
+          `Your prior signature on this attestation was revoked by the`,
+          `initiator and no longer counts toward the threshold. Your`,
+          `replies remain in the audit trail (DKIM-verified,`,
+          `OpenTimestamped); the public proof page shows the revocation:`,
+          `  ${publicBase}/proof/${event.id}`,
+          ``,
+          `If you believe this is in error, reach out to ${event.initiator}.`,
         ].join('\n');
       } else if (reason === 'strict_already_signed') {
         // Module 6.5 — re-signing an already-complete bucket. Audit
@@ -1666,7 +1670,7 @@ async function main() {
           `record, but it does NOT add to the count — there's nothing`,
           `further to attest to (the manifest is finite and frozen).`,
           ``,
-          formatProgressBlock(event),
+          formatProgressBlock(event, { senderHash: ackSenderHash }),
           ``,
           `Requester: ${event.initiator}`,
         ].join('\n');

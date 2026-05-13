@@ -3,7 +3,25 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { html, raw, escapeHTML, layout } = require('../../src/web/templates');
+const { html, raw, escapeHTML, layout, truncateText } = require('../../src/web/templates');
+
+test('truncateText: short strings pass through unchanged', () => {
+  assert.equal(truncateText('https://x.io/a', 30), 'https://x.io/a');
+  assert.equal(truncateText('', 30), '');
+});
+
+test('truncateText: long URL is shortened with ellipsis', () => {
+  const url = 'https://drive.google.com/file/d/1aBcDeFgHiJkLmNoPqRsTuVwXyZ123456/view';
+  const out = truncateText(url, 30);
+  assert.equal(out.length, 30);
+  assert.ok(out.endsWith('…'));
+  assert.ok(url.startsWith(out.slice(0, -1)));
+});
+
+test('truncateText: handles non-string input', () => {
+  assert.equal(truncateText(null, 30), '');
+  assert.equal(truncateText(undefined, 30), '');
+});
 
 test('escapeHTML: escapes all five dangerous chars', () => {
   assert.equal(escapeHTML('<>&"\''), '&lt;&gt;&amp;&quot;&#39;');

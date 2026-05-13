@@ -7,6 +7,18 @@
 
 'use strict';
 
+// Truncate a long URL for display while keeping it clickable + hoverable
+// for the full address. Mobile viewports cap around 320–360 CSS pixels;
+// JetBrains Mono at terminal-theme size puts ~30 chars on a line before
+// wrapping or overflowing. The user's preference is truncate-with-ellipsis
+// over wrap so the band stays visually tight; hover/long-press reveals
+// the full URL via title=, and click goes to the real href.
+function truncateText(s, max = 30) {
+  const str = s == null ? '' : String(s);
+  if (str.length <= max) return str;
+  return str.slice(0, Math.max(1, max - 1)) + '…';
+}
+
 function escapeHTML(s) {
   if (s == null) return '';
   return String(s)
@@ -243,4 +255,4 @@ ${dev && devHUD ? devHUD : ''}
 `;
 }
 
-module.exports = { html, raw, escapeHTML, layout };
+module.exports = { html, raw, escapeHTML, layout, truncateText };

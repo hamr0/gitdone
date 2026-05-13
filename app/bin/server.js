@@ -46,7 +46,7 @@ if (IS_DEV && !process.env.GITDONE_DATA_DIR) {
 
 const config = require('../src/config');
 const { createRouter } = require('../src/web/router');
-const { layout: rawLayout, html, raw } = require('../src/web/templates');
+const { layout: rawLayout, html, raw, truncateText } = require('../src/web/templates');
 const { parseBody } = require('../src/web/body');
 const { validateWorkflowEvent, validateCryptoEvent, VALID_TRUST_LEVELS, VALID_CRYPTO_MODES, VALID_DEDUP_RULES } = require('../src/web/validation');
 const { createEvent } = require('../src/event-store');
@@ -1132,7 +1132,7 @@ function renderCheckYourInboxPage({ event, kind }) {
     ? html`<div style="margin:1.2rem 0 0;padding:0.7rem 0.95rem;background:#0d1117;border-left:3px solid #3fb950;color:#c9d1d9;white-space:pre-wrap;font-size:0.92em;line-height:1.5"><strong style="display:block;color:#8b949e;font-size:0.78em;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:0.25rem">The ask</strong>${event.details}</div>`
     : raw('');
   const refUrlBlock = (kind === 'crypto' && event.reference_url)
-    ? html`<p style="margin:0.8rem 0 0;font-size:0.92em"><strong style="color:#8b949e;font-size:0.78em;letter-spacing:0.08em;text-transform:uppercase;display:block;margin-bottom:0.2rem">Reference</strong><a href="${event.reference_url}" rel="noopener noreferrer" target="_blank">${event.reference_url}</a></p>`
+    ? html`<p style="margin:0.8rem 0 0;font-size:0.92em"><strong style="color:#8b949e;font-size:0.78em;letter-spacing:0.08em;text-transform:uppercase;display:block;margin-bottom:0.2rem">Reference</strong><a href="${event.reference_url}" rel="noopener noreferrer" target="_blank" title="${event.reference_url}">${truncateText(event.reference_url, 30)}</a></p>`
     : raw('');
   const indexById = event.steps
     ? new Map(event.steps.map((s, i) => [s.id, i + 1]))
@@ -1663,9 +1663,18 @@ function summariseEvent(ev) {
       counted = live.length;
       verified = live.filter((r) => r.trust_level === 'verified').length;
     }
-    progress = verified === counted
-      ? `${counted} of ${ev.threshold || '?'} signers`
-      : `${counted} of ${ev.threshold || '?'} signers · ${verified} verified`;
+    // Module 9 — when any senders are revoked, surface the breakdown
+    // here too so the dashboard list matches the manage hero's triple
+    // count and an organiser scanning the list sees revocation without
+    // clicking in.
+    const revokedN = revokedSet.size;
+    if (revokedN > 0) {
+      progress = `${counted + revokedN} attested · ${revokedN} revoked · ${counted} of ${ev.threshold || '?'} effective`;
+    } else {
+      progress = verified === counted
+        ? `${counted} of ${ev.threshold || '?'} signers`
+        : `${counted} of ${ev.threshold || '?'} signers · ${verified} verified`;
+    }
   }
   return { status, pillClass, progress, terminal, completed, closed, archived, pending };
 }
@@ -2670,13 +2679,19 @@ function findDeclarationCommit(event, commits) {
   return commits.find((c) => c.sequence === seq && !c.kind) || null;
 }
 
-// For attestation: the ordered list of counting reply commits — i.e.
-// commits that match a sender_hash in event.replies[]. Latest first.
+// For attestation: the ordered list of ledger commits to render — counted
+// + audit-only reply commits (matched by sender_hash in event.replies[])
+// AND every kind:'revoke' commit. The render loop branches on c.kind to
+// pick the row template (signature row vs. revoke row). Latest first.
 function findAttestationCommits(event, commits) {
   if (!event || event.type !== 'crypto' || event.mode !== 'attestation') return [];
   const wanted = new Set();
   for (const r of (event.replies || [])) if (r.sender_hash) wanted.add(r.sender_hash);
-  const out = commits.filter((c) => !c.kind && c.sender_hash && wanted.has(c.sender_hash));
+  const out = commits.filter((c) =>
+    c.kind === 'revoke'
+      ? true
+      : (!c.kind && c.sender_hash && wanted.has(c.sender_hash))
+  );
   out.sort((a, b) => (b.sequence || 0) - (a.sequence || 0));
   return out;
 }
@@ -2824,17 +2839,17 @@ function renderDeclarationHero(event, commit, allCommits = []) {
   </div>`;
   return html`
     <div class="proof-hero">
+      ${renderShareButtons(event)}
       ${renderTrustLadder({ achieved })}
       <div class="proof-headline ${headlineCls}">${headline}</div>
       <div class="proof-sub">"${event.title}" · id <code>${event.id}</code></div>
       <div class="proof-mode-badge decl">Declaration <span class="sep">·</span> <span class="dedup">one signer, one record</span></div>
       ${statBand}
-      ${renderShareButtons(event)}
       <div class="proof-secondary">
         <h4>Event details</h4>
         <div class="proof-row"><div class="proof-key">Type</div><div class="proof-value">declaration</div></div>
         ${event.details ? html`<div class="proof-row"><div class="proof-key">Ask</div><div class="proof-value" style="white-space:pre-wrap">${event.details}</div></div>` : raw('')}
-        ${event.reference_url ? html`<div class="proof-row"><div class="proof-key">Reference</div><div class="proof-value"><a href="${event.reference_url}" rel="noopener noreferrer" target="_blank">${event.reference_url}</a></div></div>` : raw('')}
+        ${event.reference_url ? html`<div class="proof-row"><div class="proof-key">Reference</div><div class="proof-value"><a href="${event.reference_url}" rel="noopener noreferrer" target="_blank" title="${event.reference_url}">${truncateText(event.reference_url, 30)}</a></div></div>` : raw('')}
         ${renderReferenceDocsRow(event)}
         <div class="proof-row"><div class="proof-key">Initiator</div><div class="proof-value"><code class="copyable">${event.initiator}</code></div></div>
         <div class="proof-row"><div class="proof-key">Signer</div><div class="proof-value"><code class="copyable">${event.signer}</code></div></div>
@@ -2981,10 +2996,25 @@ function renderAttestationHero(event, commits) {
     signersN = live.length;
     verifiedN = live.filter((r) => r.trust_level === 'verified').length;
   }
-  const auditOnlyN = Math.max(0, (commits || []).length - replies.length);
+  // Module 9 — when any sender has been revoked, the audit count diverges
+  // from the effective count. The stat band shows the breakdown: attested
+  // (pre-revoke distinct signers) · revoked (R) · effective (= signersN,
+  // already revocation-filtered). Below threshold + once-was-complete is
+  // surfaced as a subtitle so the organiser can see "we made it, then it
+  // dropped" at a glance instead of digging through the ledger.
+  const revokedCount = revokedSet.size;
+  // ledger commits are passed in already filtered to attestation rows +
+  // kind:'revoke' commits (see findAttestationCommits). The audit-only
+  // count is "non-revoke commits not in counted-reply set" — we have to
+  // skip kind:'revoke' both numerator and denominator.
+  const replyCommitsN = (commits || []).filter((c) => c && c.kind !== 'revoke').length;
+  const auditOnlyN = Math.max(0, replyCommitsN - replies.length);
   const thresholdDateStr = thresholdReachedAt ? String(thresholdReachedAt).slice(0, 10) : null;
   const completedDateStr = (event.completion && event.completion.completed_at)
     ? String(event.completion.completed_at).slice(0, 10) : null;
+  const reopenedAt = event.completion && event.completion.reopened_at;
+  const reopenedDate = reopenedAt ? String(reopenedAt).slice(0, 10) : null;
+  const onceReachedNowBelow = !!(reopenedAt && thresholdDateStr && count < (event.threshold || 0));
   const metaBits = [];
   if (auditOnlyN > 0) metaBits.push(`${auditOnlyN} audit-only`);
   if (complete && !accumulating && completedDateStr) {
@@ -2992,33 +3022,58 @@ function renderAttestationHero(event, commits) {
   } else if (thresholdReached && thresholdDateStr) {
     metaBits.push(`threshold reached ${thresholdDateStr}`);
   }
-  const tilesHTML = html`<div class="proof-stats">
-    <div class="proof-stat-tile" style="color:${raw(TRUST_COLOR.verified)}">
-      <div class="num">${String(signersN)}${event.threshold ? html`<span class="of"> / ${String(event.threshold)}</span>` : raw('')}</div>
-      <div class="lbl">signers</div>
-    </div>
-    <div class="proof-stat-tile" style="color:${raw(TRUST_COLOR.verified)}">
-      <div class="num">${String(verifiedN)}</div>
-      <div class="lbl">verified</div>
-    </div>
-    ${metaBits.length ? html`<div class="proof-stats-meta">${metaBits.join(' · ')}</div>` : raw('')}
-  </div>`;
+  const tilesHTML = revokedCount > 0
+    ? html`<div class="proof-stats">
+        <div class="proof-stat-tile" style="color:${raw(TRUST_COLOR.verified)}">
+          <div class="num">${String(signersN + revokedCount)}</div>
+          <div class="lbl">attested</div>
+        </div>
+        <div class="proof-stat-tile" style="color:#ffb000">
+          <div class="num">${String(revokedCount)}</div>
+          <div class="lbl">revoked</div>
+        </div>
+        <div class="proof-stat-tile" style="color:${raw(TRUST_COLOR.verified)}">
+          <div class="num">${String(signersN)}${event.threshold ? html`<span class="of"> / ${String(event.threshold)}</span>` : raw('')}</div>
+          <div class="lbl">effective</div>
+        </div>
+        ${metaBits.length ? html`<div class="proof-stats-meta">${metaBits.join(' · ')}</div>` : raw('')}
+      </div>`
+    : html`<div class="proof-stats">
+        <div class="proof-stat-tile" style="color:${raw(TRUST_COLOR.verified)}">
+          <div class="num">${String(signersN)}${event.threshold ? html`<span class="of"> / ${String(event.threshold)}</span>` : raw('')}</div>
+          <div class="lbl">signers</div>
+        </div>
+        <div class="proof-stat-tile" style="color:${raw(TRUST_COLOR.verified)}">
+          <div class="num">${String(verifiedN)}</div>
+          <div class="lbl">verified</div>
+        </div>
+        ${metaBits.length ? html`<div class="proof-stats-meta">${metaBits.join(' · ')}</div>` : raw('')}
+      </div>`;
   const dedupBlurb = dedup === 'unique'
     ? 'one count per sender'
     : (dedup === 'latest' ? 'latest counts per sender' : 'every reply counts');
+  // Module 9 — "originally reached <date>, since revoked <date>" sits
+  // directly under the headline when the count has dropped below
+  // threshold via revoke. Single source of truth: completion.reopened_at
+  // + threshold_reached_at. Above-threshold still-revoked is intentionally
+  // silent (the triple-count tiles already say it).
+  const revokeSubtitle = onceReachedNowBelow
+    ? html`<div class="proof-revoke-sub" style="color:#ffb000;font-size:0.86em;margin-top:0.35rem;letter-spacing:0.02em">originally reached ${thresholdDateStr}, since revoked${reopenedDate ? html` ${reopenedDate}` : raw('')}</div>`
+    : raw('');
   return html`
     <div class="proof-hero">
+      ${renderShareButtons(event)}
       ${renderTrustLadder({ achieved })}
       <div class="proof-headline ${headlineCls}">${headline}</div>
+      ${revokeSubtitle}
       <div class="proof-sub">"${event.title}" · id <code>${event.id}</code></div>
       <div class="proof-mode-badge attn">Attestation <span class="sep">·</span> <span class="dedup">${dedupBlurb}</span></div>
       ${tilesHTML}
-      ${renderShareButtons(event)}
       <div class="proof-secondary">
         <h4>Event details</h4>
         <div class="proof-row"><div class="proof-key">Type</div><div class="proof-value">attestation · ${dedup}</div></div>
         ${event.details ? html`<div class="proof-row"><div class="proof-key">Ask</div><div class="proof-value" style="white-space:pre-wrap">${event.details}</div></div>` : raw('')}
-        ${event.reference_url ? html`<div class="proof-row"><div class="proof-key">Reference</div><div class="proof-value"><a href="${event.reference_url}" rel="noopener noreferrer" target="_blank">${event.reference_url}</a></div></div>` : raw('')}
+        ${event.reference_url ? html`<div class="proof-row"><div class="proof-key">Reference</div><div class="proof-value"><a href="${event.reference_url}" rel="noopener noreferrer" target="_blank" title="${event.reference_url}">${truncateText(event.reference_url, 30)}</a></div></div>` : raw('')}
         ${renderReferenceDocsRow(event)}
         <div class="proof-row"><div class="proof-key">Initiator</div><div class="proof-value"><code class="copyable">${event.initiator}</code></div></div>
         <div class="proof-row"><div class="proof-key">Reply address</div><div class="proof-value"><code class="copyable">event+${event.id}@${config.domain}</code></div></div>
@@ -3035,23 +3090,44 @@ function renderAttestationHero(event, commits) {
               // self-reply, etc.) read identical to counted attestations
               // and the organiser can't tell who counted. Compute the
               // counted-sequence set from event.replies and badge the rest.
+              // Module 9 — additionally, replies from a revoked sender_hash
+              // are struck through with an amber "revoked" badge, and
+              // kind:'revoke' commits get their own row template showing
+              // the initiator's reason inline.
               const countedSeqs = new Set();
               for (const r of (event.replies || [])) {
                 if (typeof r.sequence === 'number') countedSeqs.add(r.sequence);
               }
               return commits.map((c) => {
+                if (c.kind === 'revoke') {
+                  const nRev = Array.isArray(c.revoked) ? c.revoked.length : 0;
+                  const reason = c.reason ? String(c.reason) : '';
+                  return html`
+              <div class="proof-row" style="border-left:2px solid #ffb000;padding-left:0.6rem">
+                <div class="proof-key" style="color:#ffb000;letter-spacing:0.04em;text-transform:uppercase">revoke</div>
+                <div class="proof-value">${fmtDate(c.received_at)}</div>
+                <span class="trust-pill" style="color:#ffb000;border-color:#ffb000;margin-left:0.5rem;text-transform:uppercase;letter-spacing:0.04em">−${String(nRev)} attestor${nRev === 1 ? '' : 's'}</span>
+                ${reason ? html`<div style="margin-left:0.8rem;color:#8b949e;font-size:0.85em;font-style:italic">"${reason}"</div>` : raw('')}
+                <div style="margin-left:auto;color:${raw(TRUST_COLOR[c.trust_level] || '#c9d1d9')}">${TRUST_LABEL[c.trust_level] || c.trust_level || '?'}</div>
+              </div>
+                  `;
+                }
                 const atts = Array.isArray(c.attachments) ? c.attachments : [];
                 const counted = countedSeqs.has(c.sequence);
+                const isRevoked = !!(c.sender_hash && revokedSet.has(c.sender_hash));
+                const rowStyle = isRevoked
+                  ? 'opacity:0.55;text-decoration:line-through'
+                  : (counted ? '' : 'opacity:0.62');
                 return html`
-              <div class="proof-row"${counted ? raw('') : raw(' style="opacity:0.62"')}>
+              <div class="proof-row"${rowStyle ? raw(` style="${rowStyle}"`) : raw('')}>
                 <div class="proof-key">${c.sender_domain || '?'}</div>
                 <div class="proof-value">${fmtDate(c.received_at)}</div>
                 ${atts.length ? html`<span class="trust-pill attach-pill" style="color:${raw(TRUST_COLOR.verified)};border-color:${raw(TRUST_COLOR.verified)};margin-left:0.5rem">📎 ${String(atts.length)}</span>` : raw('')}
-                ${counted ? raw('') : html`<span class="trust-pill" style="color:#ffb000;border-color:#ffb000;margin-left:0.5rem;text-transform:uppercase;letter-spacing:0.04em">audit-only</span>`}
+                ${isRevoked ? html`<span class="trust-pill" style="color:#ffb000;border-color:#ffb000;margin-left:0.5rem;text-transform:uppercase;letter-spacing:0.04em;text-decoration:none">revoked</span>` : (counted ? raw('') : html`<span class="trust-pill" style="color:#ffb000;border-color:#ffb000;margin-left:0.5rem;text-transform:uppercase;letter-spacing:0.04em">audit-only</span>`)}
                 <div style="margin-left:auto;color:${raw(TRUST_COLOR[c.trust_level] || '#c9d1d9')}">${TRUST_LABEL[c.trust_level] || c.trust_level || '?'}</div>
               </div>
               ${atts.length ? html`
-                <div class="proof-row" style="padding-left:1.2rem;color:#8b949e;font-size:0.85em">
+                <div class="proof-row" style="padding-left:1.2rem;color:#8b949e;font-size:0.85em${isRevoked ? ';opacity:0.55' : ''}">
                   <div style="display:flex;flex-direction:column;gap:0.15rem">
                     ${atts.map((a, i) => {
                       const sz = formatBytes(a.size);

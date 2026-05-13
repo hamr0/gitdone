@@ -675,6 +675,35 @@ test('applyRevoke: workflow event → applied:false, no state mutation (guard)',
   assert.equal(r.event.revoked_senders, undefined);
 });
 
+test('shouldCount attestation: revoked sender → reason revoked_sender, even when strict bucket complete', () => {
+  // Reproduces the live-deploy report: a revoked attestor re-replied,
+  // bucket was still marked complete (Module 8 design: revocation is
+  // permanent, audit stays intact), and the engine returned
+  // strict_already_signed. With the Module 9 gate, the engine reports
+  // the actual meta-state instead so the ack can be honest.
+  const event = mkAttestation({
+    threshold: 2,
+    reference_url: 'https://example.com/doc',
+    reference_docs: [{ sha256: 'sha256:abc', filename: 'a.pdf' }],
+    replies: [
+      { sender_hash: 'h-revoked', sequence: 1, trust_level: 'verified' },
+    ],
+    attestor_progress: {
+      'h-revoked': { complete: true, signed_doc_hashes: ['sha256:abc'] },
+    },
+    revoked_senders: [{ sender_hash: 'h-revoked', revoked_at: '2026-05-13T00:00:00Z' }],
+  });
+  // The re-reply matches the manifest (would normally hit
+  // strict_already_signed) but the revoked-sender gate fires first.
+  const commit = mkCommit({
+    sender_hash: 'h-revoked', trust_level: 'verified',
+    attachments: [{ filename: 'a.pdf', sha256: 'sha256:abc' }],
+  });
+  const r = shouldCount(event, commit);
+  assert.equal(r.count, false);
+  assert.equal(r.reason, 'revoked_sender');
+});
+
 test('applyRevoke: strict attestation drops count via attestor_progress', () => {
   const event = {
     type: 'crypto', mode: 'attestation', dedup: 'unique', threshold: 2,
