@@ -88,8 +88,18 @@ your proof outlives the service:
 - **`[gitdone] proof — "<title>"`** — fires once when the event
   completes. Embedded receipt: DKIM result + selector + algorithm,
   SPF, DMARC, ARC, raw email hash, OpenTimestamps state, offline
-  verify command. One per recipient who counted; their own
-  perspective.
+  verify command. Per-recipient body shape:
+  - **Declaration** — symmetric two-sided notary: initiator and
+    signer get the same body. Same receipt, same proof, equal stake.
+  - **Attestation, initiator** — aggregate trust view (count of
+    counted replies + modal trust + per-trust-level breakdown).
+  - **Attestation, attestor** — privacy-conservative receipt:
+    confirms the event closed and preserves their own DKIM+OTS
+    record; no aggregate count, no other attestors' details. *"The
+    aggregate result is private to the organiser; this email is
+    YOUR record only."*
+  - **Workflow** — organiser sees the step table + all per-step
+    receipts; each participant sees their own step only.
 - **`[gitdone] proof anchored — "<title>"`** — fires once per event
   when the OpenTimestamps proof anchors to Bitcoin (every 6 hours).
   Threaded as a reply to the completion email. Carries the block

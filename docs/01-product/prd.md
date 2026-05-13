@@ -1003,14 +1003,29 @@ key/value rows, same truncated hash format.
 **As durable email artifacts.** Two emails carry the proof outside
 the dashboard so it survives the service:
 
-- **Completion email** (`[gitdone] proof — "<title>"`) fires once the
-  event flips to `complete`. Recipients: initiator + declaration
-  signer / workflow participants who counted / attestation repliers
-  whose reply pushed the threshold. Body embeds the receipt as plain
-  text (DKIM, SPF, DMARC, ARC, OTS state, raw email hash, offline
-  verify command). Each recipient gets their *own* perspective —
-  workflow participants see their own step's receipt plus the event
-  summary; attestation repliers see their own contribution.
+- **Completion email** (`[gitdone] proof — "<title>"<counter>`) fires
+  once the event flips to `complete`. Recipients vary by mode:
+  - **Workflow.** Initiator + every step participant who counted.
+  - **Declaration.** Initiator AND the named signer — two-sided
+    notary, same body for both (modulo a one-line lede swap). Equal
+    stake in the record; neither has more right to it.
+  - **Attestation.** Initiator + every counted attestor whose
+    plaintext email was persisted under strict mode (4e, §4.2.3).
+    Loose attestation has only salted hashes, so initiator only.
+
+  Body shape varies by (mode × role). Every body carries an explicit
+  `Mode:` line (Workflow / Declaration / Attestation +
+  dedup-blurb + threshold) and a mode-aware reason label
+  (`threshold reached` / `the signer replied` / `all steps completed`
+  / `closed early by the organiser`). Reference URL + reference-doc
+  manifest are echoed when set so the email carries the *what* being
+  signed alongside the receipt. The attestor's body is
+  privacy-conservative: it surfaces only their own DKIM+OTS receipt
+  (looked up by recomputed salted hash, not domain-match) and
+  explicitly states *"The aggregate result is private to the
+  organiser; this email is YOUR record only."* No aggregate count, no
+  modal trust, no other attestors' domains. `email-formats.md` §11
+  documents all five (mode × role) bodies.
 - **OTS-anchored email** (`[gitdone] proof anchored — "<title>"`)
   fires once per event when the 6-hour OTS upgrade cron flips the
   *last* pending commit to anchored. One consolidated email per
