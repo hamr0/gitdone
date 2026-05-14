@@ -520,6 +520,31 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
         // ran the attestation. Reference URL/docs echoed so they can
         // verify what was attested to without opening the repo.
         const receipts = proofBlock ? ['', proofBlock].join('\n') : '';
+        // Module 9 follow-up — revocation history block. When any
+        // attestor was revoked, the proof email lists each revoke
+        // event (date · sender_domain · reason-or-no-reason) so the
+        // durable record matches what's visible on the manage ledger.
+        // Best-effort domain lookup via commits[] hashes.
+        let revokeHistoryBlock = '';
+        const revokedSenders = Array.isArray(event.revoked_senders) ? event.revoked_senders : [];
+        if (revokedSenders.length > 0) {
+          const h2d = new Map();
+          for (const c of (commits || [])) {
+            if (c && c.sender_hash && c.sender_domain && !h2d.has(c.sender_hash)) {
+              h2d.set(c.sender_hash, c.sender_domain);
+            }
+          }
+          revokeHistoryBlock = [
+            '',
+            `Revocations (${revokedSenders.length}):`,
+            ...revokedSenders.map((r) => {
+              const dom = h2d.get(r.sender_hash) || 'unknown sender';
+              const when = (r.revoked_at || '').slice(0, 10) || '?';
+              const why = r.reason ? ` — "${r.reason}"` : ' — no reason recorded';
+              return `  ${when} · ${dom}${why}`;
+            }),
+          ].join('\n');
+        }
         body = [
           isClosedEarly
             ? `The attestation you organised has been closed early.`
@@ -536,6 +561,7 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
           `Reason: ${reasonLabel}`,
           refUrlLine,
           refDocsBlock,
+          revokeHistoryBlock,
           ``,
           receipts,
           verifyHint,

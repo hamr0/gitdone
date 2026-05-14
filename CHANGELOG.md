@@ -15,6 +15,36 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Module 9 polish — revoke discoverability + crypto closed-early
+
+Three follow-ups from the live deploy, plus a doc sync.
+
+- **Revoke ledger row shows context.** The manage hero's revoke
+  commit row now includes the revoked sender's domain(s) (looked up
+  from the surrounding reply commits — domain only, no plaintext
+  reintroduced) and renders "no reason recorded" in muted italic
+  when the initiator's `reason:` line was omitted. The empty
+  trust-level cell that previously rendered "?" is dropped — revoke
+  isn't a reply so it has no trust posture.
+- **Revoke ack tells you how to attach a reason next time.** When a
+  revoke email arrives without a `reason:` line, the ack body now
+  includes a tip showing the syntax. Reason stays optional by spec
+  (§24); the new tip is the discovery surface.
+- **Proof email lists revocations.** When the organiser-bound proof
+  email fires on an event with any `revoked_senders[]`, the body
+  adds a `Revocations (N):` block listing each entry as `<date> ·
+  <domain> — "<reason>" | no reason recorded`. The durable proof
+  now matches what's visible on the manage ledger.
+- **Crypto closed-early renders as "closed early" on the dashboard.**
+  `summariseEvent` only routed workflow events into the closed-early
+  state; crypto closed via the dashboard or `close+<id>@` was
+  rendering with the green "COMPLETED" pill. Now gated on the
+  durable `completion.closed_by === 'initiator'` signal for any
+  event type. Dashboard row text flips to "closed early
+  YYYY-MM-DD" and the pill picks up the amber `.closed` class.
+- **PRD §lifecycle table updated** for the crypto closed-early
+  state transition.
+
 ### Module 9 hotfix — proof email + subtitle persistence
 
 Live-deploy test of Module 9 surfaced two follow-ups:

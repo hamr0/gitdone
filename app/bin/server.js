@@ -1597,8 +1597,18 @@ function summariseEvent(ev) {
   const terminal = ev.completion && ev.completion.status === 'complete';
   const allStepsDone = ev.type === 'event' && Array.isArray(ev.steps) && ev.steps.length > 0
     && ev.steps.every((s) => s.status === 'complete');
-  const completed = terminal && (ev.type !== 'event' || allStepsDone);
-  const closed = terminal && ev.type === 'event' && !allStepsDone;
+  // Module 9 — crypto can also be closed early via the dashboard or
+  // close+<id>@. The signal is completion.closed_by === 'initiator';
+  // executeClose / executeCloseRequest both stamp it. Without this
+  // branch, a closed-early crypto event renders as "COMPLETED" on the
+  // dashboard, indistinguishable from one that reached threshold
+  // naturally.
+  const closedByInitiator = !!(terminal && ev.completion && ev.completion.closed_by === 'initiator');
+  const completed = terminal && !closedByInitiator && (ev.type !== 'event' || allStepsDone);
+  const closed = terminal && (
+    (ev.type === 'event' && !allStepsDone) ||
+    (ev.type !== 'event' && closedByInitiator)
+  );
   const archived = !terminal && !!ev.archived_at;
   const pending = !terminal && !archived && !ev.activated_at;
   let status, pillClass;

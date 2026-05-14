@@ -805,7 +805,7 @@ the organiser.
 | `pending_activation` | amber pill, always visible    | no             | `POST /events` or `/crypto`       | first owner visit to `/manage/event/:id` → `open`, OR 72h GC → deleted |
 | `open`             | default visible (blue pill)    | yes            | first owner dashboard visit       | all steps complete → `complete`; organiser close → `complete`; 45d idle → `archived` |
 | `completed`        | default visible (green pill)   | no             | every step's `status === 'complete'` | terminal — `completion.completed_at` is a git commit, not reversible |
-| `closed early`     | default visible (amber pill)   | no             | `close+` email / dashboard Close with steps still pending | terminal — also written as `completion.completed_at`; distinguished from `completed` by whether all steps were done at close time |
+| `closed early`     | default visible (amber pill)   | no             | `close+` email / dashboard Close with steps still pending (workflow), OR `close+` / dashboard Close on any crypto event regardless of threshold (Module 9 — gated on `completion.closed_by === 'initiator'`) | terminal — also written as `completion.completed_at`; distinguished from `completed` by whether the natural completion path was taken (workflow: all steps done; crypto: threshold reached without initiator close) |
 | `archived`         | **hidden by default**; `?show=archived` toggle (grey pill) | no (still commit for audit trail) | 45d past reference clock, or future manual archive | `POST /manage/event/:id/unarchive` → `open` |
 
 **Reference clock.** The "how stale is this event?" measure is

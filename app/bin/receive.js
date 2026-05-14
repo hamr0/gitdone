@@ -1042,6 +1042,14 @@ async function main() {
             }
             if (parsedBody.reason) {
               lines.push('', `Reason recorded: ${parsedBody.reason}`);
+            } else {
+              // No reason supplied — surface the syntax here so a future
+              // revoke goes through with one. Reason stays optional by
+              // spec (§24); this is the discovery surface.
+              lines.push('',
+                `No reason recorded. To attach one next time, add a line`,
+                `to the body like:`,
+                `  reason: signed in error`);
             }
             if (typeof revokeOutcome.count_after === 'number') {
               const t = updatedEvent.threshold || 0;
