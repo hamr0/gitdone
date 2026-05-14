@@ -3112,17 +3112,32 @@ function renderAttestationHero(event, commits) {
               for (const r of (event.replies || [])) {
                 if (typeof r.sequence === 'number') countedSeqs.add(r.sequence);
               }
+              // Build a sender_hash → sender_domain lookup once, so each
+              // revoke row can name the affected attestor(s) by domain
+              // (we never store plaintext emails for loose attestation;
+              // domain is the most-informative thing we have without
+              // breaking the anonymity-friendly posture).
+              const hashToDomain = new Map();
+              for (const rc of commits) {
+                if (rc && rc.kind !== 'revoke' && rc.sender_hash && rc.sender_domain && !hashToDomain.has(rc.sender_hash)) {
+                  hashToDomain.set(rc.sender_hash, rc.sender_domain);
+                }
+              }
               return commits.map((c) => {
                 if (c.kind === 'revoke') {
-                  const nRev = Array.isArray(c.revoked) ? c.revoked.length : 0;
+                  const revokedList = Array.isArray(c.revoked) ? c.revoked : [];
+                  const nRev = revokedList.length;
+                  const domains = revokedList
+                    .map((r) => r && r.sender_hash ? (hashToDomain.get(r.sender_hash) || null) : null)
+                    .filter(Boolean);
+                  const domainStr = domains.length ? domains.join(', ') : 'unknown sender';
                   const reason = c.reason ? String(c.reason) : '';
                   return html`
               <div class="proof-row" style="border-left:2px solid #ffb000;padding-left:0.6rem">
                 <div class="proof-key" style="color:#ffb000;letter-spacing:0.04em;text-transform:uppercase">revoke</div>
-                <div class="proof-value">${fmtDate(c.received_at)}</div>
+                <div class="proof-value">${fmtDate(c.received_at)} · ${domainStr}</div>
                 <span class="trust-pill" style="color:#ffb000;border-color:#ffb000;margin-left:0.5rem;text-transform:uppercase;letter-spacing:0.04em">−${String(nRev)} attestor${nRev === 1 ? '' : 's'}</span>
-                ${reason ? html`<div style="margin-left:0.8rem;color:#8b949e;font-size:0.85em;font-style:italic">"${reason}"</div>` : raw('')}
-                <div style="margin-left:auto;color:${raw(TRUST_COLOR[c.trust_level] || '#c9d1d9')}">${TRUST_LABEL[c.trust_level] || c.trust_level || '?'}</div>
+                <div style="margin-left:0.8rem;color:#8b949e;font-size:0.85em;font-style:italic">${reason ? html`"${reason}"` : raw('no reason recorded')}</div>
               </div>
                   `;
                 }
