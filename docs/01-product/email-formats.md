@@ -30,6 +30,7 @@ can reply normally.
 | 6 | Reply ack — event archived | Reply on a sweep-archived event | Participant |
 | 7 | Reply ack — event not activated | Reply on a pending-activation event | Participant |
 | 8 | Reply ack — event closed | Reply on a closed event | Participant |
+| 8b | Reply ack — revoked sender | Reply from an attestor whose sender_hash is in `revoked_senders[]` | Participant |
 | 9 | Activation receipt | Organiser activates pending event | Organiser |
 | 10 | Step-progress update | Step completes, downstream(s) become active | Organiser |
 | 11 | Completion proof | Event reaches terminal state | Initiator + every contributor |
@@ -209,6 +210,24 @@ threshold is met.
 Requester: <initiator>
 ```
 
+**Module 9 — per-attestor doc checkboxes.** Strict-mode attestation
+acks (`reference_url` + frozen `reference_docs[]`) replace the
+bullet-only list with checkboxes against THIS attestor's
+`attestor_progress[sender_hash].signed_doc_hashes`. The same source
+of truth as the manage UI's per-attestor pill, so the ack closes the
+"did the file I sent get through?" loop without needing the dashboard:
+
+```
+…
+
+Reference documents (2):
+  [x] braun-shipping.pdf · cac058a42136 · 9.0 KB
+  [ ] braun-invoice.pdf · 0602bd85ca7e · 79.3 KB
+```
+
+Loose attestation (no `reference_docs`) keeps the bullet form
+(`• <filename> …`) since there's no per-doc progress to surface.
+
 When the reply that lands tips a **locking** dedup (unique/latest) to
 threshold, the body swaps to:
 
@@ -325,12 +344,38 @@ Common contract across every body:
 ### 11d. Attestation — organiser
 
 - **Recipient.** `event.initiator`.
+- **Subject.** `[gitdone] proof — "<title>" [<E>/<threshold>]` where
+  `E` is the **effective** (revoke-filtered) count: distinct
+  non-revoked senders under `unique`/`latest`, raw non-revoked
+  replies under `accumulating`. When the event was cut short via
+  the dashboard or `close+<id>@`, the subject inserts ` — closed
+  early` before the counter: `[gitdone] proof — "<title>" — closed
+  early [<E>/<threshold>]`.
 - **Body.** Title + ID + Mode (`Attestation - <dedup> - threshold N`)
-  + `Reached: <iso>` + `Reason: threshold reached` + `Reference: <url>`
-  (when set) + reference-doc manifest (when set) + the **aggregate
-  cryptographic-receipt block** (`Replies counted N`, `Modal trust
-  verified`, per-trust-level counts) + verify hint + audit-trail
-  paragraph. This is the WHY-they-ran-it view.
+  + `<Reached|Closed>: <iso>` (label flips on close-early) +
+  `Reason: <threshold reached | closed early by the organiser>` +
+  `Reference: <url>` (when set) + reference-doc manifest (when set)
+  + the **aggregate cryptographic-receipt block** + verify hint +
+  audit-trail paragraph. The lede mirrors: *"has reached its
+  threshold."* on natural completion, *"has been closed early."*
+  on initiator close.
+- **Receipt block — Module 9 revoke-aware.** When the event has
+  `revoked_senders[]` entries, the block swaps `Replies counted N`
+  for the **triple**:
+  ```
+  Replies in audit  <total>
+  Revoked           <revoked-commit-count>
+  Effective         <effective-commit-count>
+  Modal trust       verified
+  Verified          <verified-over-effective>
+  …
+  ```
+  Trust counts (`Modal trust`, `Verified`, `Forwarded`, etc.) are
+  computed over the effective (non-revoked) subset so the email
+  matches the manage UI's triple-count tiles and the durable proof
+  doesn't overstate what counted. When no revocation has occurred
+  the block keeps the pre-Module-9 shape (`Replies counted N` + the
+  trust counts over all replies).
 
 ### 11e. Attestation — attestor (strict mode only)
 
@@ -692,20 +737,41 @@ omitted.
 - **Sender ≠ initiator** — rejected ack; no commit written, no
   state change.
 
-**Silent on the attestor side.** Revocation does not email the
-revoked attestor. Module 9 will paint the visible strikethrough on
-the public ledger when they revisit. Avoids accusation-by-email and
-keeps the initiator's reason private to the initiator's ack.
-
 **Revocation is permanent.** A revoked attestor's hash stays in
 `revoked_senders[]` forever; their `attestor_progress[h].complete`
-flag stays true; strict-mode re-signs of the same manifest reject
-as `strict_already_signed` per Module 6.5. The only way for the
-event to re-complete is a brand-new (different, non-revoked)
-attestor's reply that fills their bucket. There is no
-`unrevoke+` channel today — revocation is a one-way operation,
-matching the audit-first ethos of the rest of the system. The
-initiator's ack explicitly states this.
+flag stays true. The only way for the event to re-complete is a
+brand-new (different, non-revoked) attestor's reply that fills
+their bucket. There is no `unrevoke+` channel today — revocation
+is a one-way operation, matching the audit-first ethos of the rest
+of the system. The initiator's ack explicitly states this.
+
+**Re-reply from a revoked attestor — Module 9.** When a revoked
+sender_hash sends to `event+<id>@`, the engine returns the new
+decision reason `revoked_sender` (gated **before** strict-mode
+checks, so it overrides `strict_already_signed`). The reply still
+commits to the audit trail; the ack tells the sender:
+
+- **Subject.** `[gitdone] Reply not counted — <event title>`
+- **Body.**
+  ```
+  Thanks — we received your reply on Crypto Attestation "<title>".
+
+  Your prior signature on this attestation was revoked by the
+  initiator and no longer counts toward the threshold. Your
+  replies remain in the audit trail (DKIM-verified,
+  OpenTimestamped); the public proof page shows the revocation:
+    https://git-done.com/proof/<id>
+
+  If you believe this is in error, reach out to <initiator>.
+  ```
+
+The initiator's free-form `reason:` is **not** surfaced in this
+ack — that text stays on the ledger / manage hero, never in
+participant-facing email. Rationale: the /proof page already
+discloses the revoke commit to anyone with the event id, so
+silence-to-the-signer would create an asymmetric truth state;
+telling them keeps the system honest without exposing the
+initiator's private reasoning.
 
 **Idempotent proof email.** If a locking-dedup event had previously
 auto-completed and emitted a proof email, then a revoke dropped it

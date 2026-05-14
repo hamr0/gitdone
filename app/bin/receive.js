@@ -142,14 +142,19 @@ function isReferenceDocSetFrozen(event) {
 }
 
 // Format a reference_docs list for inclusion in an ack body.
-// One line per doc: "  • <filename> · <sha256[7..15]> · <size>"
-function formatReferenceDocList(docs) {
+// Bullet-only by default ("• <filename> · <sha256> · <size>"), or
+// per-attestor progress checkboxes when signedSet is supplied
+// ("[x]" / "[ ]"). The checkbox form keeps the ack symmetric with the
+// manage UI's "N attestors signed" pill and answers the question
+// repliers actually ask: "did the file I sent get through?".
+function formatReferenceDocList(docs, { signedSet = null } = {}) {
   if (!Array.isArray(docs) || docs.length === 0) return '  (none yet)';
   return docs.map((d) => {
     const name = d.filename || '(unnamed)';
     const hashShort = d.sha256 ? d.sha256.replace(/^sha256:/, '').slice(0, 12) : '?';
     const sz = humanSize(d.size);
-    return `  • ${name} · ${hashShort} · ${sz}`;
+    const marker = signedSet ? (d.sha256 && signedSet.has(d.sha256) ? '[x]' : '[ ]') : '•';
+    return `  ${marker} ${name} · ${hashShort} · ${sz}`;
   }).join('\n');
 }
 
@@ -1556,8 +1561,17 @@ async function main() {
         } else {
           tail = `Replies so far: ${trustQual}/${event.threshold}. The attestation stays open until the threshold is met.`;
         }
+        // Per-attestor progress checkboxes on the docs list — same source
+        // of truth as formatProgressBlock (attestor_progress[hash]
+        // .signed_doc_hashes). Closes the "did the file I sent get
+        // through?" loop directly in the accepted-ack so attestors don't
+        // need to interpret raw bullets.
+        const attProgressForSender = (event.attestor_progress || {})[ackSenderHash];
+        const ackSignedSet = attProgressForSender
+          ? new Set(attProgressForSender.signed_doc_hashes || [])
+          : null;
         const refDocsBlock = (event.reference_docs && event.reference_docs.length)
-          ? `\n\nReference documents (${event.reference_docs.length}):\n${formatReferenceDocList(event.reference_docs)}`
+          ? `\n\nReference documents (${event.reference_docs.length}):\n${formatReferenceDocList(event.reference_docs, { signedSet: ackSignedSet })}`
           : '';
         body = [
           `Your reply to Crypto Attestation "${event.title}" was recorded.`,
