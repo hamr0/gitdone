@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-14T19:53Z · `847ce02` · module 9 follow-up: richer revoke row in the manage ledger
 - 2026-05-14T19:41Z · `7dcb24d` · module 9 follow-up: per-attestor doc checkboxes on accepted ack + docs sync
 - 2026-05-13T19:43Z · `321e5fc` · module 9 hotfix: proof email + subtitle persistence
 - 2026-05-13T19:31Z · `f9458af` · m9 follow-up: narrow-viewport overflow on proof-value column
