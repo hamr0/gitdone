@@ -15,6 +15,21 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### ARC chain-length bug
+
+The "ARC fail · chain length 476" line on receipt blocks was a
+read-the-wrong-property bug, not a real ARC chain. mailauth's
+`arc.authResults` is the rendered `Authentication-Results` header
+**string**; we were reading `.length` of that string (character
+count, ~476 for a typical msn → us hop) and calling it the chain
+depth. The actual chain depth is `arc.i` (the highest ARC instance
+number on the message; 0 when no chain). One-line fix in
+`app/bin/receive.js`. ARC fail itself was never blocking — DKIM
+pass keeps the reply at `trust_level: verified` regardless — but
+the displayed number was nonsense. New events will show the right
+number; commits already written to the audit trail keep their
+original (wrong) value to avoid rewriting history.
+
 ### Module 9 polish — revoke discoverability + crypto closed-early
 
 Three follow-ups from the live deploy, plus a doc sync.

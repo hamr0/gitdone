@@ -1160,7 +1160,13 @@ async function main() {
   const arcSummary = auth.arc ? {
     result: auth.arc.status && auth.arc.status.result,
     comment: (auth.arc.status && auth.arc.status.comment) || null,
-    chain_length: (auth.arc.authResults && auth.arc.authResults.length) || 0,
+    // ARC chain depth = the highest ARC instance number on the message
+    // (i=N for the last seal). mailauth exposes this as `arc.i`. The
+    // earlier read of `arc.authResults.length` was wrong: that field is
+    // the rendered Authentication-Results header *string*, so .length
+    // was the character count (~476 for a single msn→us hop), not a
+    // chain depth. `arc.i` is 0 when no chain exists.
+    chain_length: (auth.arc.i && Number.isFinite(auth.arc.i)) ? auth.arc.i : 0,
   } : null;
   const attachments = summariseAttachments(parsed);
   const rawHash = sha256(raw);
