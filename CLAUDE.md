@@ -66,7 +66,7 @@ no telemetry, invisible beats correct, proofs outlive the service.
 - **Open-source only.** No vendor lock-in. No speculative code, no
   premature abstractions.
 
-Full standards: `.claude/memory/AGENT_RULES.md`.
+Full standards: `/home/hamr/Documents/PycharmProjects/gitdone/.claude/memory/AGENT_RULES.md`.
 
 ## Tech Stack
 

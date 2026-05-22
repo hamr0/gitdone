@@ -176,6 +176,27 @@ Before adding any external dependency, all of these must be true:
 
 ---
 
+## Security & Robustness Invariants
+
+These are the failure classes that show up in nearly every quickly-built app, regardless of stack or language. Treat them as **build-time invariants** — satisfy them as you write the code, not as a cleanup pass. Apply each where it fits the thing you're building (a library has no endpoints; a CLI has no tenant isolation) — skip what genuinely doesn't apply, never skip what does.
+
+Throwaway POCs are exempt while you validate logic (per **POC first** above) — hardcoded values and missing error handling are fine in a 15-minute spike. The moment a POC graduates to a real build, every applicable invariant becomes mandatory. The one item that holds even for a POC: never commit a real secret.
+
+1. **No secrets in the repo.** Keys, tokens, and credentials load from the environment / a secret store at runtime — never hardcoded, never logged. `.env` is gitignored; only a value-less `.env.example` is committed. Scan history before trusting a repo. One leaked key is a breached database or a runaway bill.
+2. **Scope every data access to its owner.** Each record read or written is constrained to the requesting principal — via DB-level rules (RLS / row policies) and/or an application-layer ownership check. Never trust a client-supplied id without a gate. If the storage layer offers row-level policies, enabling them is not optional, and "on but too broad" still fails.
+3. **Bound every reachable endpoint.** Rate-limit public routes AND authenticated mutation/write routes AND abuse-prone inbound paths (mail, webhooks). An unbounded route is a free DoS and bill amplifier — a script in a loop should not be able to take the service down.
+4. **Handle the unhappy path.** Every IO / network / DB / third-party call has an explicit failure path. Nothing fails silently. Internal detail (stack traces, queries, secrets) never reaches the client. Async/background work carries its own catch.
+5. **Authorization is not authentication.** "Logged in" never implies "allowed". Every state-changing or privileged action checks ownership AND role/permission. If swapping an id in a request would expose or mutate someone else's data, it's a bug — return 403.
+6. **Data access scales.** No queries inside loops, no per-render repeated round-trips, indexes on every filtered/joined column. Code that's fine at 10 users and collapses at 1,000 is a latent outage.
+
+Also hold the line on: input validation at every trust boundary (untrusted uploads, inbound mail, webhooks, and spoofable headers like `X-Forwarded-For` — trust them only behind a vetted proxy); parameterized queries (never string-built SQL); vetted libraries for crypto / auth / sanitization (never roll your own); and least-privilege binding (loopback, not `0.0.0.0`, unless the port is deliberately public).
+
+**Verify at two moments, not one.**
+- **While building** — this list shapes the code as it's written.
+- **Before deploy/merge** — run **`/security`** on security-sensitive changes and **`/ship`** as the pre-deploy gate. A Critical/High finding blocks the ship; lower-severity findings get logged and triaged, not silently shipped. Proactively remind the user to run them whenever a change touches auth, data access, endpoints, secrets, or untrusted input.
+
+---
+
 ## Environment
 
 - **OS**: Fedora Linux (use `dnf` for packages, `systemctl` for services)
