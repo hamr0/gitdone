@@ -15,6 +15,30 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Dependency hygiene — knowless 1.1.3 → 1.1.9
+
+- **`knowless` bumped 1.1.3 → 1.1.9** (pin `^1.1.1` → `^1.1.9`). Six
+  releases of the in-house auth lib since the last bump; pulled forward
+  to keep app and lib aligned. **No app-code changes required** — the
+  full suite (573 tests) passes unchanged. Of the six, 1.1.5–1.1.8 are
+  documentation-only and 1.1.4 / 1.1.9 carry small fixes; only two are
+  behaviour-relevant to gitdone, and gitdone already conforms to both:
+  - **1.1.9 — `from` must be a bare address.** `createMailer` now
+    rejects display-format senders (`Name <addr>`) at startup, requiring
+    the bare RFC 5321 address in `from` and the display name in
+    `fromName`. gitdone already passes `from: gitdone@<domain>` +
+    `fromName: 'gitdone'` (`app/src/auth.js`), and supplies its own
+    `mailer` (`createAuthMailer`), so knowless's built-in `createMailer`
+    — where the new check lives — isn't even on gitdone's path.
+  - **1.1.4 — `onTransportFailure` default is now a stderr printer**
+    (was a silent no-op), and the duplicate `console.error` in
+    knowless's `handlers.js` was removed. gitdone doesn't wire the hook
+    and doesn't suppress it, so a failed magic-link send now surfaces
+    one `[knowless] mail submit failed: …` line on stderr instead of
+    being swallowed — a net diagnostic gain, no regression.
+- `npm audit` remains clean (0 advisories); the existing `overrides`
+  still apply.
+
 ### ARC chain-length bug
 
 The "ARC fail · chain length 476" line on receipt blocks was a

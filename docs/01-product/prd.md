@@ -655,7 +655,9 @@ immediately blast real notifications to real participants.
 - **Fail-open for the organiser.** knowless's `startLogin` is silent
   at every layer (FR-6). On SMTP failure during local dev, the magic
   link prints to stderr (`devLogMagicLinks`); in prod, transport
-  failures are logged via knowless's per-event hook.
+  failures surface on stderr via knowless's default `onTransportFailure`
+  hook (gitdone doesn't override it; knowless ≥ 1.1.4 prints there
+  instead of the prior silent no-op).
 
 **On activation, the deferred outbound fan-out fires:**
 - For workflow events: one notification email per eligible root step
