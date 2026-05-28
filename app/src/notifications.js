@@ -18,6 +18,7 @@
 const config = require('./config');
 const { buildRawMessage, sendmail } = require('./outbound');
 const { revokedHashSet } = require('./completion');
+const { isStrictAttestation } = require('./email-recipients');
 const proofRender = require('./web/proof-render');
 
 function stepReplyAddr(event, stepId) {
@@ -922,7 +923,106 @@ async function notifyDeclarationSigner(event) {
   return [result];
 }
 
+// ---------------------------------------------------------------------------
+// Single lifecycle-edge dispatcher.
+//
+// notifyLifecycleEdge(event, edge, payload) is the ONE entry point for
+// per-event (B-axis) lifecycle notifications. It routes the edge to the
+// right composer, normalises every return to a results array
+// ([{ to, ok, message_id?, reason? }, ...]), and owns the edge-specific
+// side effects that were previously copy-pasted across call sites.
+//
+// Edges (match the per-event taxonomy in docs/01-product/emails.md and
+// the resolver in email-recipients.js):
+//   completed  → threshold reached / all steps done   (proof email)
+//   closed     → closed early by initiator             (proof email + redaction)
+//   anchored   → OTS proof upgraded to a BTC anchor    (follow-up)
+//   activated  → pending event went live               (organiser confirm)
+//   progressed → a workflow step completed, next active (organiser update)
+//
+// Side effects this function owns:
+//   * edge === 'closed' AND strict attestation → redactAttestorEmails,
+//     fired POST-notify. This was the identical 11-line block duplicated
+//     in receive.js (close+ committed) and server.js (dashboard close);
+//     folding it here kills that dual-source-of-truth. redactAttestorEmails
+//     is idempotent (alreadyRedacted guard), so a call site that hasn't
+//     migrated yet and still redacts inline is harmless.
+//
+// Deliberately NOT owned here: a generic `${edge}_notified_at` idempotency
+// stamp. The original handoff plan called for one, but:
+//   1. completed/closed re-fire idempotency is ALREADY owned by the
+//      proof_email_sent_at vs completion.completed_at comparison in
+//      receive.js — the gate the oversubscribe-revoke-reopen regression
+//      test guards. A second gating field would risk breaking re-fire.
+//   2. A per-notify updateEventAtomic write would add a non-semantic
+//      "lifecycle edge notified" commit to the per-event git repo on
+//      every send — and that repo IS the proof artifact. Polluting it
+//      with notification bookkeeping is the wrong trade for a system
+//      whose whole pitch is a clean, offline-verifiable audit trail.
+// If observability needs the stamp later, add it as a NON-gating field
+// written alongside an existing semantic commit, never on its own.
+async function notifyLifecycleEdge(event, edge, payload = {}) {
+  if (!event) return [];
+  const asArray = (r) => (Array.isArray(r) ? r : (r ? [r] : []));
+
+  let results;
+  switch (edge) {
+    case 'completed':
+      results = await notifyEventCompletion(event, {
+        reason: payload.reason || 'all_steps_done',
+        completedStepId: payload.completedStepId,
+        commits: payload.commits,
+      });
+      break;
+
+    case 'closed':
+      results = await notifyEventCompletion(event, {
+        reason: 'closed_by_initiator',
+        commits: payload.commits,
+      });
+      break;
+
+    case 'anchored':
+      results = await notifyProofAnchored(event, { anchorInfo: payload.anchorInfo });
+      break;
+
+    case 'activated':
+      results = asArray(await notifyOrganiserOfActivation(event, {
+        sendResults: payload.sendResults,
+      }));
+      break;
+
+    case 'progressed':
+      results = asArray(await notifyOrganiserOfStepProgress(event, {
+        completedStepId: payload.completedStepId,
+        newlyActiveSteps: payload.newlyActiveSteps,
+      }));
+      break;
+
+    default:
+      throw new Error(`notifyLifecycleEdge: unknown edge "${edge}"`);
+  }
+  results = asArray(results);
+
+  // Side effect: close-by-initiator is the terminal signal. Redact
+  // strict-attestation attestor emails now (post-notify) so PII doesn't
+  // linger past the event's active life. event.id drives a fresh
+  // read-modify-write; best-effort — a redaction failure never undoes
+  // the notification.
+  if (edge === 'closed' && isStrictAttestation(event)) {
+    try {
+      const { redactAttestorEmails } = require('./completion');
+      await redactAttestorEmails(event.id, payload.now ? { now: payload.now } : {});
+    } catch (err) {
+      process.stderr.write(`lifecycle-edge-redact: ${err.message || err}\n`);
+    }
+  }
+
+  return results;
+}
+
 module.exports = {
+  notifyLifecycleEdge,
   notifyWorkflowParticipants,
   notifyDeclarationSigner,
   notifyInitiatorAttachDocsNeeded,
