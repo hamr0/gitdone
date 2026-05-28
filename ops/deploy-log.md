@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-28T18:41Z · `82c184f` · release: 0.25.2 — reply acks join the email-bodies catalogue
 - 2026-05-28T18:15Z · `6b5f30c` · release: 0.25.1 — email body catalogue (email-bodies.js)
 - 2026-05-28T17:49Z · `49d3d7b` · release: 0.25.0 — email recipient resolver + lifecycle dispatcher
 - 2026-05-28T15:00Z · `9e6b8ed` · defer module 4e redaction to close — root fix for missed notifications (0.24.8)
