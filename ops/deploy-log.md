@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-28T20:52Z · `1c231da` · security(app): close audit findings M1/M4/M5 + L1/L2/L3 (0.26.0)
 - 2026-05-28T19:07Z · `3acf121` · release: 0.25.3 — command acks + sweep/bounce notices fully in email-bodies
 - 2026-05-28T18:41Z · `82c184f` · release: 0.25.2 — reply acks join the email-bodies catalogue
 - 2026-05-28T18:15Z · `6b5f30c` · release: 0.25.1 — email body catalogue (email-bodies.js)
