@@ -352,9 +352,9 @@ async function run({ dataDir = config.dataDir, binary = OTS_BIN, gitBin = GIT_BI
         try {
           // Lazy require — keeps the script lean when running without
           // sendmail (tests) and matches the established pattern.
-          const { notifyProofAnchored } = require('../src/notifications');
+          const { notifyLifecycleEdge } = require('../src/notifications');
           const lastUpgrade = (r.upgraded_files && r.upgraded_files[0]) || null;
-          const results = await notifyProofAnchored(event, {
+          const results = await notifyLifecycleEdge(event, 'anchored', {
             anchorInfo: {
               anchored_at: new Date().toISOString(),
               proof_path: lastUpgrade ? `${event.id}/${lastUpgrade.file}` : null,

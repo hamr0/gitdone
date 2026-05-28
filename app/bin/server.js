@@ -2179,7 +2179,7 @@ router.post('/manage/event/:id/activate', async (req, res, params) => {
   const { event: activated, alreadyActive } = await activateEvent(params.id);
   event = activated;
   if (!alreadyActive) {
-    const { notifyWorkflowParticipants, notifyDeclarationSigner, notifyOrganiserOfActivation } = require('../src/notifications');
+    const { notifyLifecycleEdge, notifyWorkflowParticipants, notifyDeclarationSigner } = require('../src/notifications');
     try {
       if (event.type === 'event') {
         const results = await notifyWorkflowParticipants(event);
@@ -2191,7 +2191,7 @@ router.post('/manage/event/:id/activate', async (req, res, params) => {
         // outbox immediately after). Best-effort: a send failure logs
         // but doesn't undo the activation.
         try {
-          await notifyOrganiserOfActivation(event, { sendResults: results });
+          await notifyLifecycleEdge(event, 'activated', { sendResults: results });
         } catch (err) {
           process.stderr.write(`activate-organiser-notify: ${err.message || err}\n`);
         }

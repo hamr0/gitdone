@@ -24,7 +24,7 @@ const { sendmail, buildRawMessage } = require('../src/outbound');
 const { forwardToOwner } = require('../src/forward');
 const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
 const { applyReply, applyRevoke, updateEventAtomic, hashSender, revokedHashSet, isClosedByInitiator } = require('../src/completion');
-const { notifyLifecycleEdge, notifyWorkflowParticipants, notifyEventCompletion, notifyOrganiserOfStepProgress } = require('../src/notifications');
+const { notifyLifecycleEdge, notifyWorkflowParticipants } = require('../src/notifications');
 const { authenticateInitiatorCommand, statsBody, executeRemind, executeCloseRequest } = require('../src/email-commands');
 const { bundleToBuffer, bundleFilename, buildAttachmentMessage } = require('../src/bundle');
 const { extractDsn } = require('../src/dsn');
@@ -1339,13 +1339,12 @@ async function main() {
           const { listCommits } = require('../src/gitrepo');
           const allCommits = await listCommits(tag.eventId).catch(() => []);
           const countingCommits = filterCountingCommits(nextEvent, allCommits);
-          // Module 4e — strict-attestation attestor emails: now
-          // resolved inside notifyEventCompletion via getRecipients
-          // (event, 'completed') in email-recipients.js. The inline
-          // auto-gather that used to live here was the second copy
-          // of the strict-mode PII-state read; removing it kills the
-          // last dual-source-of-truth in the completion-notify path.
-          const results = await notifyEventCompletion(nextEvent, {
+          // Module 4e — strict-attestation attestor emails are
+          // resolved inside the dispatcher via getRecipients(event,
+          // 'completed') in email-recipients.js. The 'completed' edge
+          // does NOT redact (see below); redaction is the 'closed'
+          // edge's side effect only.
+          const results = await notifyLifecycleEdge(nextEvent, 'completed', {
             reason,
             completedStepId: applied.completedStep,
             commits: countingCommits,
@@ -1421,7 +1420,7 @@ async function main() {
         // are now active. Awaited so receive.js (a Postfix pipe
         // transport) doesn't exit before the SMTP submission finishes.
         try {
-          await notifyOrganiserOfStepProgress(nextEvent, {
+          await notifyLifecycleEdge(nextEvent, 'progressed', {
             completedStepId: applied.completedStep,
             newlyActiveSteps: newlyEligible,
           });
