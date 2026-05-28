@@ -31,7 +31,7 @@
 
 const config = require('./config');
 const proofRender = require('./web/proof-render');
-const { revokedHashSet, hashSender } = require('./completion');
+const { revokedHashSet, hashSender, isComplete } = require('./completion');
 const { formatProgressBlock } = require('./ack-progress');
 
 // --- reply-address + date helpers (moved from notifications.js) ---
@@ -1063,6 +1063,108 @@ const replyAck = {
 };
 
 // ---------------------------------------------------------------------------
+// cmd — initiator-command (§6.4) acknowledgement bodies. Text only;
+// email-commands.js owns the computation/state-machines and returns
+// structured results, receive.js/server.js own the dispatch and call
+// these for the body text. One home for every composed email body.
+// ---------------------------------------------------------------------------
+
+function statsWorkflowBody(event) {
+  const lines = [];
+  lines.push(`Event: ${event.title}`);
+  lines.push(`ID: ${event.id}`);
+  lines.push(`Minimum trust: ${event.min_trust_level}`);
+  lines.push(`Status: ${isComplete(event) ? 'complete' : 'open'}`);
+  if (isComplete(event) && event.completion && event.completion.completed_at) {
+    lines.push(`Completed at: ${event.completion.completed_at}`);
+  }
+  lines.push('');
+  lines.push('Steps:');
+  for (const s of (event.steps || [])) {
+    const tick = s.status === 'complete' ? '[x]' : '[ ]';
+    const deps = (s.depends_on && s.depends_on.length)
+      ? ` · after ${s.depends_on.join(', ')}`
+      : '';
+    const extra = s.status === 'complete' && s.completed_at ? ` · ${s.completed_at}` : '';
+    lines.push(`  ${tick} ${s.name} → ${s.participant}${deps}${extra}`);
+  }
+  return lines.join('\n');
+}
+
+function statsCryptoBody(event) {
+  const lines = [];
+  lines.push(`Event: ${event.title}`);
+  lines.push(`ID: ${event.id}`);
+  if (event.mode === 'declaration') {
+    lines.push(`Type: ${event.mode}   Minimum trust: ${event.min_trust_level}`);
+  } else {
+    lines.push(`Type: ${event.mode}`);
+  }
+  lines.push(`Status: ${isComplete(event) ? 'complete' : 'open'}`);
+  if (event.mode === 'declaration') {
+    lines.push(`Signer: ${event.signer}`);
+  } else {
+    const replies = event.replies || [];
+    const dedup = event.dedup || 'unique';
+    const revokedSet = revokedHashSet(event);
+    const isStrict = !!event.reference_url
+      && Array.isArray(event.reference_docs)
+      && event.reference_docs.length > 0;
+    if (isStrict) {
+      // Strict mode: threshold gates on attestor buckets, not raw
+      // replies. Surface complete + partial separately so the
+      // initiator sees "1 / 2 with 1 partial" instead of a misleading
+      // raw count.
+      const progressMap = event.attestor_progress || {};
+      const liveKeys = Object.keys(progressMap).filter((k) => !revokedSet.has(k));
+      const complete = liveKeys.filter((k) => progressMap[k] && progressMap[k].complete).length;
+      const partial = liveKeys.length - complete;
+      const docsTotal = event.reference_docs.length;
+      lines.push(`Threshold: ${event.threshold} · Dedup: ${dedup} · Mode: strict (${docsTotal} docs)`);
+      lines.push(`Attestors complete: ${complete} / ${event.threshold}`);
+      if (partial > 0) lines.push(`Attestors partial:  ${partial} (some reference docs still pending)`);
+      lines.push(`Replies in audit:   ${replies.length}`);
+    } else {
+      let count; let label;
+      if (dedup === 'unique' || dedup === 'latest') {
+        const seen = new Set();
+        for (const r of replies) {
+          if (r.sender_hash && !revokedSet.has(r.sender_hash)) seen.add(r.sender_hash);
+        }
+        count = seen.size;
+        label = 'Signers';
+      } else {
+        count = replies.reduce((n, r) => n + (revokedSet.has(r.sender_hash) ? 0 : 1), 0);
+        label = 'Replies';
+      }
+      lines.push(`Threshold: ${event.threshold} · Dedup: ${dedup}`);
+      lines.push(`${label}: ${count} / ${event.threshold}`);
+      if (replies.length !== count) lines.push(`Replies in audit: ${replies.length}`);
+    }
+    if (revokedSet.size > 0) {
+      lines.push(`Revoked: ${revokedSet.size}`);
+    }
+    if (event.threshold_reached_at) {
+      lines.push(`Threshold reached at: ${event.threshold_reached_at}`);
+    }
+  }
+  if (isComplete(event) && event.completion && event.completion.completed_at) {
+    lines.push(`Completed at: ${event.completion.completed_at}`);
+  }
+  return lines.join('\n');
+}
+
+function statsBody(event) {
+  return event.type === 'event' ? statsWorkflowBody(event) : statsCryptoBody(event);
+}
+
+const cmd = {
+  stats: statsBody,
+  statsWorkflow: statsWorkflowBody,
+  statsCrypto: statsCryptoBody,
+};
+
+// ---------------------------------------------------------------------------
 // invite / setup bodies — NOT lifecycle B-edges (they kick off
 // participation rather than report on an event's lifecycle), but they
 // are composed body text, so they live in the catalogue too.
@@ -1219,6 +1321,8 @@ module.exports = {
   formatReferenceDocList,
   // The per-inbound-reply acknowledgement catalogue.
   replyAck,
+  // The initiator-command acknowledgement catalogue.
+  cmd,
   // The lifecycle body/subject catalogue.
   lifecycle: {
     completed,

@@ -25,8 +25,8 @@ const { forwardToOwner } = require('../src/forward');
 const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
 const { applyReply, applyRevoke, updateEventAtomic, hashSender, isClosedByInitiator } = require('../src/completion');
 const { notifyLifecycleEdge, notifyWorkflowParticipants } = require('../src/notifications');
-const { replyAck, formatReferenceDocList } = require('../src/email-bodies');
-const { authenticateInitiatorCommand, statsBody, executeRemind, executeCloseRequest } = require('../src/email-commands');
+const { replyAck, formatReferenceDocList, cmd: cmdBodies } = require('../src/email-bodies');
+const { authenticateInitiatorCommand, executeRemind, executeCloseRequest } = require('../src/email-commands');
 const { bundleToBuffer, bundleFilename, buildAttachmentMessage } = require('../src/bundle');
 const { extractDsn } = require('../src/dsn');
 const logger = require('../src/logger');
@@ -561,7 +561,7 @@ async function main() {
         ].join('\n');
       }
     } else if (cmdTag.command === 'stats') {
-      replyBody = statsBody(cmdEvent);
+      replyBody = cmdBodies.stats(cmdEvent);
     } else if (cmdTag.command === 'remind') {
       const r = await executeRemind(cmdEvent);
       replyBody = r.body;

@@ -9,11 +9,14 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   authenticateInitiatorCommand,
-  statsBody,
-  workflowStatsBody,
-  cryptoStatsBody,
   executeClose,
 } = require('../../src/email-commands');
+// stats bodies moved to the email-bodies catalogue (bodies.cmd.*).
+const {
+  stats: statsBody,
+  statsWorkflow: workflowStatsBody,
+  statsCrypto: cryptoStatsBody,
+} = require('../../src/email-bodies').cmd;
 
 function mkWorkflow(o = {}) {
   return {
