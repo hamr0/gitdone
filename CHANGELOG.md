@@ -15,6 +15,33 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Email bodies: one catalogue, one template per email (0.25.1)
+
+Internal architecture release, **no user-visible behaviour change** —
+every email body and subject is byte-identical to 0.25.0 (verified by
+the proof-emails, strict-signing, web-notifications,
+notify-lifecycle-edge, and oversubscribe-revoke-reopen suites, all of
+which assert on exact text).
+
+The 0.25.0 release unified WHO gets each email (recipient resolver) and
+WHEN (lifecycle dispatcher). This release unifies the TEXT: all
+composed body/subject templates move out of `notifications.js` into a
+single catalogue, `app/src/email-bodies.js`, keyed by tree path —
+`lifecycle.completed.{workflow,declaration,attestation}.{organiser,
+participant,signer,attestor}`, `lifecycle.{activated,progressed,
+anchored}`, and `invite.{workflowStep,declarationSigner,
+attachDocsNeeded}`. The proof-receipt + organiser step-list renderers
+moved too.
+
+`notifications.js` drops from a ~970-line compose-and-send module to a
+thin set of senders (~300 lines) that resolve recipients, pick the
+template by (edge, kind, role), and hand the result to sendOne. No
+sender composes body text inline any more.
+
+Still inline (deferred to a follow-up): the per-commit reply/command
+acks in `receive.js`. Those are tightly interwoven with the inbound
+dispatch and get their own pass.
+
 ### Email notifications: one recipient resolver, one lifecycle dispatcher (0.25.0)
 
 Internal architecture release. **No user-visible behaviour change** —
