@@ -32,67 +32,10 @@ const { buildRawMessage, sendmail } = require('../src/outbound');
 
 const dryRun = process.argv.includes('--dry-run');
 
-function publicBaseUrl() {
-  return process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
-}
-
-function pendingActivationBody({ event, hoursLeft }) {
-  return [
-    `Heads up — your gitdone event "${event.title}" is still pending`,
-    `activation. If you don't activate it, it will be deleted in about`,
-    `${hoursLeft} hour${hoursLeft === 1 ? '' : 's'}, leaving no record.`,
-    ``,
-    `If you still want to send invitations:`,
-    `  ${publicBaseUrl()}/manage`,
-    `Sign in, open the event, and press Activate. Or click Cancel on`,
-    `the dashboard to delete it now. Or do nothing — it lapses on its own.`,
-    ``,
-    `Event ID: ${event.id}`,
-  ].join('\n');
-}
-
-function overdueBody({ event, daysOver }) {
-  const pending = (event.steps || [])
-    .filter((s) => s.status !== 'complete')
-    .map((s) => `  - ${s.name} (${s.participant})`)
-    .join('\n') || '  (crypto event — no per-step breakdown)';
-  return [
-    `Heads up — your gitdone event "${event.title}" has been open for`,
-    `${daysOver} days past its reference deadline with work still pending.`,
-    ``,
-    `Still waiting on:`,
-    pending,
-    ``,
-    `No action is required from gitdone — this is a one-time nudge. Options:`,
-    `  - Send a reminder:  remind+${event.id}@${config.domain}`,
-    `  - Close it early:   close+${event.id}@${config.domain}`,
-    `  - Do nothing:       the event stays open; if it's still idle at`,
-    `                      ${config.archiveDays} days past the deadline it will be`,
-    `                      auto-archived (reversible; no data is lost).`,
-    ``,
-    `Manage: ${publicBaseUrl()}/manage`,
-    `Event ID: ${event.id}`,
-  ].join('\n');
-}
-
-function archivedBody({ event, daysIdle }) {
-  return [
-    `Your gitdone event "${event.title}" has been auto-archived after`,
-    `${daysIdle} days of inactivity past its reference deadline.`,
-    ``,
-    `What this means:`,
-    `  - The event is hidden from your active dashboard.`,
-    `  - New replies to its reply addresses still commit to the audit trail`,
-    `    but no longer count toward completion.`,
-    `  - Nothing has been deleted. The git repo + proofs remain intact.`,
-    ``,
-    `Reactivate anytime from ${publicBaseUrl()}/manage — click the event,`,
-    `then "Un-archive". Any replies that arrived while it was archived`,
-    `can be resent.`,
-    ``,
-    `Event ID: ${event.id}`,
-  ].join('\n');
-}
+// Sweep notice bodies/subjects live in the email-bodies catalogue
+// (bodies.sweep.{pendingActivation,overdue,archived}). This file owns
+// the scheduling/eligibility logic and the send; the catalogue owns text.
+const { sweep: sweepBodies } = require('../src/email-bodies');
 
 async function sendMail({ to, subject, body, eventId }) {
   const from = `gitdone@${config.domain}`;
@@ -125,8 +68,7 @@ async function main() {
       ? { ok: true, dry_run: true }
       : await sendMail({
           to: event.initiator,
-          subject: `[gitdone] "${event.title}" - activate within ${hoursLeft}h or it expires`,
-          body: pendingActivationBody({ event, hoursLeft }),
+          ...sweepBodies.pendingActivation(event, { hoursLeft }),
           eventId: event.id,
         });
     pendingNudgeResults.push({ id: event.id, to: event.initiator, hours_left: hoursLeft, ok: res.ok });
@@ -148,14 +90,7 @@ async function main() {
       ? { ok: true, dry_run: true }
       : await sendMail({
           to: event.initiator,
-          subject: (() => {
-            const steps = Array.isArray(event.steps) ? event.steps : [];
-            const tag = event.type === 'event' && steps.length
-              ? ` [${steps.filter((s) => s.status === 'complete').length}/${steps.length}]`
-              : '';
-            return `[gitdone] "${event.title}" — overdue, ${daysOver} days past deadline${tag}`;
-          })(),
-          body: overdueBody({ event, daysOver }),
+          ...sweepBodies.overdue(event, { daysOver }),
           eventId: event.id,
         });
     nudgeResults.push({ id: event.id, to: event.initiator, days_over: daysOver, ok: res.ok });
@@ -171,8 +106,7 @@ async function main() {
       ? { ok: true, dry_run: true }
       : await sendMail({
           to: initiator,
-          subject: `[gitdone] "${title}" — auto-archived`,
-          body: archivedBody({ event: { id, title }, daysIdle: days_idle }),
+          ...sweepBodies.archived({ id, title }, { daysIdle: days_idle }),
           eventId: id,
         });
     archiveNotifyResults.push({ id, to: initiator, days_idle, ok: res.ok });

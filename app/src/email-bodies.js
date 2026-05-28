@@ -1569,6 +1569,124 @@ function attachDocsNeeded(event, { publicBaseUrl } = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// sweep — time-driven organiser notices fired by the sweep timer
+// (bin/sweep.js): pending-activation nudge, overdue reminder, and the
+// auto-archive notice. Single recipient (the organiser) → { subject, body }.
+// ---------------------------------------------------------------------------
+const sweep = {
+  pendingActivation(event, { hoursLeft } = {}) {
+    const baseUrl = process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
+    return {
+      subject: `[gitdone] "${event.title}" - activate within ${hoursLeft}h or it expires`,
+      body: [
+        `Heads up — your gitdone event "${event.title}" is still pending`,
+        `activation. If you don't activate it, it will be deleted in about`,
+        `${hoursLeft} hour${hoursLeft === 1 ? '' : 's'}, leaving no record.`,
+        ``,
+        `If you still want to send invitations:`,
+        `  ${baseUrl}/manage`,
+        `Sign in, open the event, and press Activate. Or click Cancel on`,
+        `the dashboard to delete it now. Or do nothing — it lapses on its own.`,
+        ``,
+        `Event ID: ${event.id}`,
+      ].join('\n'),
+    };
+  },
+  overdue(event, { daysOver } = {}) {
+    const baseUrl = process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
+    const pending = (event.steps || [])
+      .filter((s) => s.status !== 'complete')
+      .map((s) => `  - ${s.name} (${s.participant})`)
+      .join('\n') || '  (crypto event — no per-step breakdown)';
+    const steps = Array.isArray(event.steps) ? event.steps : [];
+    const tag = event.type === 'event' && steps.length
+      ? ` [${steps.filter((s) => s.status === 'complete').length}/${steps.length}]`
+      : '';
+    return {
+      subject: `[gitdone] "${event.title}" — overdue, ${daysOver} days past deadline${tag}`,
+      body: [
+        `Heads up — your gitdone event "${event.title}" has been open for`,
+        `${daysOver} days past its reference deadline with work still pending.`,
+        ``,
+        `Still waiting on:`,
+        pending,
+        ``,
+        `No action is required from gitdone — this is a one-time nudge. Options:`,
+        `  - Send a reminder:  remind+${event.id}@${config.domain}`,
+        `  - Close it early:   close+${event.id}@${config.domain}`,
+        `  - Do nothing:       the event stays open; if it's still idle at`,
+        `                      ${config.archiveDays} days past the deadline it will be`,
+        `                      auto-archived (reversible; no data is lost).`,
+        ``,
+        `Manage: ${baseUrl}/manage`,
+        `Event ID: ${event.id}`,
+      ].join('\n'),
+    };
+  },
+  archived(event, { daysIdle } = {}) {
+    const baseUrl = process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
+    return {
+      subject: `[gitdone] "${event.title}" — auto-archived`,
+      body: [
+        `Your gitdone event "${event.title}" has been auto-archived after`,
+        `${daysIdle} days of inactivity past its reference deadline.`,
+        ``,
+        `What this means:`,
+        `  - The event is hidden from your active dashboard.`,
+        `  - New replies to its reply addresses still commit to the audit trail`,
+        `    but no longer count toward completion.`,
+        `  - Nothing has been deleted. The git repo + proofs remain intact.`,
+        ``,
+        `Reactivate anytime from ${baseUrl}/manage — click the event,`,
+        `then "Un-archive". Any replies that arrived while it was archived`,
+        `can be resent.`,
+        ``,
+        `Event ID: ${event.id}`,
+      ].join('\n'),
+    };
+  },
+};
+
+// ---------------------------------------------------------------------------
+// notice — out-of-band operational notices to the organiser that aren't a
+// lifecycle B-edge. invitationBounced fires from the DSN-processing path
+// in receive.js when a participant invite bounces. Single recipient →
+// { subject, body }.
+// ---------------------------------------------------------------------------
+const notice = {
+  invitationBounced(event, { recipients = [], eventId } = {}) {
+    const baseUrl = process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
+    const id = eventId || event.id;
+    const lines = [
+      `One or more invitations for your event bounced and were not delivered.`,
+      ``,
+      `Event: ${event.title}`,
+      `Event ID: ${id}`,
+      ``,
+      `Bounced steps:`,
+    ];
+    for (const r of recipients) {
+      const step = (event.steps || []).find((s) => s.id === r.stepId);
+      const name = step ? step.name : r.stepId;
+      const addr = step ? step.participant : (r.finalRecipient || '?');
+      lines.push(`  - ${name} → <${addr}>`);
+      if (r.status) lines.push(`      status: ${r.status}`);
+      if (r.diagnostic) lines.push(`      diagnostic: ${r.diagnostic}`);
+    }
+    lines.push(
+      ``,
+      `Open the dashboard to fix the address(es) — once edited, the`,
+      `participant gets a fresh invitation:`,
+      `  ${baseUrl}/manage/event/${id}`,
+    );
+    return {
+      subject: `[gitdone] "${event.title}" — invitation bounced`,
+      body: lines.join('\n'),
+    };
+  },
+};
+
 module.exports = {
   // Render helpers (re-exported by notifications.js for test imports).
   renderProofBlock,
@@ -1600,4 +1718,8 @@ module.exports = {
     declarationSigner: declarationSignerBody,
     attachDocsNeeded,
   },
+  // sweep-timer organiser notices.
+  sweep,
+  // out-of-band operational notices.
+  notice,
 };

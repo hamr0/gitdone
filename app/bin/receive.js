@@ -25,7 +25,7 @@ const { forwardToOwner } = require('../src/forward');
 const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
 const { applyReply, applyRevoke, updateEventAtomic, hashSender, isClosedByInitiator } = require('../src/completion');
 const { notifyLifecycleEdge, notifyWorkflowParticipants } = require('../src/notifications');
-const { replyAck, cmd: cmdBodies } = require('../src/email-bodies');
+const { replyAck, cmd: cmdBodies, notice: bounceNotice } = require('../src/email-bodies');
 const { authenticateInitiatorCommand, executeRemind, executeCloseRequest } = require('../src/email-commands');
 const { bundleToBuffer, bundleFilename, buildAttachmentMessage } = require('../src/bundle');
 const { extractDsn } = require('../src/dsn');
@@ -312,35 +312,16 @@ async function main() {
       // on the dashboard. Best-effort — a send failure here doesn't undo
       // the persist.
       if (alertEvent && alertEvent.initiator) {
-        const lines = [
-          `One or more invitations for your event bounced and were not delivered.`,
-          ``,
-          `Event: ${alertEvent.title}`,
-          `Event ID: ${eventId}`,
-          ``,
-          `Bounced steps:`,
-        ];
-        for (const r of bucket.recipients) {
-          const step = (alertEvent.steps || []).find((s) => s.id === r.stepId);
-          const name = step ? step.name : r.stepId;
-          const addr = step ? step.participant : (r.finalRecipient || '?');
-          lines.push(`  - ${name} → <${addr}>`);
-          if (r.status) lines.push(`      status: ${r.status}`);
-          if (r.diagnostic) lines.push(`      diagnostic: ${r.diagnostic}`);
-        }
-        lines.push(
-          ``,
-          `Open the dashboard to fix the address(es) — once edited, the`,
-          `participant gets a fresh invitation:`,
-          `  ${process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`}/manage/event/${eventId}`,
-        );
-        const body = lines.join('\n');
+        const { subject, body } = bounceNotice.invitationBounced(alertEvent, {
+          recipients: bucket.recipients,
+          eventId,
+        });
         const fromAddr = `gitdone@${config.domain}`;
         try {
           const rawMessage = buildRawMessage({
             from: fromAddr,
             to: alertEvent.initiator,
-            subject: `[gitdone] "${alertEvent.title}" — invitation bounced`,
+            subject,
             body,
             domain: config.domain,
             autoSubmitted: 'auto-generated',
