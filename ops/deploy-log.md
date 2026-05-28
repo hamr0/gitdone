@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-28T11:22Z · `e0c511c` · revoke discoverability + closed-early consistency (0.24.4)
 - 2026-05-24T19:33Z · `3a784f1` · deps: bump knowless 1.1.3 → 1.1.9
 - 2026-05-15T09:45Z · `1094168` · fix: arc chain_length read the wrong mailauth field
 - 2026-05-14T20:00Z · `ea27941` · module 9 polish: revoke discoverability + crypto closed-early
