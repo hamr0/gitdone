@@ -12,7 +12,7 @@ docs/
 │   └── assumptions.md       constraints, risks, deferred items
 ├── 01-product/      WHAT the product must do
 │   ├── prd.md               authoritative spec
-│   ├── email-formats.md     every email gitdone sends — trigger, subject, body
+│   ├── emails.md            every email gitdone sends — taxonomy tree, trigger, subject, body
 │   └── design/              frozen UI references
 │       ├── terminal-theme-v1.md
 │       ├── event-form-v1.md

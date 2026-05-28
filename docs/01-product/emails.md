@@ -1,4 +1,177 @@
-# Email formats
+# Email system
+
+Complete catalog of every email gitdone sends — taxonomy, subject
+grammar, body shapes, source files, and the architectural plan that
+unifies them.
+
+> **Renamed 2026-05-28** from `email-formats.md` to `emails.md`. The
+> taxonomy tree below was prepended so the structural overview and
+> the per-template details (later sections) live in one place.
+
+---
+
+## Taxonomy — every email at a glance
+
+Two trigger categories. ~66 distinct templates. Each gets a stable
+name that maps directly to its tree path; sender code looks templates
+up by name instead of composing subject/body inline.
+
+```
+gitdone emails
+│
+├─ A. per-COMMIT  (one inbound message → one reply; transactional; sender = recipient)
+│  │  trigger: a single email landed at our MTA. We reply to whoever sent it.
+│  │  No event-state effect on its own. No recipient-set computation needed.
+│  │
+│  ├─ auth (not event-scoped)
+│  │  └─ magic-link.signin                                                       [knowless]
+│  │
+│  ├─ command acks  (sender = event.initiator, DKIM-authenticated)
+│  │  ├─ stats.<kind>                                                            [workflow | decl | att]
+│  │  ├─ remind.summary                                                          [workflow only]
+│  │  ├─ close.token-issued        (close+ stage 1)                              [any]
+│  │  ├─ close.confirmed           (close+ stage 2 CONFIRM)                      [any]
+│  │  ├─ close.token-mismatch                                                    [any]
+│  │  ├─ close.already-complete                                                  [any]
+│  │  ├─ attach.registered                                                       [crypto, ref_url set]
+│  │  ├─ attach.frozen             (post-first-attach)                           [crypto]
+│  │  ├─ attach.rejected           (validation failed)                           [crypto]
+│  │  ├─ revoke.applied                                                          [crypto-att]
+│  │  ├─ revoke.no-targets         (empty body)                                  [crypto-att]
+│  │  ├─ revoke.not-found          (unknown emails)                              [crypto-att]
+│  │  ├─ revoke.not-attestation    (wrong event kind)                            [decl / wf]
+│  │  └─ bundle.tarball                                                          [any]
+│  │
+│  ├─ reply acks  (sender = a participant/signer/attestor)
+│  │  ├─ workflow step  (event+id-step@)
+│  │  │  ├─ accepted                                                             [counted, with own receipt]
+│  │  │  ├─ no-step-id              (bare event+id@ on a workflow)
+│  │  │  ├─ wrong-step              (sender ≠ step.participant)
+│  │  │  ├─ trust-too-low           (below min_trust_level)
+│  │  │  ├─ deps-not-met            (step blocked by depends_on)
+│  │  │  └─ already-done            (step.status === complete)
+│  │  ├─ declaration   (event+id@)
+│  │  │  ├─ signed-in-progress      (strict, more docs to sign)
+│  │  │  ├─ signed                  (event complete)
+│  │  │  ├─ already-signed          (re-reply post-sign)
+│  │  │  ├─ wrong-signer            (sender ≠ event.signer)
+│  │  │  └─ awaiting-ref-docs       (strict, no docs registered yet)
+│  │  └─ attestation   (event+id@)
+│  │     ├─ accepted.loose                                                       [unique/latest/accumulating]
+│  │     ├─ accepted.strict.partial (some docs signed, bucket open)
+│  │     ├─ accepted.strict.complete (bucket complete)
+│  │     ├─ self-reply-not-counted  (sender == initiator)
+│  │     ├─ attachment-hash-mismatch (strict, wrong content)
+│  │     ├─ no-matching-attachments (strict, none of the listed docs)
+│  │     ├─ already-signed          (strict, bucket already complete)
+│  │     ├─ awaiting-ref-docs       (strict, no docs registered yet)
+│  │     ├─ revoked-sender          (revoked attestor's re-reply)
+│  │     ├─ archived                (event archived)
+│  │     ├─ not-yet-activated       (pending_activation)
+│  │     └─ closed                  (event closed-early; reply lands in audit, not counted)
+│  │
+│  ├─ public (no auth, anyone can ask)
+│  │  ├─ verify.report                                                           [verify+id@]
+│  │  ├─ reverify.report                                                         [reverify+id-N@]
+│  │  └─ revoke.unknown-event       (revoke+ to nonexistent id)
+│  │
+│  └─ ops (system-generated, per-message)
+│     ├─ dsn.invitation-bounced     → initiator, per failed step delivery
+│     └─ forward.attachment-relay   → initiator, per counted reply WITH attachments
+│                                     (preserves bytes; gitdone never stores)
+│
+└─ B. per-EVENT  (lifecycle edge: event transitioned → 1..N recipients in defined roles)
+   │  trigger: event-state changed. Recipient set is computed from event state
+   │  + role + edge. PII state is owned by this category. Each edge has an
+   │  idempotency stamp. This is where the recent dual-source bugs lived.
+   │
+   ├─ ACTIVATED edge   (organiser activated)
+   │  ├─ initiator           → activated.<kind>.organiser                        [3 templates]
+   │  └─ signer/participant
+   │     ├─ workflow         → activated.workflow.participant   (root steps only)
+   │     ├─ crypto-dec       → activated.decl.signer            (gated on ref_docs)
+   │     └─ crypto-att       — (none; initiator broadcasts manually)
+   │
+   ├─ PROGRESSED edge   (sub-piece done, NOT terminal)
+   │  ├─ initiator
+   │  │  ├─ workflow         → progressed.workflow.organiser    (one step done)
+   │  │  ├─ crypto-dec       → progressed.decl.organiser        (partial doc-sign)
+   │  │  └─ crypto-att       → progressed.att.organiser         (attestor bucket complete pre-threshold)
+   │  └─ signer/participant
+   │     └─ workflow         → progressed.workflow.participant  (next-step cascade invite)
+   │     (decl / att: no participant notify on this edge)
+   │
+   ├─ COMPLETED edge   (natural terminal — threshold/steps/sign)
+   │  ├─ initiator           → completed.<kind>.organiser                        [3 templates]
+   │  └─ signer/participant  → completed.<kind>.participant                      [3 templates, role-aware body]
+   │
+   ├─ CLOSED edge   (explicit terminal — close+ command or dashboard close)
+   │  ├─ Same recipient shape as COMPLETED
+   │  ├─ Body says "closed early" via a flag passed to the same templates
+   │  └─ SIDE EFFECT (this edge only): redactAttestorEmails for strict-att
+   │
+   ├─ ANCHORED edge   (OTS Bitcoin upgrade — durability event, post-redact)
+   │  ├─ initiator           → anchored.<kind>.organiser                         [3 templates]
+   │  ├─ workflow            → anchored.workflow.participant   (completed steps only)
+   │  ├─ decl                → anchored.decl.signer
+   │  └─ att                 — (none; PII already redacted on close)
+   │
+   ├─ ARCHIVED edge   (45d idle, sweep)
+   │  └─ initiator           → archived.organiser              (with unarchive pointer)
+   │
+   ├─ OVERDUE-NUDGE sub-edge   (pre-archive warning, gated by nudged_overdue_at)
+   │  └─ initiator           → overdue.<kind>.organiser                          [3 templates]
+   │
+   └─ PENDING-ACTIVATION-WARN sub-edge   (T+N hours before 72h GC)
+      └─ initiator           → pending-activation.organiser    (one-shot)
+```
+
+**Counts.** Per-commit (A): 1 auth + 14 command acks + 21 reply acks
+(6 wf + 5 decl + 10 att) + 3 public + 2 ops = **41 templates**.
+Per-event (B): ~25 templates across 7 edges × 3 kinds. Total **≈ 66
+named templates**.
+
+---
+
+## Architecture (planned refactor — full category B + bodies file)
+
+The recent dual-source bugs (`proof_email_sent_at`,
+`attestor_emails_redacted_at` stamped at one edge, read by another)
+were structural: ~8 trigger functions each computed their own
+recipient set; PII redaction was tied to "first proof email send"
+instead of the terminal close edge. Unification:
+
+- **`app/src/email-bodies.js`** — every named template lives here,
+  organised by the tree paths above (`bodies.cmd.revoke.applied`,
+  `bodies.replyAck.attestation.acceptedStrictComplete`,
+  `bodies.lifecycle.completed.attestation.organiser`, …). Each
+  template is a function `(event, args) → { subject, body }`. Senders
+  never compose subject/body inline.
+- **`app/src/email-recipients.js`** — single
+  `getEventRecipients(event, edge) → Map<email, role>`. Owns the
+  strict-attestation PII state. Anyone else asking "who's connected to
+  this event?" calls this and only this.
+- **`app/src/notifications.js`** slims to one entry point:
+  `notifyLifecycleEdge(event, edge, payload)`. Replaces
+  `notifyEventCompletion`, `notifyOrganiserOfActivation`,
+  `notifyOrganiserOfStepProgress`,
+  `notifyInitiatorOfSigningProgress`, `notifyProofAnchored`,
+  `notifyInitiatorAttachDocsNeeded`, `notifyDeclarationSigner`,
+  `notifyWorkflowParticipants` (8 → 1). Stamps
+  `event[${edge}_notified_at]` and fires edge-specific side effects
+  (redaction only on `closed`).
+- **Per-commit (A) bodies move into `email-bodies.js` too** — the
+  dispatch logic in `receive.js` (decision.reason → which template)
+  stays where it is; only the body strings move out.
+
+After the refactor, the dual-source bug class is structurally
+unreachable: one recipient resolver, one PII-state owner, per-edge
+idempotency stamps. See `CHANGELOG.md` 0.24.6–0.24.8 for the symptoms
+this addresses.
+
+---
+
+## Subject grammar
 
 Every email gitdone sends, indexed by trigger. For each: who sends it,
 who receives it, the subject template, the body shape, and the source

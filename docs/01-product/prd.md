@@ -1040,7 +1040,7 @@ the dashboard so it survives the service:
   (looked up by recomputed salted hash, not domain-match) and
   explicitly states *"The aggregate result is private to the
   organiser; this email is YOUR record only."* No aggregate count, no
-  modal trust, no other attestors' domains. `email-formats.md` §11
+  modal trust, no other attestors' domains. `emails.md` §11
   documents all five (mode × role) bodies.
 - **OTS-anchored email** (`[gitdone] proof anchored — "<title>"`)
   fires once per event when the 6-hour OTS upgrade cron flips the
@@ -1081,7 +1081,7 @@ service goes away — the organiser has two routes to the same archive:
   every other initiator command (DKIM + envelope-sender hash matches
   `event.initiator`). Reply lands as a `multipart/mixed` message with
   the same `.tar.gz` attached, threaded to the proof email when there
-  is one. Emails #20–21 in `email-formats.md` describe the proof
+  is one. Emails #20–21 in `emails.md` describe the proof
   receipts; #22 describes the bundle command.
 
 The bundle pairs with the proof emails: the emails carry the receipt

@@ -190,8 +190,8 @@ We don't pretend there's zero trust; we try to make it visible.
 ## Docs
 
 - [PRD](docs/01-product/prd.md) — what it is, what it isn't, why.
-- [Email formats](docs/01-product/email-formats.md) — every email
-  gitdone sends, end-to-end.
+- [Email system](docs/01-product/emails.md) — every email gitdone
+  sends, with full taxonomy tree, end-to-end.
 - [Design references](docs/01-product/design/) — terminal theme,
   proof surfacing, frozen UI specs.
 - [Deploy](docs/04-process/deploy.md) — `ops/deploy.sh` contract.
