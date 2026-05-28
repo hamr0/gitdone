@@ -555,7 +555,7 @@ async function main() {
       replyBody = cmdBodies.stats(cmdEvent);
     } else if (cmdTag.command === 'remind') {
       const r = await executeRemind(cmdEvent);
-      replyBody = r.body;
+      replyBody = cmdBodies.remind.body(r, cmdEvent);
       cmdOutcome.sent_to = r.sentTo.map((x) => ({ to: x.to, ok: x.ok }));
     } else if (cmdTag.command === 'close') {
       const r = executeCloseRequest(cmdEvent, {
@@ -563,7 +563,7 @@ async function main() {
         replySubject: parsed.subject || '',
         replyText: parsed.text || '',
       });
-      replyBody = r.body;
+      replyBody = cmdBodies.close.requestBody(r, cmdEvent, receivedAtCmd);
       cmdOutcome.close_kind = r.kind;
       cmdOutcome.already_complete = r.kind === 'already_complete';
       closeOutcome = r;

@@ -1168,6 +1168,107 @@ const cmd = {
     return `Command rejected: ${reason}.\nOnly the event initiator can issue ${command}+ commands.`;
   },
 
+  // remind+ — text for each executeRemind outcome. email-commands does
+  // the targeting + sends and returns { kind, sentTo }; `body()` is the
+  // single composition site both the email and (future) web paths share.
+  remind: {
+    alreadyComplete(event) {
+      return `Event ${event.id} is already complete; nothing to remind.`;
+    },
+    noEligible() {
+      return 'No eligible steps — every pending step is waiting on upstream dependencies.';
+    },
+    noPending() {
+      return 'No pending steps.';
+    },
+    attestation(event) {
+      return [
+        'Attestation has no participant list — anyone with the reply address below can sign.',
+        '',
+        `Reply to: event+${event.id}@${config.domain}`,
+        '',
+        'Share that address however you like — email, social, QR.',
+      ].join('\n');
+    },
+    sent(results) {
+      const lines = ['Reminders sent:'];
+      for (const r of results) lines.push(`  ${r.ok ? '✓' : '✗'} ${r.to}${r.reason ? ' · ' + r.reason : ''}`);
+      return lines.join('\n');
+    },
+    body(outcome, event) {
+      switch (outcome.kind) {
+        case 'already_complete': return this.alreadyComplete(event);
+        case 'no_eligible': return this.noEligible();
+        case 'no_pending': return this.noPending();
+        case 'attestation': return this.attestation(event);
+        default: return this.sent(outcome.sentTo || []);
+      }
+    },
+  },
+
+  // close+ — text for each executeCloseRequest outcome (two-step email
+  // close) plus the immediate (web dashboard) close. email-commands runs
+  // the state machine and returns the outcome + token/expiry; the
+  // resolvers below turn that into the receipt body.
+  close: {
+    // Immediate close (web dashboard path).
+    alreadyCompleteImmediate(event) {
+      return `Event ${event.id} is already complete (${event.completion.completed_at}).`;
+    },
+    closedImmediate(event, receivedAt) {
+      return `Event ${event.id} ("${event.title}") closed by initiator at ${receivedAt}.`;
+    },
+    // Two-step (email) bodies.
+    unknown() {
+      return 'Unknown event.';
+    },
+    alreadyComplete(event) {
+      return `Event ${event.id} ("${event.title}") is already complete (${event.completion.completed_at}). No action taken.`;
+    },
+    committed(event, receivedAt) {
+      return `Confirmed. Event ${event.id} ("${event.title}") closed by initiator at ${receivedAt}.`;
+    },
+    confirmInstructions(event, token, expiresAt, { leadIn = '' } = {}) {
+      return [
+        leadIn,
+        '',
+        `To close "${event.title}" (${event.id}), reply to this message`,
+        `from the same address with the following confirmation:`,
+        '',
+        `  CONFIRM ${token}`,
+        '',
+        `(in the subject or anywhere in the body — case-insensitive).`,
+        `This token expires at ${expiresAt}.`,
+        '',
+        'Closing the event writes a final completion commit to the audit',
+        'trail and notifies all participants. It cannot be undone.',
+      ].join('\n');
+    },
+    // Resolver for the two-step email outcome.
+    requestBody(outcome, event, receivedAt) {
+      switch (outcome.kind) {
+        case 'already_complete':
+          return event ? this.alreadyComplete(event) : this.unknown();
+        case 'committed':
+          return this.committed(event, receivedAt);
+        case 'token_mismatch':
+          return this.confirmInstructions(event, outcome.token, outcome.expiresAt, {
+            leadIn: 'That confirmation token does not match the outstanding close request.',
+          });
+        case 'pending_remind':
+          return this.confirmInstructions(event, outcome.token, outcome.expiresAt, {
+            leadIn: 'A close request for this event is already outstanding.',
+          });
+        case 'pending_started':
+          return this.confirmInstructions(event, outcome.token, outcome.expiresAt, {
+            leadIn: 'Closing an event is irreversible — confirmation required.',
+          });
+        default:
+          return '';
+      }
+    },
+  },
+
   bundle: {
     ready(event) {
       return [

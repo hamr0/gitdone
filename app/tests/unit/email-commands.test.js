@@ -11,12 +11,14 @@ const {
   authenticateInitiatorCommand,
   executeClose,
 } = require('../../src/email-commands');
-// stats bodies moved to the email-bodies catalogue (bodies.cmd.*).
+// stats + close/remind bodies moved to the email-bodies catalogue
+// (bodies.cmd.*); email-commands returns structured outcomes only.
+const cmdBodies = require('../../src/email-bodies').cmd;
 const {
   stats: statsBody,
   statsWorkflow: workflowStatsBody,
   statsCrypto: cryptoStatsBody,
-} = require('../../src/email-bodies').cmd;
+} = cmdBodies;
 
 function mkWorkflow(o = {}) {
   return {
@@ -134,15 +136,16 @@ test('executeClose: flips state to complete with closed_by=initiator', () => {
   assert.equal(r.newEvent.completion.closed_by, 'initiator');
   assert.equal(r.newEvent.completion.reason, 'close-command');
   assert.equal(r.newEvent.completion.completed_at, '2026-05-01T00:00:00Z');
-  assert.match(r.body, /closed by initiator/);
+  // Body text now lives in the catalogue.
+  assert.match(cmdBodies.close.closedImmediate(r.newEvent, '2026-05-01T00:00:00Z'), /closed by initiator/);
 });
 
-test('executeClose: already-complete event is a no-op with explanatory body', () => {
+test('executeClose: already-complete event is a no-op; catalogue explains', () => {
   const ev = mkWorkflow({
     completion: { status: 'complete', completed_at: '2026-04-19T00:00:00Z' },
   });
   const r = executeClose(ev, { receivedAt: '2026-05-01T00:00:00Z' });
   assert.equal(r.wasAlreadyComplete, true);
   assert.equal(r.newEvent, ev);
-  assert.match(r.body, /already complete/);
+  assert.match(cmdBodies.close.alreadyCompleteImmediate(r.newEvent), /already complete/);
 });

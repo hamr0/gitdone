@@ -8,14 +8,15 @@
 //   remind+{id}@   — re-send pending-participant invitations
 //   close+{id}@    — close the event early
 //
-// Each handler is a pure composer: returns the reply body (+ for remind
-// and close, the side effects they fired). Persistence and sendmail are
-// the caller's (receive.js).
+// Each handler is pure computation / a state-machine: it fires the side
+// effects it owns (remind sends; close advances the confirm machine) and
+// returns a structured outcome. No body text lives here — the caller
+// composes receipts via the email-bodies catalogue (bodies.cmd.*).
+// Persistence and sendmail are the caller's (receive.js / server.js).
 
 'use strict';
 
 const crypto = require('node:crypto');
-const config = require('./config');
 const { meetsTrust, applyReply, updateEventAtomic, eligibleSteps, isComplete } = require('./completion');
 const { notifyWorkflowParticipants, notifyDeclarationSigner } = require('./notifications');
 
@@ -69,54 +70,42 @@ function authenticateInitiatorCommand(event, { sender, trustLevel }) {
 //                  finishes.
 //   declaration  → signer, if event not yet signed
 //   attestation  → n/a, no participant list
-// Returns { body, sentTo: [{to, ok}] }
+// Returns a structured outcome { kind, sentTo }; the caller composes the
+// receipt body via bodies.cmd.remind. Outcome kinds:
+//   already_complete — event finished, nothing to nudge
+//   no_eligible      — workflow, every pending step waits on upstream deps
+//   no_pending       — workflow, nothing pending
+//   attestation      — no participant list; share the reply address
+//   sent             — reminders fired; sentTo carries per-recipient results
 async function executeRemind(event) {
   if (isComplete(event)) {
-    return { body: `Event ${event.id} is already complete; nothing to remind.`, sentTo: [] };
+    return { kind: 'already_complete', sentTo: [] };
   }
   let results = [];
   if (event.type === 'event') {
     const eligible = eligibleSteps(event);
     if (eligible.length === 0) {
       const anyPending = (event.steps || []).some((s) => s.status !== 'complete');
-      return {
-        body: anyPending
-          ? 'No eligible steps — every pending step is waiting on upstream dependencies.'
-          : 'No pending steps.',
-        sentTo: [],
-      };
+      return { kind: anyPending ? 'no_eligible' : 'no_pending', sentTo: [] };
     }
     results = await notifyWorkflowParticipants(event, { stepsOverride: eligible, reminder: true });
   } else if (event.type === 'crypto' && event.mode === 'declaration') {
     results = await notifyDeclarationSigner(event);
   } else if (event.type === 'crypto' && event.mode === 'attestation') {
-    return {
-      body: [
-        'Attestation has no participant list — anyone with the reply address below can sign.',
-        '',
-        `Reply to: event+${event.id}@${config.domain}`,
-        '',
-        'Share that address however you like — email, social, QR.',
-      ].join('\n'),
-      sentTo: [],
-    };
+    return { kind: 'attestation', sentTo: [] };
   }
-  const lines = ['Reminders sent:'];
-  for (const r of results) lines.push(`  ${r.ok ? '✓' : '✗'} ${r.to}${r.reason ? ' · ' + r.reason : ''}`);
-  return { body: lines.join('\n'), sentTo: results };
+  return { kind: 'sent', sentTo: results };
 }
 
 // Immediate close — used by the web dashboard, where the deliberate
 // action is the button click + active session, not an email round-trip.
-// Returns { body, newEvent, wasAlreadyComplete }; persistence + the
-// completion commit are the caller's job.
+// Returns { newEvent, wasAlreadyComplete }; persistence + the completion
+// commit are the caller's job. The web caller doesn't surface a body;
+// the body text (if needed) is bodies.cmd.close.{closedImmediate,
+// alreadyCompleteImmediate}.
 function executeClose(event, { receivedAt }) {
   if (isComplete(event)) {
-    return {
-      body: `Event ${event.id} is already complete (${event.completion.completed_at}).`,
-      newEvent: event,
-      wasAlreadyComplete: true,
-    };
+    return { newEvent: event, wasAlreadyComplete: true };
   }
   const newEvent = {
     ...event,
@@ -127,11 +116,7 @@ function executeClose(event, { receivedAt }) {
       reason: 'close-command',
     },
   };
-  return {
-    body: `Event ${event.id} ("${event.title}") closed by initiator at ${receivedAt}.`,
-    newEvent,
-    wasAlreadyComplete: false,
-  };
+  return { newEvent, wasAlreadyComplete: false };
 }
 
 // Two-step close — used by the email path (close+<id>@). First call
@@ -147,15 +132,14 @@ function executeClose(event, { receivedAt }) {
 //   pending_remind    — outstanding intent, no token in this reply
 //   token_mismatch    — outstanding intent, but token didn't match
 //
-// The body is plain text the caller drops straight into the receipt.
+// Returns a structured outcome; the caller composes the receipt body via
+// bodies.cmd.close.requestBody(outcome, event, receivedAt). The outcome
+// carries kind + newEvent (+ token/expiresAt for the pending kinds, so
+// the body resolver can reprint the confirmation instructions).
 function executeCloseRequest(event, { receivedAt, replySubject = '', replyText = '', generateToken = generateCloseToken } = {}) {
-  if (!event) return { kind: 'already_complete', body: 'Unknown event.', newEvent: null };
+  if (!event) return { kind: 'already_complete', newEvent: null };
   if (isComplete(event)) {
-    return {
-      kind: 'already_complete',
-      body: `Event ${event.id} ("${event.title}") is already complete (${event.completion.completed_at}). No action taken.`,
-      newEvent: event,
-    };
+    return { kind: 'already_complete', newEvent: event };
   }
 
   const supplied = extractCloseToken({ subject: replySubject, body: replyText });
@@ -174,66 +158,25 @@ function executeCloseRequest(event, { receivedAt, replySubject = '', replyText =
         reason: 'close-command',
       },
     };
-    return {
-      kind: 'committed',
-      body: `Confirmed. Event ${event.id} ("${event.title}") closed by initiator at ${receivedAt}.`,
-      newEvent,
-    };
+    return { kind: 'committed', newEvent };
   }
 
   // Outstanding intent + token in reply but mismatched.
   if (pending && pendingValid && supplied && supplied !== pending.token) {
-    return {
-      kind: 'token_mismatch',
-      body: closeConfirmInstructions(event, pending.token, pending.expires_at, {
-        leadIn: 'That confirmation token does not match the outstanding close request.',
-      }),
-      newEvent: null,
-    };
+    return { kind: 'token_mismatch', newEvent: null, token: pending.token, expiresAt: pending.expires_at };
   }
 
   // Outstanding intent + no token: just remind with the same token, do
   // NOT reissue (so a stray re-send can't refresh the window).
   if (pending && pendingValid && !supplied) {
-    return {
-      kind: 'pending_remind',
-      body: closeConfirmInstructions(event, pending.token, pending.expires_at, {
-        leadIn: 'A close request for this event is already outstanding.',
-      }),
-      newEvent: null,
-    };
+    return { kind: 'pending_remind', newEvent: null, token: pending.token, expiresAt: pending.expires_at };
   }
 
   // Otherwise (no intent, or expired): start a fresh pending close.
   const token = generateToken();
   const expiresAt = new Date(new Date(receivedAt).getTime() + CLOSE_CONFIRM_TTL_MS).toISOString();
   const newEvent = { ...event, pending_close: { token, created_at: receivedAt, expires_at: expiresAt } };
-  return {
-    kind: 'pending_started',
-    body: closeConfirmInstructions(event, token, expiresAt, {
-      leadIn: 'Closing an event is irreversible — confirmation required.',
-    }),
-    newEvent,
-    token,
-    expiresAt,
-  };
-}
-
-function closeConfirmInstructions(event, token, expiresAt, { leadIn = '' } = {}) {
-  return [
-    leadIn,
-    '',
-    `To close "${event.title}" (${event.id}), reply to this message`,
-    `from the same address with the following confirmation:`,
-    '',
-    `  CONFIRM ${token}`,
-    '',
-    `(in the subject or anywhere in the body — case-insensitive).`,
-    `This token expires at ${expiresAt}.`,
-    '',
-    'Closing the event writes a final completion commit to the audit',
-    'trail and notifies all participants. It cannot be undone.',
-  ].join('\n');
+  return { kind: 'pending_started', newEvent, token, expiresAt };
 }
 
 module.exports = {
