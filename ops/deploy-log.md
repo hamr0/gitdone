@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-28T19:07Z · `3acf121` · release: 0.25.3 — command acks + sweep/bounce notices fully in email-bodies
 - 2026-05-28T18:41Z · `82c184f` · release: 0.25.2 — reply acks join the email-bodies catalogue
 - 2026-05-28T18:15Z · `6b5f30c` · release: 0.25.1 — email body catalogue (email-bodies.js)
 - 2026-05-28T17:49Z · `49d3d7b` · release: 0.25.0 — email recipient resolver + lifecycle dispatcher
