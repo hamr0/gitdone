@@ -12,7 +12,7 @@ unifies them.
 
 ## Taxonomy — every email at a glance
 
-Two trigger categories. ~66 distinct templates. Each gets a stable
+Two trigger categories. ~68 distinct templates. Each gets a stable
 name that maps directly to its tree path; sender code looks templates
 up by name instead of composing subject/body inline.
 
@@ -126,9 +126,9 @@ gitdone emails
       └─ initiator           → pending-activation.organiser    (one-shot)
 ```
 
-**Counts.** Per-commit (A): 1 auth + 14 command acks + 21 reply acks
-(6 wf + 5 decl + 10 att) + 3 public + 2 ops = **41 templates**.
-Per-event (B): ~25 templates across 7 edges × 3 kinds. Total **≈ 66
+**Counts.** Per-commit (A): 1 auth + 14 command acks + 23 reply acks
+(6 wf + 5 decl + 12 att) + 3 public + 2 ops = **43 templates**.
+Per-event (B): ~25 templates across 7 edges × 3 kinds. Total **≈ 68
 named templates**.
 
 ---
@@ -181,11 +181,28 @@ change):
   not scattered transactional text, so they stay in their domain modules.
 
 Deliberate deviations from the original plan: there is **no
-`${edge}_notified_at` idempotency stamp** — re-fire is already gated
-by `proof_email_sent_at` vs `completion.completed_at`, and a per-notify
-write would add non-semantic commits to the per-event proof repo
-(which IS the proof artifact). Redaction idempotency is the
-`attestor_emails_redacted_at` stamp, written once on close.
+`${edge}_notified_at` idempotency stamp** — a per-notify write would
+add non-semantic commits to the per-event proof repo (which IS the
+proof artifact). Re-fire is instead prevented per edge by state that
+already exists, so no extra stamp is needed:
+
+- `completed` / `closed` — gated by `proof_email_sent_at` vs
+  `completion.completed_at` (the gate the oversubscribe-revoke-reopen
+  regression test guards).
+- `activated` — gated by `activateEvent`'s mutex + `alreadyActive`
+  return and the `event.activated_at` early-return in the activate
+  handler. It's web-triggered (a dashboard POST), so a mail re-delivery
+  can't re-fire it at all; a double-click / retry hits the guard.
+- `progressed` — gated by idempotent reply application: a re-delivered
+  reply lands on an already-`complete` step → "already-done" ack → the
+  step doesn't re-complete, so the `progressed` block never re-enters.
+  (The realistic risk here is a *missed* notice on mid-send crash, not a
+  duplicate.)
+- Redaction idempotency is the `attestor_emails_redacted_at` stamp,
+  written once on close.
+
+If observability ever needs a notified-at stamp, add it as a NON-gating
+field alongside an existing semantic commit, never as its own write.
 
 **Fully migrated (0.25.3):** the per-commit (A) reply/command acks now
 live in `email-bodies.js` (`bodies.replyAck.*` / `bodies.cmd.*`);
@@ -211,7 +228,10 @@ file. Subjects follow a consistent grammar:
 - **Tag** — every gitdone-originated subject starts with `[gitdone]`.
 - **Title quoted** — the event title is wrapped in double quotes when
   present, so subjects that survive auto-quoting in mail clients still
-  read clearly.
+  read clearly. **Exception:** the participant step-scoped subjects
+  (invitation #2, accepted #4, attachment-required #5) lead with the
+  bare title because it heads a `<title> — <step.name> [<idx>/<total>]`
+  clause chain, where quoting reads worse; every other subject quotes.
 - **`[N/M]` counter** — when a workflow has progress to report, the
   counter goes after the title.
 - **Em dash separator** — clauses inside a subject are joined with ` — `.
@@ -620,7 +640,7 @@ Common contract across every body:
 - **Trigger.** Event sat unactivated and is within 24h of the 72h TTL.
 - **Sent by.** `app/bin/sweep.js` (`gitdone-sweep.timer`).
 - **Recipient.** `event.initiator`.
-- **Subject.** `[gitdone] "<title>" - activate within <H>h or it expires`
+- **Subject.** `[gitdone] "<title>" — activate within <H>h or it expires`
 - **Body.** Activation link + what happens at TTL.
 
 ## 14. Overdue nudge
@@ -732,6 +752,29 @@ A second DKIM-authenticated reply within the TTL, containing
 - **Sent by.** `app/bin/receive.js`.
 - **Subject.** `[gitdone] re-verification report for <eventId> commit-<NNN>`
 - **Body.** Same shape as #19, scoped to the one commit.
+
+## 21. Proof anchored (OTS)
+
+The durability follow-up. A completed event's `.ots` proofs start
+calendar-pending; once the last one upgrades to a Bitcoin anchor, every
+contributor who received the completion proof gets a one-time
+confirmation that the proof is now permanently anchored.
+
+- **Trigger.** `ots upgrade` folds a Bitcoin attestation into the last
+  pending `.ots` file for an event (the `ANCHORED` edge — post-completion,
+  post-redaction).
+- **Sent by.** `app/bin/ots-upgrade.js` (`gitdone-ots-upgrade.timer`,
+  every 6h) → `notifyLifecycleEdge(event, 'anchored')`.
+- **Recipient.** Initiator + each contributor who got the proof email:
+  workflow participants of completed steps, the declaration signer.
+  Strict attestation has **none** here — attestor PII was already
+  redacted on the `closed`/`completed` edge.
+- **Subject.** `[gitdone] proof anchored — "<title>"`
+- **Body.** Confirmation the proof is permanently Bitcoin-anchored, with
+  block height, anchored-at timestamp, and the in-repo proof file path.
+- **Idempotency.** Once-only: the upgrade run that flips a proof to
+  anchored is the single trigger; a later height-blind re-run that
+  changes nothing fires nothing (see `ots-upgrade.js`).
 
 ## 22. Initiator command — bundle
 
@@ -1226,10 +1269,18 @@ When adding a new email to gitdone, match these patterns so subjects
 stay scannable in cluttered inboxes:
 
 1. Always start with `[gitdone]`.
-2. Quote the event title with `"…"` when present.
+2. Quote the event title with `"…"` when present — except the
+   participant step subjects (invitation, accepted, attachment-required),
+   which lead with the bare title heading a `<title> — <step.name>`
+   chain.
 3. Use `[N/M]` for workflow progress; drop it for crypto.
 4. Separate clauses with ` — ` (em dash) or ` · ` (middle dot for
-   tighter pairs like `complete` / `next active`).
+   tighter pairs like `complete` / `next active`). **Exception:** the
+   activation magic-link subject (sent via knowless, whose
+   `validateSubject` is ASCII-only) falls back to a plain ` - ` hyphen,
+   since `—`/`·` aren't ASCII. This applies only to knowless-sent
+   subjects; everything on gitdone's own outbound path uses the em
+   dash / middle dot.
 5. Keep subjects bounded — if the natural form grows with step count,
    move detail into the body and surface only the counter.
 6. Set `Auto-Submitted: auto-replied` (acks) or `auto-generated`

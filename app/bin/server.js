@@ -1122,12 +1122,13 @@ function buildCryptoActivationBody(event) {
 // non-ASCII so a non-Latin event title doesn't 500 the create-event
 // response, then truncate to fit alongside the bracketed prefix.
 function activationSubject(title) {
-  // Match the [gitdone] "<title>" - <verb> shape used by every other
-  // outbound subject (completion, bounce, please-sign, etc.) so the
-  // sender alias every mail client groups by stays just "gitdone"
-  // instead of fragmenting into "gitdone activate <title>" etc.
-  // ASCII-only because knowless's validateSubject (60-char cap, no
-  // CR/LF, ASCII-only) gates this string before sending.
+  // Mirror the [gitdone] "<title>" <verb> shape used by every other
+  // outbound subject so the sender alias every mail client groups by
+  // stays just "gitdone" instead of fragmenting into "gitdone activate
+  // <title>" etc. NOTE the separator is a plain hyphen, not the ` — `
+  // em dash the subject convention prefers: knowless's validateSubject
+  // (60-char cap, no CR/LF, ASCII-only) gates this string, and `—`/`·`
+  // are non-ASCII. Hyphen is the ASCII fallback — see Conventions #4.
   const prefix = '[gitdone] "';
   const suffix = `" - activate within ${config.activationTtlHours}h`;
   const room = 60 - prefix.length - suffix.length;

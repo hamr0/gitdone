@@ -271,16 +271,24 @@ async function notifyDeclarationSigner(event) {
 //     migrated yet and still redacts inline is harmless.
 //
 // Deliberately NOT owned here: a generic `${edge}_notified_at` idempotency
-// stamp. The original handoff plan called for one, but:
-//   1. completed/closed re-fire idempotency is ALREADY owned by the
-//      proof_email_sent_at vs completion.completed_at comparison in
-//      receive.js — the gate the oversubscribe-revoke-reopen regression
-//      test guards. A second gating field would risk breaking re-fire.
-//   2. A per-notify updateEventAtomic write would add a non-semantic
-//      "lifecycle edge notified" commit to the per-event git repo on
-//      every send — and that repo IS the proof artifact. Polluting it
-//      with notification bookkeeping is the wrong trade for a system
-//      whose whole pitch is a clean, offline-verifiable audit trail.
+// stamp. The original handoff plan called for one, but a per-notify
+// updateEventAtomic write would add a non-semantic "lifecycle edge
+// notified" commit to the per-event git repo on every send — and that
+// repo IS the proof artifact. Polluting it with notification bookkeeping
+// is the wrong trade for a system whose whole pitch is a clean,
+// offline-verifiable audit trail. Re-fire is instead prevented per edge
+// by state that already exists, so no extra stamp is needed:
+//   * completed / closed — gated by the proof_email_sent_at vs
+//     completion.completed_at comparison in receive.js (the gate the
+//     oversubscribe-revoke-reopen regression test guards). A second
+//     gating field would risk breaking re-fire.
+//   * activated — gated by activateEvent's mutex + alreadyActive return
+//     and the event.activated_at early-return in the activate handler.
+//     Web-triggered, so a mail re-delivery can't re-fire it; a
+//     double-click / retry hits the guard.
+//   * progressed — gated by idempotent reply application: a re-delivered
+//     reply hits an already-complete step → "already-done" ack, so the
+//     step doesn't re-complete and the progressed block never re-enters.
 // If observability needs the stamp later, add it as a NON-gating field
 // written alongside an existing semantic commit, never on its own.
 async function notifyLifecycleEdge(event, edge, payload = {}) {

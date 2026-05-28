@@ -15,6 +15,32 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Email taxonomy doc reconciliation + subject polish (0.26.1)
+
+Validated a round of feedback against the email subsystem and fixed
+what held up. Almost entirely `docs/01-product/emails.md` hygiene; one
+small user-visible subject change.
+
+- **Pending-activation reminder subject** now uses the ` — ` em dash
+  separator (`[gitdone] "<title>" — activate within <H>h or it expires`)
+  instead of a hyphen, matching subject convention #4. (The activation
+  *magic-link* subject keeps its hyphen on purpose — it goes through
+  knowless's ASCII-only `validateSubject`, where `—`/`·` are illegal;
+  this carve-out is now documented in the conventions.)
+- **Doc fixes (no behaviour change):** corrected the stale template
+  rollup (attestation reply-acks are 12, not 10 → 23 reply acks / 43
+  per-commit / ≈68 total); added the missing §21 "Proof anchored (OTS)"
+  detail section; carved out the participant-step subjects (invitation,
+  accepted, attachment-required) as the documented exception to the
+  "quote the title" convention.
+- **Idempotency invariant documented (PRD finding #43 + `emails.md` +
+  `notifications.js`).** The justification for shipping no
+  `${edge}_notified_at` stamp now covers every edge, not just
+  `completed`/`closed`: `activated` is gated by `activateEvent`'s
+  `alreadyActive` guard, `progressed` by idempotent reply application.
+  No code change — re-fire was already prevented; only the rationale
+  was incomplete.
+
 ### Security audit hardening: edge rate-limiting + response headers (0.26.0)
 
 Response to the 2026-05-28 security audit (4 parallel review agents +

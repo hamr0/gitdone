@@ -1578,7 +1578,7 @@ const sweep = {
   pendingActivation(event, { hoursLeft } = {}) {
     const baseUrl = process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
     return {
-      subject: `[gitdone] "${event.title}" - activate within ${hoursLeft}h or it expires`,
+      subject: `[gitdone] "${event.title}" — activate within ${hoursLeft}h or it expires`,
       body: [
         `Heads up — your gitdone event "${event.title}" is still pending`,
         `activation. If you don't activate it, it will be deleted in about`,
