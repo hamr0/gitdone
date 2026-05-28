@@ -2315,6 +2315,21 @@ router.post('/manage/event/:id/close', async (req, res, params) => {
       if (firstOk) {
         try { await recordProofEmailMessageId(params.id, firstOk.message_id); } catch {}
       }
+      // Close-by-initiator (dashboard) is the terminal signal — redact
+      // strict-attestation emails now (post-notify) so PII doesn't
+      // linger after the event is closed. Best-effort.
+      if (r.newEvent.type === 'crypto'
+          && r.newEvent.mode === 'attestation'
+          && r.newEvent.reference_url
+          && Array.isArray(r.newEvent.reference_docs)
+          && r.newEvent.reference_docs.length > 0) {
+        try {
+          const { redactAttestorEmails } = require('../src/completion');
+          await redactAttestorEmails(params.id, { now: new Date().toISOString() });
+        } catch (err) {
+          process.stderr.write(`dashboard-close redact: ${err.message || err}\n`);
+        }
+      }
     } catch (err) {
       process.stderr.write(`dashboard-close notify: ${err.message || err}\n`);
     }

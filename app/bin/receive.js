@@ -622,6 +622,21 @@ async function main() {
                 await recordProofEmailMessageId(cmdTag.eventId, firstOk.message_id);
               } catch {}
             }
+            // Close-by-initiator is the terminal signal — redact
+            // strict-attestation emails now (post-notify) so PII
+            // doesn't linger after the event is closed. Best-effort.
+            if (r.newEvent.type === 'crypto'
+                && r.newEvent.mode === 'attestation'
+                && r.newEvent.reference_url
+                && Array.isArray(r.newEvent.reference_docs)
+                && r.newEvent.reference_docs.length > 0) {
+              try {
+                const { redactAttestorEmails } = require('../src/completion');
+                await redactAttestorEmails(cmdTag.eventId, { now: receivedAtCmd });
+              } catch (err) {
+                cmdOutcome.attestor_email_redact_error = err.message || String(err);
+              }
+            }
           } catch (err) {
             cmdOutcome.completion_notify_error = err.message || String(err);
           }
@@ -1357,21 +1372,21 @@ async function main() {
             extraRecipients: attestorEmails,
           });
           completion.completion_notified = results.map((r) => ({ to: r.to, ok: r.ok }));
-          // Module 4e — redact stored emails immediately after the
-          // one-shot send. Stamps attestor_emails_redacted_at so the
-          // strict branch refuses to re-introduce PII on post-threshold
-          // accumulating replies. Failure here is non-fatal but logged
-          // (the completion already happened; we'd rather note the
-          // missed redaction than crash the receive pipeline).
-          if (isStrictAtt && attestorEmails.length > 0) {
-            try {
-              const { redactAttestorEmails } = require('../src/completion');
-              await redactAttestorEmails(tag.eventId, { now: receivedAt });
-            } catch (err) {
-              process.stderr.write(`attestor-email-redact: ${err.message || err}\n`);
-              completion.attestor_email_redact_error = err.message || String(err);
-            }
-          }
+          // Redaction deliberately does NOT fire here. The original
+          // Module 4e behaviour redacted on first proof-email send,
+          // which broke two flows in practice:
+          //   1. Revoke → reopen → recomplete: the new completion
+          //      can't reach the freshly-completing attestor because
+          //      their email is never stored (alreadyRedacted gate).
+          //   2. Oversubscribe (more attestors complete after the
+          //      threshold-reach reply): post-reach completions
+          //      notify only the initiator because emails were
+          //      redacted at the moment of first reach.
+          // Redaction now fires on close-by-initiator (the explicit
+          // terminal signal). Until close, attestor emails persist
+          // in attestor_progress so every completion event reaches
+          // everyone eligible. See close+ command handler above and
+          // the dashboard-close path in server.js.
           // Stamp proof_email_sent_at to current trigger time. Always
           // overwrites — on a reopen-then-recomplete cycle we WANT
           // the stamp to advance so the gate above (compares stamp

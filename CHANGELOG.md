@@ -15,6 +15,40 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Defer Module 4e redaction to close — root fix for "only N got notified"
+
+The previous two patches (auto-gather recipients in 0.24.6; allow
+proof email re-fire after reopen in 0.24.7) addressed symptoms but
+not the root cause. Live-test confirmed the symptom persisted: in an
+oversubscribe + revoke-reopen-recomplete flow, only the initiator
+got the second proof email — because Module 4e redaction had cleared
+every attestor email at the FIRST proof email send, and the
+`alreadyRedacted` gate in `applyReply` prevented any future bucket-
+completion from re-storing emails. Auto-gather had nothing to
+gather; re-fire fired into the void.
+
+The real fix: redaction belongs at the terminal event, not the
+first proof email. **Redaction now fires on close-by-initiator**
+(via `close+{id}@` or the dashboard "Close event" button) instead
+of on first proof-email send. During the active lifetime,
+`attestor_progress[hash].email` persists, so every completion
+trigger (natural threshold reach, revoke-reopen-recomplete, post-
+threshold bucket completions in oversubscribe, close-by-initiator)
+can reach every eligible attestor.
+
+Privacy is preserved — emails still get redacted; the trigger just
+moves from "first send" to "close." The original Module 4e
+intent was "don't leak PII via post-threshold accumulating replies";
+moving redaction to close still achieves that (an open event under
+accumulating dedup never persisted plaintext anyway, since loose
+attestation skips the strict-email-storage branch entirely).
+
+This was a multiple-sources-of-truth issue at a layer below the
+ones the 0.24.4 / 0.24.5 sweeps caught: `attestor_progress.email`
+(the value) and `attestor_emails_redacted_at` (the gate) had two
+different opinions about when emails should disappear. Now one
+trigger writes both.
+
 ### Proof email re-fires after reopen + close paths notify attestors
 
 Two related gaps in the completion-notification machinery.

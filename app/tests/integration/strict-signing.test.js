@@ -555,12 +555,19 @@ test('strict attestation 4e: completion notification reaches attestors + redact 
     assert.match(organiserBody, /doc\.pdf\s+sha256:/);
     assert.match(aliceBody, /doc\.pdf\s+sha256:/);
 
-    // Post-send: emails must be redacted; stamp must be set.
+    // Post-send: emails MUST persist in attestor_progress through the
+    // active lifetime so revoke-reopen-recomplete and oversubscribe
+    // flows can still reach every eligible attestor. Redaction is
+    // deferred to the close-by-initiator path (and dashboard close,
+    // and archive sweep). See receive.js close+ handler + server.js
+    // dashboard-close handler for the redaction call sites.
     ev = JSON.parse(await fs.readFile(path.join(tmp, 'events', 'sa4e.json'), 'utf8'));
-    for (const [k, p] of Object.entries(ev.attestor_progress)) {
-      assert.equal(p.email, null, `attestor ${k} email must be redacted post-send`);
+    let anyEmail = false;
+    for (const p of Object.values(ev.attestor_progress)) {
+      if (p && typeof p.email === 'string' && p.email.includes('@')) anyEmail = true;
     }
-    assert.ok(ev.attestor_emails_redacted_at, 'attestor_emails_redacted_at must be stamped');
+    assert.ok(anyEmail, 'at least one attestor_progress.email must persist post-send');
+    assert.ok(!ev.attestor_emails_redacted_at, 'attestor_emails_redacted_at must NOT be set pre-close');
   } finally { await fs.rm(tmp, { recursive: true, force: true }); }
 });
 
