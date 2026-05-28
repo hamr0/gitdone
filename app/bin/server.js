@@ -2295,7 +2295,7 @@ router.post('/manage/event/:id/close', async (req, res, params) => {
       summary: { closed_by: 'initiator', reason: 'dashboard-close' },
     });
     try {
-      const { notifyEventCompletion } = require('../src/notifications');
+      const { notifyLifecycleEdge } = require('../src/notifications');
       const { listCommits } = require('../src/gitrepo');
       const { recordProofEmailMessageId } = require('../src/event-store');
       const allCommits = await listCommits(params.id).catch(() => []);
@@ -2310,25 +2310,14 @@ router.post('/manage/event/:id/close', async (req, res, params) => {
       const counting = allCommits.filter((c) => !c.kind && (
         wantedSeqs.has(c.sequence) || (c.sender_hash && wantedHashes.has(c.sender_hash))
       ));
-      const results = await notifyEventCompletion(r.newEvent, { reason: 'closed_by_initiator', commits: counting });
+      // notifyLifecycleEdge owns the close-by-initiator side effect:
+      // strict-attestation email redaction fires post-notify inside
+      // the dispatcher (see notifications.js), so the dashboard-close
+      // path no longer carries its own copy of that block.
+      const results = await notifyLifecycleEdge(r.newEvent, 'closed', { commits: counting });
       const firstOk = results.find((rr) => rr.ok && rr.message_id);
       if (firstOk) {
         try { await recordProofEmailMessageId(params.id, firstOk.message_id); } catch {}
-      }
-      // Close-by-initiator (dashboard) is the terminal signal — redact
-      // strict-attestation emails now (post-notify) so PII doesn't
-      // linger after the event is closed. Best-effort.
-      if (r.newEvent.type === 'crypto'
-          && r.newEvent.mode === 'attestation'
-          && r.newEvent.reference_url
-          && Array.isArray(r.newEvent.reference_docs)
-          && r.newEvent.reference_docs.length > 0) {
-        try {
-          const { redactAttestorEmails } = require('../src/completion');
-          await redactAttestorEmails(params.id, { now: new Date().toISOString() });
-        } catch (err) {
-          process.stderr.write(`dashboard-close redact: ${err.message || err}\n`);
-        }
       }
     } catch (err) {
       process.stderr.write(`dashboard-close notify: ${err.message || err}\n`);

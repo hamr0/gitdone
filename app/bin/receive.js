@@ -24,7 +24,7 @@ const { sendmail, buildRawMessage } = require('../src/outbound');
 const { forwardToOwner } = require('../src/forward');
 const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
 const { applyReply, applyRevoke, updateEventAtomic, hashSender, revokedHashSet, isClosedByInitiator } = require('../src/completion');
-const { notifyWorkflowParticipants, notifyEventCompletion, notifyOrganiserOfStepProgress } = require('../src/notifications');
+const { notifyLifecycleEdge, notifyWorkflowParticipants, notifyEventCompletion, notifyOrganiserOfStepProgress } = require('../src/notifications');
 const { authenticateInitiatorCommand, statsBody, executeRemind, executeCloseRequest } = require('../src/email-commands');
 const { bundleToBuffer, bundleFilename, buildAttachmentMessage } = require('../src/bundle');
 const { extractDsn } = require('../src/dsn');
@@ -610,9 +610,12 @@ async function main() {
             const { listCommits } = require('../src/gitrepo');
             const allCommitsClose = await listCommits(cmdTag.eventId).catch(() => []);
             const countingClose = filterCountingCommits(r.newEvent, allCommitsClose);
-            const results = await notifyEventCompletion(r.newEvent, {
-              reason: 'closed_by_initiator',
+            // notifyLifecycleEdge owns the close-by-initiator side
+            // effect: strict-attestation email redaction fires
+            // post-notify inside the dispatcher (see notifications.js).
+            const results = await notifyLifecycleEdge(r.newEvent, 'closed', {
               commits: countingClose,
+              now: receivedAtCmd,
             });
             cmdOutcome.completion_notified = results.map((x) => ({ to: x.to, ok: x.ok }));
             const firstOk = results.find((rr) => rr.ok && rr.message_id);
@@ -621,21 +624,6 @@ async function main() {
                 const { recordProofEmailMessageId } = require('../src/event-store');
                 await recordProofEmailMessageId(cmdTag.eventId, firstOk.message_id);
               } catch {}
-            }
-            // Close-by-initiator is the terminal signal — redact
-            // strict-attestation emails now (post-notify) so PII
-            // doesn't linger after the event is closed. Best-effort.
-            if (r.newEvent.type === 'crypto'
-                && r.newEvent.mode === 'attestation'
-                && r.newEvent.reference_url
-                && Array.isArray(r.newEvent.reference_docs)
-                && r.newEvent.reference_docs.length > 0) {
-              try {
-                const { redactAttestorEmails } = require('../src/completion');
-                await redactAttestorEmails(cmdTag.eventId, { now: receivedAtCmd });
-              } catch (err) {
-                cmdOutcome.attestor_email_redact_error = err.message || String(err);
-              }
             }
           } catch (err) {
             cmdOutcome.completion_notify_error = err.message || String(err);
