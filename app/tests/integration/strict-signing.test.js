@@ -536,11 +536,16 @@ test('strict attestation 4e: completion notification reaches attestors + redact 
       if (/alice@ex\.com/i.test(toLine)) aliceBody = body;
     }
     assert.ok(organiserBody && aliceBody, 'expected both organiser and alice bodies captured');
-    // Organiser body MUST surface aggregate trust posture.
-    assert.match(organiserBody, /Replies counted/i, 'organiser body should include the aggregate receipt block');
+    // Organiser body MUST surface aggregate trust posture. The receipt
+    // header is "Attestors complete" for strict mode (vs "Signers" /
+    // "Replies" for loose modes); either form proves the aggregate
+    // block was rendered.
+    assert.match(organiserBody, /Attestors complete|Signers|^Replies\s+\d/im, 'organiser body should include the aggregate receipt block');
+    assert.match(organiserBody, /Modal trust/i, 'organiser body should include modal trust posture');
     assert.match(organiserBody, /Mode: Attestation/i, 'organiser body should declare mode');
     // Alice's body MUST NOT include aggregate counts (over-share guard).
-    assert.doesNotMatch(aliceBody, /Replies counted/i, 'attestor body must NOT leak aggregate count');
+    assert.doesNotMatch(aliceBody, /Modal trust/i, 'attestor body must NOT leak modal trust');
+    assert.doesNotMatch(aliceBody, /Attestors complete/i, 'attestor body must NOT leak aggregate count');
     assert.doesNotMatch(aliceBody, /Modal trust/i, 'attestor body must NOT leak modal trust');
     assert.match(aliceBody, /Your receipt/i, 'attestor body should carry their OWN receipt block');
     assert.match(aliceBody, /YOUR record only/, 'attestor body should state the privacy framing explicitly');

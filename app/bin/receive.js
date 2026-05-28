@@ -23,7 +23,7 @@ const { buildVerificationReport, formatVerifyReportBody } = require('../src/veri
 const { sendmail, buildRawMessage } = require('../src/outbound');
 const { forwardToOwner } = require('../src/forward');
 const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
-const { applyReply, applyRevoke, updateEventAtomic, hashSender, revokedHashSet } = require('../src/completion');
+const { applyReply, applyRevoke, updateEventAtomic, hashSender, revokedHashSet, isClosedByInitiator } = require('../src/completion');
 const { notifyWorkflowParticipants, notifyEventCompletion, notifyOrganiserOfStepProgress } = require('../src/notifications');
 const { authenticateInitiatorCommand, statsBody, executeRemind, executeCloseRequest } = require('../src/email-commands');
 const { bundleToBuffer, bundleFilename, buildAttachmentMessage } = require('../src/bundle');
@@ -1071,9 +1071,21 @@ async function main() {
     }
 
     if (to && replyBody) {
+      // Counter + closed-early infix mirror the proof-email subject so
+      // the initiator's triage view shows the impact of the revoke
+      // (effective/threshold) and whether the event is still terminal.
+      // Read from revokeEvent (pre-revoke snapshot, in scope here);
+      // threshold is immutable, and the closed-early check is gated
+      // on `!revokedOutcome.reopened` so a revoke that re-opens the
+      // event doesn't claim "closed early" in the subject.
+      const counterTag = (typeof revokeOutcome.count_after === 'number' && revokeEvent && revokeEvent.threshold)
+        ? ` [${revokeOutcome.count_after}/${revokeEvent.threshold}]`
+        : '';
+      const stillClosedEarly = revokeEvent && isClosedByInitiator(revokeEvent) && !revokeOutcome.reopened;
+      const closedInfix = stillClosedEarly ? ' — closed early' : '';
       const subject = revokeEvent
-        ? `[gitdone] revoke+ — ${revokeEvent.title}`
-        : `[gitdone] revoke+ — ${revokeTag.eventId}`;
+        ? `[gitdone] revoke+ — ${revokeEvent.title}${counterTag}${closedInfix}`
+        : `[gitdone] revoke+ — ${revokeTag.eventId}${counterTag}${closedInfix}`;
       const rawMessage = buildRawMessage({
         from: `gitdone <${fromAddrRev}>`,
         to, subject, body: replyBody,

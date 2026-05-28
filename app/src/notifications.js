@@ -249,27 +249,56 @@ function renderProofBlock(event, commits, { recipient } = {}) {
     ].join('\n');
   }
   if (event.type === 'crypto' && event.mode === 'attestation') {
-    // Module 9 — when any senders are revoked, the raw commits.length
-    // overstates the effective count. The proof block surfaces both so
-    // the durable record matches the audit trail AND tells a reader
-    // what counted post-revoke. Aggregate trust counts are over the
-    // effective (live, non-revoked) subset — that's what "verified"
-    // means in the proof context.
+    // The receipt's primary line uses the SAME unit as event.threshold
+    // so "N / T" reads as the threshold comparison. Three modes:
+    //   - strict (reference_url + reference_docs): complete attestor
+    //     buckets — the unit the engine actually compares to threshold.
+    //   - loose accumulating: raw live replies (multi-counts are the
+    //     point of accumulating).
+    //   - loose unique/latest: distinct sender_hashes — one signer,
+    //     one count.
+    // Raw audit count surfaces as a second line only when it differs
+    // from the primary (multi-doc submissions, accumulating with
+    // revokes, etc.), so the durable record still matches the git log.
     const revokedSet = revokedHashSet(event);
     const liveCommits = revokedSet.size > 0
       ? commits.filter((c) => !c.sender_hash || !revokedSet.has(c.sender_hash))
       : commits;
     const ag = proofRender.aggregateTrust(liveCommits);
+    const isStrict = !!event.reference_url
+      && Array.isArray(event.reference_docs)
+      && event.reference_docs.length > 0;
+    const dedup = event.dedup || 'unique';
+    let primaryLabel; let primaryN;
+    if (isStrict) {
+      primaryLabel = 'Attestors complete';
+      const progressMap = event.attestor_progress || {};
+      primaryN = Object.keys(progressMap)
+        .filter((k) => progressMap[k] && progressMap[k].complete && !revokedSet.has(k))
+        .length;
+    } else if (dedup === 'accumulating') {
+      primaryLabel = 'Replies';
+      primaryN = liveCommits.length;
+    } else {
+      primaryLabel = 'Signers';
+      const distinct = new Set();
+      for (const c of liveCommits) {
+        if (c.sender_hash) distinct.add(c.sender_hash);
+      }
+      primaryN = distinct.size || liveCommits.length;
+    }
+    const t = event.threshold != null ? String(event.threshold) : '?';
     const lines = [
       'Cryptographic receipt',
       '---------------------',
+      `${primaryLabel.padEnd(18)} ${primaryN} / ${t}`,
     ];
+    const auditN = commits.length;
+    if (revokedSet.size > 0 || auditN !== primaryN) {
+      lines.push(`Replies in audit  ${auditN}`);
+    }
     if (revokedSet.size > 0) {
-      lines.push(`Replies in audit  ${commits.length}`);
-      lines.push(`Revoked           ${commits.length - liveCommits.length}`);
-      lines.push(`Effective         ${liveCommits.length}`);
-    } else {
-      lines.push(`Replies counted   ${commits.length}`);
+      lines.push(`Revoked           ${auditN - liveCommits.length}`);
     }
     lines.push(`Modal trust       ${ag.modal || 'unknown'}`);
     const c = ag.counts;

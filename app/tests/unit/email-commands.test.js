@@ -107,8 +107,11 @@ test('cryptoStatsBody attestation: threshold + dedup + reply count', () => {
   assert.match(body, /Dedup: unique/);
   // allow_anonymous is gone from attestation — trust is dedup-derived
   assert.doesNotMatch(body, /Anonymous/);
-  // unique dedup: 3 replies, 2 distinct senders
-  assert.match(body, /Replies received: 2/);
+  // unique dedup: 3 replies, 2 distinct senders → primary "Signers"
+  // line in the threshold's unit; the audit-trail count surfaces as
+  // a second line because audit (3) != primary (2).
+  assert.match(body, /Signers: 2 \/ 10/);
+  assert.match(body, /Replies in audit: 3/);
 });
 
 test('statsBody: dispatches based on event.type', () => {

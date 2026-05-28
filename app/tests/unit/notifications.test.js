@@ -143,16 +143,48 @@ test('renderProofBlock for workflow surfaces step name + sender domain per recei
 });
 
 test('renderProofBlock for attestation summarises modal trust + counts', () => {
+  // Loose unique: primary line is distinct signers, since that's the
+  // unit the engine compares to threshold.
   const event = { id: 'a1', type: 'crypto', mode: 'attestation', title: 'A', threshold: 3, replies: [] };
   const block = renderProofBlock(event, [
-    { ...sampleVerifiedCommit, sequence: 1 },
-    { ...sampleVerifiedCommit, sequence: 2 },
-    { ...sampleVerifiedCommit, trust_level: 'forwarded', sequence: 3 },
+    { ...sampleVerifiedCommit, sender_hash: 'h-a', sequence: 1 },
+    { ...sampleVerifiedCommit, sender_hash: 'h-b', sequence: 2 },
+    { ...sampleVerifiedCommit, sender_hash: 'h-c', trust_level: 'forwarded', sequence: 3 },
   ]);
-  assert.match(block, /Replies counted\s+3/);
+  assert.match(block, /Signers\s+3 \/ 3/);
   assert.match(block, /Modal trust\s+verified/);
   assert.match(block, /Verified\s+2/);
   assert.match(block, /Forwarded\s+1/);
+  // No audit-trail second line when audit == primary.
+  assert.doesNotMatch(block, /Replies in audit/);
+});
+
+test('renderProofBlock for strict attestation: primary line = complete attestor buckets', () => {
+  // Strict (reference_url + reference_docs registered) — threshold
+  // gates on complete buckets, NOT raw commits. Multi-doc submissions
+  // create multiple commits per attestor; the primary line stays in
+  // the threshold's unit and the raw count moves to "Replies in audit".
+  const event = {
+    id: 'a-strict', type: 'crypto', mode: 'attestation', title: 'S',
+    threshold: 2, dedup: 'unique', replies: [],
+    reference_url: 'https://example.com/manifest',
+    reference_docs: [
+      { filename: 'a.pdf', sha256: 'sha256:aa' },
+      { filename: 'b.pdf', sha256: 'sha256:bb' },
+    ],
+    attestor_progress: {
+      'h-alice': { complete: true, signed_doc_hashes: ['sha256:aa', 'sha256:bb'] },
+      'h-bob':   { complete: true, signed_doc_hashes: ['sha256:aa', 'sha256:bb'] },
+    },
+  };
+  const block = renderProofBlock(event, [
+    { ...sampleVerifiedCommit, sender_hash: 'h-alice', sequence: 1 },
+    { ...sampleVerifiedCommit, sender_hash: 'h-alice', sequence: 2 },
+    { ...sampleVerifiedCommit, sender_hash: 'h-bob', sequence: 3 },
+  ]);
+  assert.match(block, /Attestors complete\s+2 \/ 2/);
+  assert.match(block, /Replies in audit\s+3/);
+  assert.doesNotMatch(block, /Replies counted/);
 });
 
 test('renderProofBlock attestation: revoked senders surface as audit/revoked/effective triple', () => {
@@ -169,22 +201,25 @@ test('renderProofBlock attestation: revoked senders surface as audit/revoked/eff
     { ...sampleVerifiedCommit, sender_hash: 'h-msn', sequence: 2 },
     { ...sampleVerifiedCommit, sender_hash: 'h-gmail', sequence: 3 },
   ]);
-  // Raw commit counts; threshold-level dedup is the subject's job.
+  // Primary line is distinct live signers (1 — only gmail survives revoke).
+  assert.match(block, /Signers\s+1 \/ 2/);
+  // Audit-trail breakdown still surfaces the revoke diff.
   assert.match(block, /Replies in audit\s+3/);
   assert.match(block, /Revoked\s+2/);
-  assert.match(block, /Effective\s+1/);
   // Trust counts are over effective subset only — gmail.
   assert.match(block, /Verified\s+1/);
-  // The pre-revoke "Replies counted" label is gone when revoke present.
   assert.doesNotMatch(block, /Replies counted/);
 });
 
-test('renderProofBlock attestation: no revoked_senders → keeps original "Replies counted" label', () => {
-  // Regression guard for the existing test contract above.
+test('renderProofBlock attestation: no revoked_senders → primary signer line, no audit-trail second line', () => {
+  // Loose unique, no revoke: primary line uses "Signers" (threshold
+  // unit) and the audit-trail breakdown is omitted because it would
+  // be redundant with the primary count.
   const event = { id: 'a3', type: 'crypto', mode: 'attestation', threshold: 2, replies: [] };
-  const block = renderProofBlock(event, [{ ...sampleVerifiedCommit, sequence: 1 }]);
-  assert.match(block, /Replies counted\s+1/);
+  const block = renderProofBlock(event, [{ ...sampleVerifiedCommit, sender_hash: 'h-only', sequence: 1 }]);
+  assert.match(block, /Signers\s+1 \/ 2/);
   assert.doesNotMatch(block, /Replies in audit/);
+  assert.doesNotMatch(block, /Replies counted/);
 });
 
 test('renderProofBlock returns "" when no commits provided', () => {

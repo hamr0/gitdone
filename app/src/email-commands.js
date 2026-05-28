@@ -93,20 +93,41 @@ function cryptoStatsBody(event) {
   } else {
     const replies = event.replies || [];
     const dedup = event.dedup || 'unique';
-    // Module 8 — drop revoked sender_hashes from the user-facing count.
     const revokedSet = revokedHashSet(event);
-    let count;
-    if (dedup === 'unique') {
-      const seen = new Set();
-      for (const r of replies) {
-        if (r.sender_hash && !revokedSet.has(r.sender_hash)) seen.add(r.sender_hash);
-      }
-      count = seen.size;
+    const isStrict = !!event.reference_url
+      && Array.isArray(event.reference_docs)
+      && event.reference_docs.length > 0;
+    if (isStrict) {
+      // Strict mode: threshold gates on attestor buckets, not raw
+      // replies. Surface complete + partial separately so the
+      // initiator sees "1 / 2 with 1 partial" instead of a misleading
+      // raw count.
+      const progressMap = event.attestor_progress || {};
+      const liveKeys = Object.keys(progressMap).filter((k) => !revokedSet.has(k));
+      const complete = liveKeys.filter((k) => progressMap[k] && progressMap[k].complete).length;
+      const partial = liveKeys.length - complete;
+      const docsTotal = event.reference_docs.length;
+      lines.push(`Threshold: ${event.threshold} · Dedup: ${dedup} · Mode: strict (${docsTotal} docs)`);
+      lines.push(`Attestors complete: ${complete} / ${event.threshold}`);
+      if (partial > 0) lines.push(`Attestors partial:  ${partial} (some reference docs still pending)`);
+      lines.push(`Replies in audit:   ${replies.length}`);
     } else {
-      count = replies.reduce((n, r) => n + (revokedSet.has(r.sender_hash) ? 0 : 1), 0);
+      let count; let label;
+      if (dedup === 'unique' || dedup === 'latest') {
+        const seen = new Set();
+        for (const r of replies) {
+          if (r.sender_hash && !revokedSet.has(r.sender_hash)) seen.add(r.sender_hash);
+        }
+        count = seen.size;
+        label = 'Signers';
+      } else {
+        count = replies.reduce((n, r) => n + (revokedSet.has(r.sender_hash) ? 0 : 1), 0);
+        label = 'Replies';
+      }
+      lines.push(`Threshold: ${event.threshold} · Dedup: ${dedup}`);
+      lines.push(`${label}: ${count} / ${event.threshold}`);
+      if (replies.length !== count) lines.push(`Replies in audit: ${replies.length}`);
     }
-    lines.push(`Threshold: ${event.threshold} · Dedup: ${dedup}`);
-    lines.push(`Replies received: ${count}`);
     if (revokedSet.size > 0) {
       lines.push(`Revoked: ${revokedSet.size}`);
     }

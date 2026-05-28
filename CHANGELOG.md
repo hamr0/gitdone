@@ -15,6 +15,45 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Receipt vocabulary aligned with threshold unit
+
+Live-test validation flagged three vocabulary mismatches that all
+share the same root cause — the receipt block and stats body were
+reporting raw commit counts ("Replies counted N") against a
+threshold that's measured in a different unit (signers or complete
+attestors). Reads as a contradiction when the two diverge (e.g.
+"Replies counted 4" with "threshold 2" looks broken).
+
+- **Proof email receipt — primary line uses the threshold's unit.**
+  `renderProofBlock` for attestation now branches on dedup + strict
+  mode and labels the threshold-relevant count accordingly:
+  - **strict** (reference_url + reference_docs set) → `Attestors complete N / T`
+  - **loose accumulating** → `Replies N / T`
+  - **loose unique/latest** → `Signers N / T`
+  Raw audit count moves to a secondary `Replies in audit:` line that
+  only surfaces when it differs from the primary (multi-doc
+  submissions, accumulating with revokes). Revocation breakdown
+  (`Revoked: M`) still appears separately when applicable. The
+  pre-Module-9 "Replies counted N" label is gone everywhere.
+- **`stats+{id}@` body — strict mode surfaces complete vs partial.**
+  For strict attestation events the body now distinguishes
+  `Attestors complete: N / T` from `Attestors partial: M (some
+  reference docs still pending)` and `Replies in audit: K`, so the
+  initiator can see at a glance that a signer has started signing
+  but not finished. Loose modes label `Signers: N / T` or `Replies:
+  N / T` to match the threshold's unit (was the generic "Replies
+  received: N").
+- **Revoke ack subject carries the counter + closed-early infix.**
+  The reply to `revoke+{id}@` previously had subject `[gitdone]
+  revoke+ — <title>` with no impact summary; the organiser had to
+  open the body to see the new count. Now mirrors the proof-email
+  subject conventions: `[gitdone] revoke+ — <title> [N/T]` with the
+  effective/threshold counter, plus a ` — closed early` infix when
+  the event was already closed-by-initiator pre-revoke and revoke
+  didn't re-open it. Inbox triage now tells the whole story.
+
+574 tests pass (added one strict-mode receipt test).
+
 ### Revoke discoverability + closed-early consistency
 
 Live-deploy testing surfaced three gaps from the Module 9 polish pass.
