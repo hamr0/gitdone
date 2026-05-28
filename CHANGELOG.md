@@ -15,6 +15,45 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Email notifications: one recipient resolver, one lifecycle dispatcher (0.25.0)
+
+Internal architecture release. **No user-visible behaviour change** —
+every email that went out before still goes out, to the same people,
+with the same content. What changed is the shape of the code that
+decides *who* gets *which* lifecycle email, and it closes the
+structural gap that produced the 0.24.6 → 0.24.8 incident cycle.
+
+Before, "who is connected to this event?" was answered by inline
+recipient-set builders copy-pasted across `notifications.js`,
+`receive.js`, and `server.js` — each reading a slightly different mix
+of `initiator`, `steps`, `signer`, and the strict-attestation
+`attestor_progress[hash].email` PII state. Those copies drifted, and
+the drift is exactly how strict-attestation attestors went missing
+from the proof email after a revoke-reopen-recomplete.
+
+Now there is:
+
+- **One recipient resolver** — `app/src/email-recipients.js`
+  `getRecipients(event, edge)`. The single source of truth for the
+  recipient set of every lifecycle edge, including the
+  strict-attestation PII-state read (which respects
+  `attestor_emails_redacted_at` as the one redaction signal).
+- **One lifecycle dispatcher** — `notifyLifecycleEdge(event, edge,
+  payload)`. Every per-event notification (completed, closed,
+  anchored, activated, progressed) routes through it.
+- **One redaction call site** — the close-by-initiator
+  `redactAttestorEmails` block, previously duplicated verbatim in the
+  `close+` handler and the dashboard-close handler, is now solely the
+  dispatcher's `closed`-edge side effect.
+
+Guarded by a new end-to-end regression test that walks the exact
+failure lifecycle (threshold reach → revoke → reopen → recomplete →
+close → redact) and 32 new unit/dispatcher tests. 607 tests pass.
+
+A follow-up (0.25.1) will move the email *body* templates into a
+single `email-bodies.js` catalog; this release is the recipient/
+dispatch unification only.
+
 ### Defer Module 4e redaction to close — root fix for "only N got notified"
 
 The previous two patches (auto-gather recipients in 0.24.6; allow
