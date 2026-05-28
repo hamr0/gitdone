@@ -66,8 +66,15 @@ function sanitizeSubject(s) {
   return String(s == null ? '' : s).replace(/[\r\n]+/g, ' ');
 }
 
-// Build a raw RFC-822 message from structured fields. Plaintext only;
-// non-ASCII subjects are RFC 2047 encoded.
+// Build a raw RFC-822 message from structured fields. Plaintext only.
+// NOTE: subjects are emitted as raw UTF-8 (no RFC 2047 encoded-words).
+// gitdone subjects routinely carry an em dash / middle dot (convention
+// #4 in docs/01-product/emails.md), and Gmail/MSN — our real receivers —
+// accept 8-bit subjects over the OS MTA's 8BITMIME path; this has shipped
+// since the 0.25.x lifecycle emails. If a stricter receiver ever mangles
+// them, the fix is to RFC 2047-encode here (and re-baseline the subject
+// assertions, which pin exact bytes). The ASCII-only knowless channel
+// (activation magic link) sidesteps this entirely by using a hyphen.
 function buildRawMessage({ from, to, subject, body, inReplyTo, references, autoSubmitted, messageId, extraHeaders, domain, replyTo, noSignature }) {
   if (!from || !to || !subject || body == null) {
     throw new Error('buildRawMessage: from, to, subject, body are required');

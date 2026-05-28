@@ -242,3 +242,26 @@ test('shouldCount* gates on archived_at', () => {
   assert.equal(r.count, false);
   assert.equal(r.reason, 'event archived');
 });
+
+// Subject-convention guard (emails.md convention #4): the sweep-timer
+// organiser notices go out on gitdone's own outbound path (not the
+// ASCII-only knowless channel), so their clause separator must be the
+// ` — ` em dash, never a hyphen. Pins the 0.26.1 fix so a future edit
+// can't silently regress the pending-activation reminder back to `-`.
+test('sweep notice subjects use the em-dash separator, not a hyphen', () => {
+  const { sweep } = require('../../src/email-bodies');
+  const event = { id: 'sw1', type: 'event', title: 'Quarterly review' };
+  const subjects = [
+    sweep.pendingActivation(event, { hoursLeft: 12 }).subject,
+    sweep.overdue(event, { daysOver: 3 }).subject,
+    sweep.archived(event, { daysIdle: 45 }).subject,
+  ];
+  for (const s of subjects) {
+    assert.ok(s.includes(' — '), `expected em-dash separator in: ${s}`);
+    assert.ok(!/ - /.test(s), `unexpected hyphen separator in: ${s}`);
+  }
+  assert.match(
+    sweep.pendingActivation(event, { hoursLeft: 12 }).subject,
+    /^\[gitdone\] "Quarterly review" — activate within 12h or it expires$/,
+  );
+});
