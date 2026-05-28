@@ -347,11 +347,29 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
     }
   } else if (event.type === 'crypto' && event.mode === 'declaration' && event.signer) {
     recipients.add(event.signer.toLowerCase());
+  } else if (event.type === 'crypto' && event.mode === 'attestation') {
+    // Strict attestation: emails persist in attestor_progress until
+    // Module 4e redaction (post first-proof-email send). Reach every
+    // attestor who has at least started signing — covers both the
+    // natural completion path and the explicit close paths, where
+    // previously only the initiator was notified. Once redacted
+    // (p.email === null), nobody is added here — privacy by design.
+    // Loose attestation has only salted hashes, so this is a no-op.
+    const isStrict = !!event.reference_url
+      && Array.isArray(event.reference_docs)
+      && event.reference_docs.length > 0;
+    if (isStrict && event.attestor_progress) {
+      for (const p of Object.values(event.attestor_progress)) {
+        if (p && typeof p.email === 'string' && p.email.includes('@')) {
+          recipients.add(p.email.toLowerCase());
+        }
+      }
+    }
   }
-  // Loose attestation: anonymous addresses are stored as salted hashes
-  // only — we never have plaintext to reach those repliers. Under
-  // strict mode (4e) the caller passes attestor emails via
-  // extraRecipients; receive.js then redacts them after the send.
+  // Caller-supplied extraRecipients (kept for back-compat; the strict-
+  // attestation auto-gather above now covers the natural-completion
+  // path too, so the explicit list is mostly redundant — but harmless
+  // since recipients is a Set).
   if (Array.isArray(extraRecipients)) {
     for (const r of extraRecipients) {
       if (typeof r === 'string' && r.includes('@')) recipients.add(r.toLowerCase());

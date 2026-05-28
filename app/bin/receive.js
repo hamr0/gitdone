@@ -1278,16 +1278,21 @@ async function main() {
         completed_step: applied && applied.completedStep ? applied.completedStep : null,
       };
 
-      // Module 8 — once the proof email has fired for an event, a later
-      // revoke-and-re-complete cycle must NOT re-fire it. The completion
-      // commit ledger is honest (every transition is recorded) but the
-      // user-facing notification is idempotent: first completion only.
-      // Locking-dedup re-completion is otherwise indistinguishable from
-      // a first-time crossing because `applyReply` rewrites the whole
-      // completion object on each transition. Accumulating's
-      // `threshold_reached_at` already protects against re-firing on
-      // that path; this flag is the equivalent gate for unique/latest.
-      if (changed && applied.completedEvent && !nextEvent.proof_email_sent_at) {
+      // Once the proof email fires, we record `proof_email_sent_at` so
+      // a same-completion re-trigger doesn't re-fire. BUT a revoke
+      // that drops count below threshold reopens completion (status →
+      // 'open', completed_at → null); a fresh attestor then closes it
+      // again, stamping a NEW completion.completed_at. That's a
+      // legitimately new event-state and a new proof should fire —
+      // the prior stamp is stale. Gate: fire when no prior stamp, OR
+      // when current completion.completed_at post-dates the stamp.
+      // Accumulating gates on threshold_reached_at (durable) instead;
+      // this gate only matters for locking dedup (unique/latest).
+      const priorStamp = nextEvent.proof_email_sent_at || null;
+      const currentCompleteAt = nextEvent.completion && nextEvent.completion.completed_at;
+      const proofStale = !!(priorStamp && currentCompleteAt && currentCompleteAt > priorStamp);
+      const shouldFireProof = !priorStamp || proofStale;
+      if (changed && applied.completedEvent && shouldFireProof) {
         const summary = nextEvent.type === 'event'
           ? { steps_completed: nextEvent.steps.length }
           : nextEvent.mode === 'declaration'
@@ -1367,15 +1372,18 @@ async function main() {
               completion.attestor_email_redact_error = err.message || String(err);
             }
           }
-          // Module 8 — stamp proof_email_sent_at so any future
-          // revoke-and-re-complete cycle (locking dedup only; accumulating
-          // already gates on threshold_reached_at) doesn't re-fire the
-          // proof email. Best-effort: failure here means a re-complete
+          // Stamp proof_email_sent_at to current trigger time. Always
+          // overwrites — on a reopen-then-recomplete cycle we WANT
+          // the stamp to advance so the gate above (compares stamp
+          // vs completion.completed_at) correctly recognises the
+          // next state. Best-effort: failure means a re-complete
           // could re-fire, but the completion ledger itself is correct.
           try {
-            await updateEventAtomic(tag.eventId, (ev) => (
-              ev.proof_email_sent_at ? null : { ...ev, proof_email_sent_at: receivedAt }
-            ), { syncMessage: 'proof email sent' });
+            await updateEventAtomic(
+              tag.eventId,
+              (ev) => ({ ...ev, proof_email_sent_at: receivedAt }),
+              { syncMessage: 'proof email sent' }
+            );
           } catch (err) {
             process.stderr.write(`proof-email-stamp: ${err.message || err}\n`);
           }

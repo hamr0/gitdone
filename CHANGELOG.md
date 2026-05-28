@@ -15,6 +15,32 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Proof email re-fires after reopen + close paths notify attestors
+
+Two related gaps in the completion-notification machinery.
+
+- **Proof email re-fires after revoke → reopen → recomplete.** The
+  Module 8 idempotency gate (`!proof_email_sent_at`) was too strict:
+  it blocked every subsequent re-completion forever, including the
+  legitimately-new case where a revoke had reopened completion and
+  a different attestor closed it again. New gate compares the
+  current `completion.completed_at` to `proof_email_sent_at` — if
+  completion was re-stamped after the prior send, fire again. The
+  stamp itself now always advances on each send (was guarded
+  against overwrite). Accumulating mode is unaffected (it gates on
+  the durable `threshold_reached_at`).
+- **Explicit close paths now notify strict attestors.** The `close+`
+  command and the dashboard "Close event" button passed no
+  `extraRecipients` to `notifyEventCompletion` — only the initiator
+  got the close notification. Moved strict-attestation recipient
+  gathering inside `notifyEventCompletion` itself: any attestor
+  whose `attestor_progress[hash].email` is still un-redacted now
+  gets the completion / close email automatically. Once Module 4e
+  redaction has run (post-first-proof-email), the field is null
+  and nobody is added — privacy by design. Covers natural
+  completion, close+ command, dashboard close, and the
+  revoke-reopen-recomplete cycle with the same code path.
+
 ### Receipt vocabulary aligned with threshold unit
 
 Live-test validation flagged three vocabulary mismatches that all
