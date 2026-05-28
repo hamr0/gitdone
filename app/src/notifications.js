@@ -332,7 +332,7 @@ function renderProofBlock(event, commits, { recipient } = {}) {
 // cryptographic receipt(s). When supplied, the message is the durable
 // PROOF email; the Message-Id is returned to the caller so the
 // OTS-anchored follow-up can thread to it.
-async function notifyEventCompletion(event, { reason = 'all_steps_done', publicBaseUrl, completedStepId, commits, extraRecipients } = {}) {
+async function notifyEventCompletion(event, { reason = 'all_steps_done', publicBaseUrl, completedStepId, commits } = {}) {
   if (!event) return [];
   const completedAt = (event.completion && event.completion.completed_at) || new Date().toISOString();
   const finalStep = completedStepId && Array.isArray(event.steps)
@@ -350,20 +350,7 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
   // the strict-attestation PII-state read that previously lived
   // inline here as a 20-line block split across five call sites.
   const { getRecipients } = require('./email-recipients');
-  const recipientsMap = getRecipients(event, isClosedEarly ? 'closed' : 'completed');
-  // Back-compat for callers still passing extraRecipients (e.g. the
-  // strict-attestation auto-gather in receive.js — now redundant
-  // since the resolver does the same read, but harmless as long as
-  // the merge stays idempotent on already-present keys).
-  if (Array.isArray(extraRecipients)) {
-    for (const r of extraRecipients) {
-      if (typeof r === 'string' && r.includes('@')) {
-        const k = r.toLowerCase();
-        if (!recipientsMap.has(k)) recipientsMap.set(k, 'attestor');
-      }
-    }
-  }
-  const recipients = new Set(recipientsMap.keys());
+  const recipients = new Set(getRecipients(event, isClosedEarly ? 'closed' : 'completed').keys());
 
   // Mode-aware reason label so the body doesn't lie about what closed
   // the event ("Reason: all steps completed" on a crypto event was the

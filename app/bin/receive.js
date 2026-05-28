@@ -1351,25 +1351,16 @@ async function main() {
           const { listCommits } = require('../src/gitrepo');
           const allCommits = await listCommits(tag.eventId).catch(() => []);
           const countingCommits = filterCountingCommits(nextEvent, allCommits);
-          // Module 4e — strict-attestation only: gather attestor emails
-          // persisted by completion.js's strict branch so the proof
-          // email reaches them too. Loose attestation has only salted
-          // hashes, so this stays empty there.
-          const isStrictAtt = nextEvent.type === 'crypto'
-            && nextEvent.mode === 'attestation'
-            && nextEvent.reference_url
-            && Array.isArray(nextEvent.reference_docs)
-            && nextEvent.reference_docs.length > 0;
-          const attestorEmails = isStrictAtt && nextEvent.attestor_progress
-            ? Object.values(nextEvent.attestor_progress)
-                .filter((p) => p && p.email && p.complete)
-                .map((p) => p.email)
-            : [];
+          // Module 4e — strict-attestation attestor emails: now
+          // resolved inside notifyEventCompletion via getRecipients
+          // (event, 'completed') in email-recipients.js. The inline
+          // auto-gather that used to live here was the second copy
+          // of the strict-mode PII-state read; removing it kills the
+          // last dual-source-of-truth in the completion-notify path.
           const results = await notifyEventCompletion(nextEvent, {
             reason,
             completedStepId: applied.completedStep,
             commits: countingCommits,
-            extraRecipients: attestorEmails,
           });
           completion.completion_notified = results.map((r) => ({ to: r.to, ok: r.ok }));
           // Redaction deliberately does NOT fire here. The original
