@@ -1162,6 +1162,169 @@ const cmd = {
   stats: statsBody,
   statsWorkflow: statsWorkflowBody,
   statsCrypto: statsCryptoBody,
+
+  // Generic auth rejection — any command from a non-initiator.
+  rejected(command, reason) {
+    return `Command rejected: ${reason}.\nOnly the event initiator can issue ${command}+ commands.`;
+  },
+
+  bundle: {
+    ready(event) {
+      return [
+        `Attached is the full git repository for "${event.title}".`,
+        `Verify offline with: gitdone-verify ${event.id}`,
+        `Keep it forever; this is your proof.`,
+      ].join('\n');
+    },
+    empty(event) {
+      return [
+        `No proof bundle yet — "${event.title}" hasn't received any`,
+        `replies, so there's nothing in the audit trail to bundle.`,
+        ``,
+        `Once a participant replies (or the signer signs), the next bundle+`,
+        `command will return the full archive.`,
+      ].join('\n');
+    },
+  },
+
+  attach: {
+    unknownEvent(eventId) {
+      return `No such event: ${eventId}. The attach+ address is only valid for an existing crypto event.`;
+    },
+    notCrypto(event) {
+      return `Event "${event.title}" is a workflow event, not a crypto event. The attach+ channel only registers reference docs for crypto declarations and attestations.`;
+    },
+    rejected(eventId, reason) {
+      return [
+        `Reference-doc registration rejected: ${reason}.`,
+        ``,
+        `Only the event initiator can register reference documents via`,
+        `attach+${eventId}@${config.domain}. Send from the initiator's`,
+        `address with DKIM signed and aligned.`,
+      ].join('\n');
+    },
+    frozen(event) {
+      return [
+        `Reference-doc set frozen — "${event.title}" has already`,
+        `received a counted reply, so the document set can't change.`,
+        ``,
+        `Fairness rule: every signer attests to the same documents.`,
+        `Adding docs after the first reply would let you swap what people`,
+        `effectively signed.`,
+      ].join('\n');
+    },
+    noAttachments(fromAddr) {
+      return [
+        `No attachments found on your email to ${fromAddr}.`,
+        ``,
+        `Reply with one or more files attached. Each will be hashed`,
+        `(SHA-256) and recorded in the event's audit trail; the bytes`,
+        `themselves are discarded.`,
+      ].join('\n');
+    },
+    // event = the post-update event (carries the full reference_docs set).
+    registered(event, { added, strictNow }) {
+      const docList = formatReferenceDocList(event.reference_docs);
+      return [
+        `Registered ${added} reference document${added === 1 ? '' : 's'} on "${event.title}".`,
+        ``,
+        `Current reference doc set (${event.reference_docs.length} total):`,
+        docList,
+        ``,
+        `Bytes are NOT stored. Hashes (SHA-256) + filenames + sizes are`,
+        `committed to the event's git audit trail and OpenTimestamped.`,
+        ``,
+        strictNow
+          ? `Strict signing is on (reference_url set + docs registered).\nThe signer must attach matching files to sign. Doc set is now frozen.`
+          : `Add more by replying with additional attachments. The doc set\nfreezes at the first counted reply.`,
+      ].join('\n');
+    },
+  },
+
+  revoke: {
+    unknownEvent(eventId) {
+      return `No such event: ${eventId}. The revoke+ address is only valid for an existing crypto attestation event.`;
+    },
+    notAttestation(event) {
+      return [
+        `Revocation rejected: "${event.title}" is a ${event.mode || event.type} event.`,
+        ``,
+        `The revoke+ channel only applies to crypto attestation events,`,
+        `where individual attestors contribute toward a threshold. There`,
+        `is nothing analogous for workflow or declaration events.`,
+      ].join('\n');
+    },
+    rejected(fromAddr, reason) {
+      return [
+        `Revocation rejected: ${reason}.`,
+        ``,
+        `Only the event initiator can revoke attestors via`,
+        `${fromAddr}. Send from the initiator's address with DKIM`,
+        `signed and aligned.`,
+      ].join('\n');
+    },
+    noTargets() {
+      return [
+        `No revocation targets found in the body of your email.`,
+        ``,
+        `Write one attestor email per line. Optional final line:`,
+        `  reason: <free-form note>`,
+        ``,
+        `Example:`,
+        `  bob@example.com`,
+        `  carol@example.com`,
+        `  reason: signed in error`,
+      ].join('\n');
+    },
+    noMatching(event, emails) {
+      return [
+        `None of the addresses in your revoke email match a known`,
+        `attestor for "${event.title}":`,
+        ``,
+        ...emails.map((e) => `  ${e}`),
+        ``,
+        `Check spelling. Only addresses that have actually replied to`,
+        `event+${event.id}@${config.domain} can be revoked.`,
+      ].join('\n');
+    },
+    // event = the post-revoke event (carries the updated threshold view).
+    done(event, { resolved, notFound, reason, countAfter, reopened }) {
+      const lines = [
+        `Revoked ${resolved.length} attestor${resolved.length === 1 ? '' : 's'} on "${event.title}":`,
+        ``,
+        ...resolved.map((r) => `  ${r.email}`),
+      ];
+      if (notFound.length) {
+        lines.push('', `Not found (skipped — no matching reply on file):`);
+        for (const e of notFound) lines.push(`  ${e}`);
+      }
+      if (reason) {
+        lines.push('', `Reason recorded: ${reason}`);
+      } else {
+        // No reason supplied — surface the syntax here so a future
+        // revoke goes through with one. Reason stays optional by
+        // spec (§24); this is the discovery surface.
+        lines.push('',
+          `No reason recorded. To attach one next time, add a line`,
+          `to the body like:`,
+          `  reason: signed in error`);
+      }
+      if (typeof countAfter === 'number') {
+        const t = event.threshold || 0;
+        lines.push('', `New count: ${countAfter} / ${t}.`);
+      }
+      if (reopened) {
+        lines.push('', `Event was complete; count dropped below threshold so completion has reopened. A fresh reply from a different (non-revoked) attestor will re-complete it. The revoked attestor cannot un-revoke themselves; revocation is permanent.`);
+      } else {
+        lines.push('', `Revocation is permanent — the revoked attestor cannot re-sign and have it count.`);
+      }
+      lines.push('',
+        `Audit trail preserved: the original signature commits stay`,
+        `in the event's git repo. Revocation lands as a separate`,
+        `commit (kind: 'revoke'), OpenTimestamped.`);
+      return lines.join('\n');
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

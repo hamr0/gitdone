@@ -25,7 +25,7 @@ const { forwardToOwner } = require('../src/forward');
 const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
 const { applyReply, applyRevoke, updateEventAtomic, hashSender, isClosedByInitiator } = require('../src/completion');
 const { notifyLifecycleEdge, notifyWorkflowParticipants } = require('../src/notifications');
-const { replyAck, formatReferenceDocList, cmd: cmdBodies } = require('../src/email-bodies');
+const { replyAck, cmd: cmdBodies } = require('../src/email-bodies');
 const { authenticateInitiatorCommand, executeRemind, executeCloseRequest } = require('../src/email-commands');
 const { bundleToBuffer, bundleFilename, buildAttachmentMessage } = require('../src/bundle');
 const { extractDsn } = require('../src/dsn');
@@ -142,9 +142,10 @@ function isReferenceDocSetFrozen(event) {
   return false;
 }
 
-// formatReferenceDocList + humanSize moved to email-bodies.js (the body
-// catalogue) — imported above; used by the attach+ command ack and the
-// reply-ack builders.
+// All composed ack body text lives in email-bodies.js: the reply-ack
+// builders (replyAck.*) and the initiator-command builders (cmd.*),
+// both imported above. receive.js owns the dispatch + persistence and
+// calls the catalogue for body text.
 
 // Module 8 — parse a revoke+ email body. One email per line; optional
 // final/standalone `reason: <free-form>` line captured separately.
@@ -531,7 +532,7 @@ async function main() {
     let closeOutcome = null;
     let bundleOutcome = null;  // { ok, buffer? , filename, reason? } when command === 'bundle' and auth passed
     if (!auth1.ok) {
-      replyBody = `Command rejected: ${auth1.reason}.\nOnly the event initiator can issue ${cmdTag.command}+ commands.`;
+      replyBody = cmdBodies.rejected(cmdTag.command, auth1.reason);
       cmdOutcome.reason = auth1.reason;
     } else if (cmdTag.command === 'bundle') {
       // Pack the per-event git repo into a tar.gz and reply with it as
@@ -545,20 +546,10 @@ async function main() {
       cmdOutcome.bundle_ok = result.ok;
       if (result.ok) {
         cmdOutcome.bundle_size = result.buffer.length;
-        replyBody = [
-          `Attached is the full git repository for "${cmdEvent.title}".`,
-          `Verify offline with: gitdone-verify ${cmdEvent.id}`,
-          `Keep it forever; this is your proof.`,
-        ].join('\n');
+        replyBody = cmdBodies.bundle.ready(cmdEvent);
       } else {
         cmdOutcome.bundle_reason = result.reason || null;
-        replyBody = [
-          `No proof bundle yet — "${cmdEvent.title}" hasn't received any`,
-          `replies, so there's nothing in the audit trail to bundle.`,
-          ``,
-          `Once a participant replies (or the signer signs), the next bundle+`,
-          `command will return the full archive.`,
-        ].join('\n');
+        replyBody = cmdBodies.bundle.empty(cmdEvent);
       }
     } else if (cmdTag.command === 'stats') {
       replyBody = cmdBodies.stats(cmdEvent);
@@ -748,40 +739,21 @@ async function main() {
 
     if (!attachEvent) {
       attachOutcome.reason = 'unknown event';
-      replyBody = `No such event: ${attachTag.eventId}. The attach+ address is only valid for an existing crypto event.`;
+      replyBody = cmdBodies.attach.unknownEvent(attachTag.eventId);
     } else if (attachEvent.type !== 'crypto') {
       attachOutcome.reason = 'not a crypto event';
-      replyBody = `Event "${attachEvent.title}" is a workflow event, not a crypto event. The attach+ channel only registers reference docs for crypto declarations and attestations.`;
+      replyBody = cmdBodies.attach.notCrypto(attachEvent);
     } else {
       const auth1 = authenticateInitiatorCommand(attachEvent, { sender: senderAtt, trustLevel: trustAtt });
       if (!auth1.ok) {
         attachOutcome.reason = auth1.reason;
-        replyBody = [
-          `Reference-doc registration rejected: ${auth1.reason}.`,
-          ``,
-          `Only the event initiator can register reference documents via`,
-          `attach+${attachTag.eventId}@${config.domain}. Send from the initiator's`,
-          `address with DKIM signed and aligned.`,
-        ].join('\n');
+        replyBody = cmdBodies.attach.rejected(attachTag.eventId, auth1.reason);
       } else if (isReferenceDocSetFrozen(attachEvent)) {
         attachOutcome.reason = 'doc set frozen';
-        replyBody = [
-          `Reference-doc set frozen — "${attachEvent.title}" has already`,
-          `received a counted reply, so the document set can't change.`,
-          ``,
-          `Fairness rule: every signer attests to the same documents.`,
-          `Adding docs after the first reply would let you swap what people`,
-          `effectively signed.`,
-        ].join('\n');
+        replyBody = cmdBodies.attach.frozen(attachEvent);
       } else if (!parsed.attachments || parsed.attachments.length === 0) {
         attachOutcome.reason = 'no attachments';
-        replyBody = [
-          `No attachments found on your email to ${fromAddrAtt}.`,
-          ``,
-          `Reply with one or more files attached. Each will be hashed`,
-          `(SHA-256) and recorded in the event's audit trail; the bytes`,
-          `themselves are discarded.`,
-        ].join('\n');
+        replyBody = cmdBodies.attach.noAttachments(fromAddrAtt);
       } else {
         const newEntries = parsed.attachments.map((a) => ({
           filename: a.filename || null,
@@ -809,7 +781,6 @@ async function main() {
         attachOutcome.accepted = true;
         attachOutcome.added = newEntries.length;
         attachOutcome.commit_sequence = gitRes ? gitRes.sequence : null;
-        const docList = formatReferenceDocList(updated.reference_docs);
 
         // Module 4c: strict mode — if this is the first batch (event had
         // no reference_docs before) AND the event cites a reference_url,
@@ -828,19 +799,7 @@ async function main() {
           }
         }
 
-        replyBody = [
-          `Registered ${newEntries.length} reference document${newEntries.length === 1 ? '' : 's'} on "${attachEvent.title}".`,
-          ``,
-          `Current reference doc set (${updated.reference_docs.length} total):`,
-          docList,
-          ``,
-          `Bytes are NOT stored. Hashes (SHA-256) + filenames + sizes are`,
-          `committed to the event's git audit trail and OpenTimestamped.`,
-          ``,
-          strictNow
-            ? `Strict signing is on (reference_url set + docs registered).\nThe signer must attach matching files to sign. Doc set is now frozen.`
-            : `Add more by replying with additional attachments. The doc set\nfreezes at the first counted reply.`,
-        ].join('\n');
+        replyBody = cmdBodies.attach.registered(updated, { added: newEntries.length, strictNow });
       }
     }
 
@@ -902,44 +861,22 @@ async function main() {
 
     if (!revokeEvent) {
       revokeOutcome.reason = 'unknown event';
-      replyBody = `No such event: ${revokeTag.eventId}. The revoke+ address is only valid for an existing crypto attestation event.`;
+      replyBody = cmdBodies.revoke.unknownEvent(revokeTag.eventId);
     } else if (revokeEvent.type !== 'crypto' || revokeEvent.mode !== 'attestation') {
       revokeOutcome.reason = 'not an attestation event';
-      replyBody = [
-        `Revocation rejected: "${revokeEvent.title}" is a ${revokeEvent.mode || revokeEvent.type} event.`,
-        ``,
-        `The revoke+ channel only applies to crypto attestation events,`,
-        `where individual attestors contribute toward a threshold. There`,
-        `is nothing analogous for workflow or declaration events.`,
-      ].join('\n');
+      replyBody = cmdBodies.revoke.notAttestation(revokeEvent);
     } else {
       const authR = authenticateInitiatorCommand(revokeEvent, { sender: senderRev, trustLevel: trustRev });
       if (!authR.ok) {
         revokeOutcome.reason = authR.reason;
-        replyBody = [
-          `Revocation rejected: ${authR.reason}.`,
-          ``,
-          `Only the event initiator can revoke attestors via`,
-          `${fromAddrRev}. Send from the initiator's address with DKIM`,
-          `signed and aligned.`,
-        ].join('\n');
+        replyBody = cmdBodies.revoke.rejected(fromAddrRev, authR.reason);
       } else {
         const parsedBody = parseRevokeBody(parsed.text || '');
         revokeOutcome.parsed_emails = parsedBody.emails;
         revokeOutcome.parsed_reason = parsedBody.reason;
         if (parsedBody.emails.length === 0) {
           revokeOutcome.reason = 'no targets';
-          replyBody = [
-            `No revocation targets found in the body of your email.`,
-            ``,
-            `Write one attestor email per line. Optional final line:`,
-            `  reason: <free-form note>`,
-            ``,
-            `Example:`,
-            `  bob@example.com`,
-            `  carol@example.com`,
-            `  reason: signed in error`,
-          ].join('\n');
+          replyBody = cmdBodies.revoke.noTargets();
         } else {
           // Resolve each target email to its sender_hash INSIDE the
           // atomic block so the resolution uses the freshly-loaded
@@ -982,15 +919,7 @@ async function main() {
           revokeOutcome.not_found = notFound;
           if (resolved.length === 0) {
             revokeOutcome.reason = 'no matching attestors';
-            replyBody = [
-              `None of the addresses in your revoke email match a known`,
-              `attestor for "${revokeEvent.title}":`,
-              ``,
-              ...parsedBody.emails.map((e) => `  ${e}`),
-              ``,
-              `Check spelling. Only addresses that have actually replied to`,
-              `event+${revokeTag.eventId}@${config.domain} can be revoked.`,
-            ].join('\n');
+            replyBody = cmdBodies.revoke.noMatching(revokeEvent, parsedBody.emails);
           } else {
             updatedEvent = updRes.event;
             let gitRes = null;
@@ -1013,40 +942,13 @@ async function main() {
               && updatedEvent.completion.status === 'open'
               && updatedEvent.completion.reopened_at === receivedAtRev);
 
-            const lines = [
-              `Revoked ${resolved.length} attestor${resolved.length === 1 ? '' : 's'} on "${revokeEvent.title}":`,
-              ``,
-              ...resolved.map((r) => `  ${r.email}`),
-            ];
-            if (revokeOutcome.not_found.length) {
-              lines.push('', `Not found (skipped — no matching reply on file):`);
-              for (const e of revokeOutcome.not_found) lines.push(`  ${e}`);
-            }
-            if (parsedBody.reason) {
-              lines.push('', `Reason recorded: ${parsedBody.reason}`);
-            } else {
-              // No reason supplied — surface the syntax here so a future
-              // revoke goes through with one. Reason stays optional by
-              // spec (§24); this is the discovery surface.
-              lines.push('',
-                `No reason recorded. To attach one next time, add a line`,
-                `to the body like:`,
-                `  reason: signed in error`);
-            }
-            if (typeof revokeOutcome.count_after === 'number') {
-              const t = updatedEvent.threshold || 0;
-              lines.push('', `New count: ${revokeOutcome.count_after} / ${t}.`);
-            }
-            if (revokeOutcome.reopened) {
-              lines.push('', `Event was complete; count dropped below threshold so completion has reopened. A fresh reply from a different (non-revoked) attestor will re-complete it. The revoked attestor cannot un-revoke themselves; revocation is permanent.`);
-            } else {
-              lines.push('', `Revocation is permanent — the revoked attestor cannot re-sign and have it count.`);
-            }
-            lines.push('',
-              `Audit trail preserved: the original signature commits stay`,
-              `in the event's git repo. Revocation lands as a separate`,
-              `commit (kind: 'revoke'), OpenTimestamped.`);
-            replyBody = lines.join('\n');
+            replyBody = cmdBodies.revoke.done(updatedEvent, {
+              resolved,
+              notFound: revokeOutcome.not_found,
+              reason: parsedBody.reason,
+              countAfter: revokeOutcome.count_after,
+              reopened: revokeOutcome.reopened,
+            });
           }
         }
       }
