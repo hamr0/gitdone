@@ -875,17 +875,13 @@ async function notifyOrganiserOfStepProgress(event, { completedStepId, newlyActi
 // from the OTS-upgrade worker.
 async function notifyProofAnchored(event, { anchorInfo = {}, publicBaseUrl } = {}) {
   if (!event) return [];
-  const recipients = new Set();
-  if (event.initiator) recipients.add(event.initiator.toLowerCase());
-  if (event.type === 'event' && Array.isArray(event.steps)) {
-    for (const s of event.steps) {
-      if (s && s.participant && s.status === 'complete') recipients.add(s.participant.toLowerCase());
-    }
-  } else if (event.type === 'crypto' && event.mode === 'declaration' && event.signer) {
-    recipients.add(event.signer.toLowerCase());
-  }
-  // Attestation: anonymous repliers — only the initiator gets the
-  // anchored email.
+  // Same resolver as notifyEventCompletion — see email-recipients.js.
+  // The 'anchored' edge is the post-completion follow-up: every contributor
+  // who got the proof email gets the anchored confirmation. Attestation
+  // (strict or loose) goes organiser-only here by design — anchor fires
+  // post-close, after strict-attestation emails are redacted.
+  const { getRecipients } = require('./email-recipients');
+  const recipients = new Set(getRecipients(event, 'anchored').keys());
 
   const blockLine = anchorInfo.block_height
     ? `Block height   ${anchorInfo.block_height}`
