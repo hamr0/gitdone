@@ -19,125 +19,20 @@ const config = require('./config');
 const { buildRawMessage, sendmail } = require('./outbound');
 const { isStrictAttestation } = require('./email-recipients');
 const bodies = require('./email-bodies');
-// Re-exported below for test imports (these now live in email-bodies.js).
-const { renderProofBlock, renderOrganiserStepList } = bodies;
-
-function stepReplyAddr(event, stepId) {
-  return `event+${event.id}-${stepId}@${config.domain}`;
-}
-
-// "2026-05-12" or "2026-05-12T12:00:00Z" → "Saturday, 2026-05-12".
-// Date-only strings come from the <input type=date> in the form;
-// older events may carry full ISO timestamps. Both render in UTC so
-// the weekday matches the calendar date the organiser picked.
-function formatAspirationalDate(deadline) {
-  const dateOnly = String(deadline).slice(0, 10);
-  const d = new Date(`${dateOnly}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return String(deadline);
-  const weekday = d.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
-  return `${weekday}, ${dateOnly}`;
-}
-
-function cryptoReplyAddr(event) {
-  return `event+${event.id}@${config.domain}`;
-}
+// Body text + the helpers it shares with the senders now live in
+// email-bodies.js. Re-exported below where tests import them.
+const {
+  renderProofBlock, renderOrganiserStepList,
+  stepReplyAddr, cryptoReplyAddr,
+  workflowStepBody, declarationSignerBody,
+} = bodies;
 
 function gitdoneFrom() {
   return `gitdone@${config.domain}`;
 }
 
-// Compose the plain-text body for a workflow-step invitation. The reply
-// address is the only thing the participant needs to act on.
-function workflowStepBody({ event, step, stepIndex, totalSteps }) {
-  const replyAddr = stepReplyAddr(event, step.id);
-  const lines = [
-    `You've been named as a participant in a gitdone event.`,
-    ``,
-    `Event: ${event.title}`,
-    `Your step: ${step.name} (step ${stepIndex + 1} of ${totalSteps})`,
-    `Organiser: ${event.initiator}`,
-  ];
-  if (step.requires_attachment) lines.push(`Attachment: required`);
-  if (step.deadline) lines.push(`Aspirational date: ${formatAspirationalDate(step.deadline)}`);
-  if (step.details) {
-    lines.push(
-      ``,
-      `What to do:`,
-      ...step.details.split(/\r?\n/).map((l) => `  ${l}`),
-    );
-  }
-  lines.push(
-    ``,
-    `Reply from ${step.participant} to:`,
-    `  ${replyAddr}`,
-    ``,
-    `Write whatever you want in the body. Attachments are forwarded to the`,
-    `organiser directly — gitdone only stores hashes of them, never content.`,
-    `Your reply is DKIM-verified, OpenTimestamped, and committed to a`,
-    `per-event git repository as a permanent record.`,
-    ``,
-    `If this is unexpected or you don't want to participate, ignore this`,
-    `email. The organiser can see that your step is still pending.`,
-  );
-  return lines.join('\n');
-}
-
-function declarationSignerBody({ event }) {
-  const replyAddr = cryptoReplyAddr(event);
-  const refDocs = Array.isArray(event.reference_docs) ? event.reference_docs : [];
-  const strict = !!event.reference_url && refDocs.length > 0;
-  if (strict) {
-    const lines = [
-      `${event.initiator} asked you to sign a gitdone declaration.`,
-      ``,
-      `Event: ${event.title}`,
-      `Type: declaration (one signer, one permanent record)`,
-      ``,
-    ];
-    if (event.details) {
-      lines.push(`What you're being asked to sign:`, event.details, ``);
-    }
-    if (event.reference_url) {
-      lines.push(`Reference: ${event.reference_url}`, ``);
-    }
-    lines.push(
-      `To sign, reply from ${event.signer} to:`,
-      `  ${replyAddr}`,
-      ``,
-      `Attach the following file${refDocs.length === 1 ? '' : 's'} — each must hash exactly to the value`,
-      `recorded below (we verify on receipt):`,
-      ``,
-    );
-    for (const d of refDocs) {
-      const hashShort = d.sha256 ? d.sha256.replace(/^sha256:/, '').slice(0, 16) + '…' : '?';
-      lines.push(`  • ${d.filename || '(unnamed)'}   sha256: ${hashShort}`);
-    }
-    lines.push(
-      ``,
-      `You can spread the files across multiple emails; we'll track progress`,
-      `and confirm what we matched / what's still missing on every reply.`,
-      `Your declaration completes only when every file is signed.`,
-      ``,
-      `If this is unexpected, ignore this email.`,
-    );
-    return lines.join('\n');
-  }
-  return [
-    `${event.initiator} asked you to sign a gitdone declaration.`,
-    ``,
-    `Event: ${event.title}`,
-    `Type: declaration (one signer, one permanent record)`,
-    ``,
-    `Reply from ${event.signer} to:`,
-    `  ${replyAddr}`,
-    ``,
-    `Your DKIM-verified reply becomes the declaration. The message body is`,
-    `what gets recorded. Attachments are forwarded to the organiser; gitdone`,
-    `stores only hashes.`,
-    ``,
-    `If this is unexpected, ignore this email.`,
-  ].join('\n');
-}
+// workflowStepBody + declarationSignerBody now live in
+// app/src/email-bodies.js (imported above, re-exported below).
 
 // --- senders ---
 
@@ -286,43 +181,9 @@ async function notifyInitiatorAttachDocsNeeded(event, { publicBaseUrl } = {}) {
   if (!event || event.type !== 'crypto' || !event.initiator) return null;
   if (!event.reference_url) return null;
   if (Array.isArray(event.reference_docs) && event.reference_docs.length > 0) return null;
-  const baseUrl = publicBaseUrl || process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
-  const attachAddr = `attach+${event.id}@${config.domain}`;
-  const labelKind = event.mode === 'declaration' ? 'declaration' : 'attestation';
-  const subjectKind = event.mode === 'declaration' ? 'declaration' : 'attestation';
-  const body = [
-    `Your ${subjectKind} "${event.title}" is now active, but we still need`,
-    `the reference document${event.mode === 'declaration' ? '' : 's'} before the ${event.mode === 'declaration' ? 'signer can sign' : 'attestors can vouch'}.`,
-    ``,
-    `What you cited as the reference:`,
-    `  ${event.reference_url}`,
-    ``,
-    `Reply to this email (or send a fresh one) with the file${event.mode === 'declaration' ? '' : 's'} attached to:`,
-    `  ${attachAddr}`,
-    ``,
-    `Important — this is a one-shot. The first email we receive at that`,
-    `address with attachments becomes the canonical document set and`,
-    `freezes immediately. Anything you send afterwards is rejected.`,
-    `Send everything in ONE email.`,
-    ``,
-    `Format: anything. PDF, DOCX, images, plain text, whatever you like.`,
-    `Practical guidance: keep it to ~5 files or fewer; if you need more,`,
-    `zip them and attach the .zip. We hash each attachment (SHA-256) and`,
-    `discard the bytes — only the hashes + filenames + sizes are recorded.`,
-    ``,
-    `Once we receive your docs, we'll automatically invite the`,
-    `${event.mode === 'declaration' ? 'signer (' + (event.signer || 'configured signer') + ')' : 'attestors (you share the reply address with them yourself)'}`,
-    `with the file list and the exact hashes they have to match.`,
-    ``,
-    `Manage: ${baseUrl}/manage/event/${event.id}`,
-  ].join('\n');
-  return sendOne({
-    to: event.initiator,
-    subject: `[gitdone] "${event.title}" — please attach reference document${event.mode === 'declaration' ? '' : 's'} (${labelKind})`,
-    body,
-    event,
-    replyTo: attachAddr,
-  });
+  // Body/subject/replyTo from the catalogue (invite.attachDocsNeeded).
+  const { subject, body, replyTo } = bodies.invite.attachDocsNeeded(event, { publicBaseUrl });
+  return sendOne({ to: event.initiator, subject, body, event, replyTo });
 }
 
 // Email the organiser when a step completes and one or more downstream
