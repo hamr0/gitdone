@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-28T14:01Z · `1e83519` · receipt vocabulary aligned with threshold unit (0.24.6)
 - 2026-05-28T11:30Z · `2ebe62c` · closed-early consistency: breadcrumb pill + hero meta strip (0.24.5)
 - 2026-05-28T11:22Z · `e0c511c` · revoke discoverability + closed-early consistency (0.24.4)
 - 2026-05-24T19:33Z · `3a784f1` · deps: bump knowless 1.1.3 → 1.1.9
