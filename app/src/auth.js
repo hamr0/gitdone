@@ -27,6 +27,13 @@ async function _bootstrap() {
 
   const secret = process.env.GITDONE_SESSION_SECRET;
   if (!secret) throw new Error('GITDONE_SESSION_SECRET is required for session auth');
+  // Fail loud + early on a weak secret: session cookies and email→handle
+  // HMACs are only as strong as this key. The documented contract is 64
+  // hex chars (32 bytes); knowless enforces ≥64 internally, so this just
+  // surfaces the error at boot with an actionable message (audit M4).
+  if (!/^[0-9a-f]{64}$/i.test(secret)) {
+    throw new Error('GITDONE_SESSION_SECRET must be 64 hex chars (32 bytes)');
+  }
 
   const baseUrl = process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
   // Fail loudly if Secure-cookie config doesn't match the URL scheme:

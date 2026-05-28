@@ -64,6 +64,31 @@ test('getAuth: throws when GITDONE_SESSION_SECRET is absent', async () => {
   delete require.cache[require.resolve('../../src/auth')];
 });
 
+test('getAuth: throws when GITDONE_SESSION_SECRET is not 64 hex chars (audit M4)', async () => {
+  const savedSecret = process.env.GITDONE_SESSION_SECRET;
+  for (const bad of ['x', 'a'.repeat(32), 'g'.repeat(64), 'a'.repeat(63), 'a'.repeat(65)]) {
+    process.env.GITDONE_SESSION_SECRET = bad;
+    delete require.cache[require.resolve('../../src/auth')];
+    const { getAuth, _resetAuth } = require('../../src/auth');
+    _resetAuth();
+    await assert.rejects(
+      () => getAuth(),
+      /GITDONE_SESSION_SECRET must be 64 hex chars/,
+      `expected reject for ${JSON.stringify(bad)}`,
+    );
+  }
+  // A valid 64-hex secret (mixed case) is accepted.
+  process.env.GITDONE_SESSION_SECRET = 'AbCd'.repeat(16);
+  delete require.cache[require.resolve('../../src/auth')];
+  const { getAuth, _resetAuth } = require('../../src/auth');
+  _resetAuth();
+  const auth = await getAuth();
+  assert.equal(typeof auth.login, 'function');
+  auth.close();
+  process.env.GITDONE_SESSION_SECRET = savedSecret;
+  delete require.cache[require.resolve('../../src/auth')];
+});
+
 test('deriveHandle: case-insensitive and deterministic', async () => {
   delete require.cache[require.resolve('../../src/auth')];
   const { getAuth, _resetAuth } = require('../../src/auth');

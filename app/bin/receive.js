@@ -33,10 +33,26 @@ const logger = require('../src/logger');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
+// Defensive cap, above Postfix's own message_size_limit (10 MB on the
+// VPS). Postfix is the real bound — this only protects against a
+// misconfigured/absent MTA limit so a runaway body can't OOM the pipe
+// before simpleParser ever runs (audit L3). 25 MB leaves headroom over
+// the MTA limit while staying well clear of memory pressure.
+const MAX_INBOUND_BYTES = 25 * 1024 * 1024;
+
 function readStdin() {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    process.stdin.on('data', (c) => chunks.push(c));
+    let total = 0;
+    process.stdin.on('data', (c) => {
+      total += c.length;
+      if (total > MAX_INBOUND_BYTES) {
+        process.stdin.destroy();
+        reject(new Error(`inbound message exceeds ${MAX_INBOUND_BYTES} bytes`));
+        return;
+      }
+      chunks.push(c);
+    });
     process.stdin.on('end', () => resolve(Buffer.concat(chunks)));
     process.stdin.on('error', reject);
   });
@@ -257,46 +273,23 @@ async function main() {
       bucket.recipients.push({ stepId: tagDsn.stepId, ...r });
     }
 
-    // Initiator-bounce sweep: any failed recipient that DIDN'T match an
-    // event+id-step@ tag might be the activation magic-link bouncing
-    // back. Scan pending events; if an address matches a pending event's
-    // initiator, delete the event (no recovery possible — the address
-    // can't receive the link in Mode A, and we can't reach the user any
-    // other way). Activated events are left alone: their initiator
-    // bounce still shouldn't lose audit history.
-    const initiatorBouncesDeleted = [];
-    const unmatched = failed.filter((r) => {
-      const tag = parseEventTag(r.originalRecipient || '');
-      return !tag || !tag.stepId;
-    });
-    if (unmatched.length) {
-      const addresses = new Set(unmatched.map((r) => {
-        const orig = (r.originalRecipient || r.finalRecipient || '').toLowerCase().trim();
-        return orig;
-      }).filter(Boolean));
-      const eventsDir = path.join(config.dataDir, 'events');
-      let files = [];
-      try { files = await fs.readdir(eventsDir); } catch { files = []; }
-      for (const f of files) {
-        if (!f.endsWith('.json')) continue;
-        const id = f.slice(0, -5);
-        const ev = await loadEvent(id).catch(() => null);
-        if (!ev) continue;
-        if (ev.activated_at) continue; // activated events keep their record
-        const initiator = String(ev.initiator || '').toLowerCase();
-        if (!initiator || !addresses.has(initiator)) continue;
-        try {
-          await fs.unlink(path.join(eventsDir, f));
-          await fs.rm(path.join(config.dataDir, 'repos', id), { recursive: true, force: true })
-            .catch(() => {});
-          initiatorBouncesDeleted.push({ id, initiator, title: ev.title });
-        } catch (err) {
-          if (err.code !== 'ENOENT') {
-            process.stderr.write(`dsn-initiator-cleanup: ${err.message || err}\n`);
-          }
-        }
-      }
-    }
+    // Unmatched failed recipients (no event+id-step@ tag) are typically
+    // the activation magic-link bouncing back. We deliberately take NO
+    // destructive action here. A DSN body is fully attacker-fabricable,
+    // so deleting a pending event whose initiator address appears in a
+    // bounce would be an unauthenticated, remotely-triggered deletion of
+    // another user's event (security audit M1, 2026-05-28). A pending
+    // event whose initiator can't receive mail is already unreachable
+    // (no session, no other channel), and the 72h pending-activation
+    // sweep (`sweepPendingActivation` in sweep.js) reclaims it on its
+    // own. We only surface the bounced addresses for operator visibility.
+    const unmatchedBounces = failed
+      .filter((r) => {
+        const tag = parseEventTag(r.originalRecipient || '');
+        return !tag || !tag.stepId;
+      })
+      .map((r) => (r.originalRecipient || r.finalRecipient || '').toLowerCase().trim())
+      .filter(Boolean);
 
     const persisted = [];
     for (const [eventId, bucket] of perEvent) {
@@ -338,7 +331,7 @@ async function main() {
       kind: 'dsn',
       accepted: true,
       received_at: receivedAtDsn,
-      initiator_bounces_deleted: initiatorBouncesDeleted,
+      unmatched_bounces: unmatchedBounces,
       envelope: {
         client_ip: envelope.clientIp,
         client_helo: envelope.clientHelo,

@@ -23,8 +23,7 @@ DKIM re-verified from raw bytes, IDOR-clean ownership gate on every
 `/manage` route, strict `^[a-zA-Z0-9]+$` event-IDs at every path/git
 boundary, no-shell `simple-git`, auto-escaping templates, `npm audit`
 clean). This release closes the two findings whose correct home is the
-nginx edge; the app-layer findings land in follow-up commits under the
-same version.
+nginx edge plus the app-layer findings below.
 
 **Edge (nginx) — live:**
 
@@ -47,6 +46,41 @@ same version.
 The production vhost is now version-controlled at
 `ops/nginx/gitdone.conf` (it previously lived only on the VPS); deploy it
 with `install` + `nginx -t` + `systemctl reload nginx`.
+
+**App layer:**
+
+- **No destructive action on a bounce (M1).** A DSN (bounce) whose
+  failed recipient didn't match an `event+id-step@` tag previously caused
+  `receive.js` to scan pending events and **delete** any whose initiator
+  matched — and DSN bodies are fully attacker-fabricable, making this an
+  unauthenticated, remotely-triggered deletion of someone else's pending
+  event. It now takes no destructive action: the bounced address is
+  recorded for operator visibility and the 72h pending-activation sweep
+  reclaims unreachable events on its own.
+- **Session-secret validated at boot (M4).** `GITDONE_SESSION_SECRET`
+  must now be exactly 64 hex chars (32 bytes), not merely present — a
+  weak key would make session cookies and email→handle HMACs forgeable.
+  Fails loud and early with an actionable message.
+- **Origin check on state-changing routes (M5).** `POST /events`,
+  `/crypto`, and the `/manage/event/:id/{activate,close,remind,
+  unarchive,edit}` mutations reject a request whose `Origin`/`Referer`
+  host doesn't match the public host (403). Defence-in-depth behind the
+  existing `SameSite=Lax` cookie.
+- **No error detail echoed on a bad request body (L1).** `POST /events`
+  / `/crypto` now return a static `bad request` like the other routes.
+- **Boot refuses dev-mode against a production URL (L2).** Dev mode logs
+  magic links and renders stack traces; the server now exits if started
+  with `--dev`/`GITDONE_DEV=1` while `GITDONE_PUBLIC_URL` is a
+  `git-done.com` host.
+- **Defensive inbound size cap (L3).** `receive.js` now refuses a body
+  over 25 MB rather than buffering unbounded — a belt-and-suspenders
+  layer above Postfix's `message_size_limit` (the real 10 MB bound). The
+  stale "streams, doesn't buffer" note in `assumptions.md` is corrected.
+
+Findings deliberately left as-is: L4 (mutex relies on Postfix
+`maxproc=1` — verified set), L5 (proto-pollution-as-key — harmless,
+local object), L6 (`/manage` full event scan — perf only, fine at
+current scale).
 
 ### Email bodies: command acks + sweep/bounce notices fully decoupled (0.25.3)
 

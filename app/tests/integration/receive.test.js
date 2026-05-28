@@ -445,11 +445,12 @@ exit 0
   }
 });
 
-// Phase D follow-up — when the activation magic-link bounces back as a
-// DSN, the pending event is unrecoverable (no session, no other channel
-// to reach the user). Delete it on the spot rather than letting it sit
-// for 72h.
-test('integration: DSN whose Original-Recipient matches a pending initiator deletes the event', async () => {
+// Phase D follow-up / security audit M1 — a DSN whose Original-Recipient
+// matches a pending event's initiator is NOT acted on destructively.
+// DSN bodies are attacker-fabricable, so deleting here would be an
+// unauthenticated remote deletion. The bounced address is recorded for
+// operator visibility; the pending event is left for the 72h sweep.
+test('integration: DSN matching a pending initiator does NOT delete the event (recorded only)', async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'gitdone-dsn-init-'));
   try {
     await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
@@ -502,12 +503,12 @@ test('integration: DSN whose Original-Recipient matches a pending initiator dele
     assert.equal(code, 0);
     const out = JSON.parse(stdout.trim());
     assert.equal(out.kind, 'dsn');
-    assert.equal(out.initiator_bounces_deleted.length, 1);
-    assert.equal(out.initiator_bounces_deleted[0].id, 'pendev01');
-    // Pending event gone, active event untouched.
+    // The bounced address is surfaced, but nothing is deleted.
+    assert.ok(out.unmatched_bounces.includes('typo@gmaicom.invalid'));
+    // Both events remain on disk — the 72h sweep reclaims the pending one.
     const pendingExists = await fs.access(path.join(tmp, 'events', 'pendev01.json'))
       .then(() => true, () => false);
-    assert.equal(pendingExists, false);
+    assert.equal(pendingExists, true);
     const activeExists = await fs.access(path.join(tmp, 'events', 'actev02.json'))
       .then(() => true, () => false);
     assert.equal(activeExists, true);

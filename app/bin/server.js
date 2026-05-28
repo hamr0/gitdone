@@ -75,6 +75,29 @@ function publicBaseUrl() {
   return process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
 }
 
+// CSRF defence-in-depth (audit M5). The session cookie is SameSite=Lax,
+// which already blocks the classic cross-site form-POST, so this is a
+// belt-and-suspenders check on state-changing routes: if the request
+// carries an Origin/Referer, its host must match our public host. When
+// neither header is present (rare for a browser form POST) we allow it —
+// SameSite=Lax remains the backstop — rather than break non-browser callers.
+function sameOrigin(req) {
+  const src = req.headers.origin || req.headers.referer;
+  if (!src) return true;
+  let expectedHost;
+  try { expectedHost = new URL(publicBaseUrl()).host; } catch { return true; }
+  try { return new URL(src).host === expectedHost; } catch { return false; }
+}
+
+// Reject a cross-origin state-changing request with a plain 403. Returns
+// true when it has handled (and ended) the response, so callers can early-out.
+function rejectCrossOrigin(req, res) {
+  if (sameOrigin(req)) return false;
+  res.writeHead(403, { 'content-type': 'text/plain' });
+  res.end('forbidden');
+  return true;
+}
+
 // Wrap layout() so every route automatically gets the dev HUD in dev mode.
 function layout(opts) {
   if (!IS_DEV) return rawLayout(opts);
@@ -838,11 +861,12 @@ function renderPreview({ validated, rawBody }) {
 }
 
 router.post('/events', async (req, res) => {
+  if (rejectCrossOrigin(req, res)) return;
   let body;
   try { body = await parseBody(req); }
   catch (err) {
     res.writeHead(400, { 'content-type': 'text/plain' });
-    return res.end(`bad request: ${err.message}`);
+    return res.end('bad request');
   }
 
   // Two-step flow:
@@ -1390,11 +1414,12 @@ router.get('/crypto/new', async (req, res) => {
 });
 
 router.post('/crypto', async (req, res) => {
+  if (rejectCrossOrigin(req, res)) return;
   let body;
   try { body = await parseBody(req); }
   catch (err) {
     res.writeHead(400, { 'content-type': 'text/plain' });
-    return res.end(`bad request: ${err.message}`);
+    return res.end('bad request');
   }
   const v = validateCryptoEvent(body);
   if (!v.ok) {
@@ -2064,6 +2089,7 @@ router.get('/manage/event/:id/edit', async (req, res, params) => {
 });
 
 router.post('/manage/event/:id/edit', async (req, res, params) => {
+  if (rejectCrossOrigin(req, res)) return;
   const handle = await currentHandle(req);
   if (!handle) { res.writeHead(303, { location: '/manage' }); return res.end(); }
   const auth = await getAuth();
@@ -2164,6 +2190,7 @@ router.get('/manage/event/:id/confirmed', async (req, res, params) => {
 // participant exactly once. No-op (303 with neutral flash) if the event
 // is already active, finalised, or archived.
 router.post('/manage/event/:id/activate', async (req, res, params) => {
+  if (rejectCrossOrigin(req, res)) return;
   const handle = await currentHandle(req);
   if (!handle) { res.writeHead(303, { location: '/manage' }); return res.end(); }
   const auth = await getAuth();
@@ -2232,6 +2259,7 @@ router.post('/manage/event/:id/activate', async (req, res, params) => {
 });
 
 router.post('/manage/event/:id/remind', async (req, res, params) => {
+  if (rejectCrossOrigin(req, res)) return;
   const handle = await currentHandle(req);
   if (!handle) { res.writeHead(303, { location: '/manage' }); return res.end(); }
   const auth = await getAuth();
@@ -2246,6 +2274,7 @@ router.post('/manage/event/:id/remind', async (req, res, params) => {
 });
 
 router.post('/manage/event/:id/unarchive', async (req, res, params) => {
+  if (rejectCrossOrigin(req, res)) return;
   const handle = await currentHandle(req);
   if (!handle) { res.writeHead(303, { location: '/manage' }); return res.end(); }
   const auth = await getAuth();
@@ -2260,6 +2289,7 @@ router.post('/manage/event/:id/unarchive', async (req, res, params) => {
 });
 
 router.post('/manage/event/:id/close', async (req, res, params) => {
+  if (rejectCrossOrigin(req, res)) return;
   const handle = await currentHandle(req);
   if (!handle) { res.writeHead(303, { location: '/manage' }); return res.end(); }
   const auth = await getAuth();
@@ -3593,6 +3623,16 @@ async function handle(req, res) {
 }
 
 if (require.main === module) {
+  // Refuse to boot in dev mode against a production URL — dev mode logs
+  // magic links to stderr and renders stack traces on 500s, neither of
+  // which should ever be reachable on the live domain (audit L2).
+  if (IS_DEV && /(^|\.)git-done\.com$/.test(new URL(publicBaseUrl()).hostname)) {
+    process.stderr.write(
+      'refusing to start: dev mode (--dev / GITDONE_DEV=1) against a ' +
+      'production GITDONE_PUBLIC_URL. Unset dev mode or point at a dev URL.\n'
+    );
+    process.exit(1);
+  }
   const server = http.createServer(handle);
   // Attach the error listener BEFORE listen() so we catch synchronous
   // EADDRINUSE — otherwise the throw from listen() would land on the

@@ -94,6 +94,50 @@ test('POST / is 404 (no POST handler registered for /)', async () => {
   }
 });
 
+async function post(port, path, { headers = {}, body = '' } = {}) {
+  return new Promise((resolve, reject) => {
+    const data = Buffer.from(body);
+    const req = http.request({
+      host: '127.0.0.1', port, path, method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', 'content-length': data.length, ...headers },
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+    });
+    req.on('error', reject);
+    req.end(data);
+  });
+}
+
+// Audit M5 — state-changing routes reject a cross-origin Origin/Referer
+// (defence-in-depth on top of the SameSite=Lax cookie).
+test('POST /events rejects a cross-origin request with 403 (audit M5)', async () => {
+  const config = require('../../src/config');
+  const goodOrigin = `https://${config.domain}`;
+  const { server, port } = await startServer();
+  try {
+    // Cross-origin Origin → 403, before any body parsing or event creation.
+    const evil = await post(port, '/events', { headers: { origin: 'https://evil.example' } });
+    assert.equal(evil.status, 403);
+    assert.match(evil.body, /forbidden/);
+
+    // Cross-origin Referer (no Origin) → also 403.
+    const evilRef = await post(port, '/events', { headers: { referer: 'https://evil.example/x' } });
+    assert.equal(evilRef.status, 403);
+
+    // Matching Origin → NOT 403 (empty body falls through to 422 validation).
+    const same = await post(port, '/events', { headers: { origin: goodOrigin } });
+    assert.notEqual(same.status, 403);
+
+    // No Origin/Referer at all → allowed (SameSite=Lax is the backstop).
+    const none = await post(port, '/events');
+    assert.notEqual(none.status, 403);
+  } finally {
+    server.close();
+  }
+});
+
 test('landing page mentions offline verification', async () => {
   const { server, port } = await startServer();
   try {
