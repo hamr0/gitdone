@@ -15,6 +15,35 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Email bodies: command acks + sweep/bounce notices fully decoupled (0.25.3)
+
+Internal architecture release, **no user-visible behaviour change** —
+every body and subject is byte-identical to 0.25.2 (607 tests pass,
+including the end-to-end command/attach/revoke/close/sweep suites that
+assert on exact text).
+
+Completes the email-text centralisation. After this release **no
+composed transactional email text lives inline** in `receive.js`,
+`sweep.js`, or `email-commands.js` — it all lives in the
+`app/src/email-bodies.js` catalogue:
+
+- **Initiator-command acks → `bodies.cmd.*`** — `stats` (with the
+  workflow/crypto renderers), `bundle`, `attach`, `revoke`, `remind`,
+  and `close`. `email-commands.js` is now pure computation +
+  state-machines: `executeRemind` / `executeClose` / `executeCloseRequest`
+  return structured outcomes (`{kind, …}`) and the caller composes the
+  receipt via the catalogue (`bodies.cmd.remind.body` /
+  `bodies.cmd.close.requestBody`). It holds zero email text and dropped
+  its `config` import.
+- **Sweep-timer notices → `bodies.sweep.*`** — the pending-activation,
+  overdue, and auto-archived organiser emails move out of `sweep.js`.
+- **DSN bounce alert → `bodies.notice.invitationBounced`** — the last
+  inline body in `receive.js`.
+
+Deliberately left in place: the verification reports (`verify.js` /
+`reverify.js`) — those are the verify subsystem's own product, not
+scattered transactional text.
+
 ### Email bodies: reply acks join the catalogue (0.25.2)
 
 Internal architecture release, **no user-visible behaviour change** —

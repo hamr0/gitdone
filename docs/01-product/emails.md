@@ -164,13 +164,21 @@ change):
   (`notifyWorkflowParticipants`, `notifyDeclarationSigner`,
   `notifyInitiatorAttachDocsNeeded`) stay public — they kick off
   participation rather than report a lifecycle edge.
-- **`app/src/email-bodies.js`** (0.25.1) — every composed body/subject
-  template, keyed by tree path:
+- **`app/src/email-bodies.js`** (0.25.1–0.25.3) — every composed
+  body/subject template, keyed by tree path:
   `bodies.lifecycle.completed.attestation.organiser`,
   `bodies.lifecycle.{activated,progressed,anchored}`,
   `bodies.invite.{workflowStep,declarationSigner,attachDocsNeeded}`,
-  plus the `renderProofBlock` / `renderOrganiserStepList` renderers.
-  Senders never compose subject/body inline.
+  `bodies.replyAck.*` (per-inbound-reply acks; 0.25.2),
+  `bodies.cmd.*` (initiator-command acks — `stats`, `bundle`, `attach`,
+  `revoke`, `remind`, `close`; 0.25.3),
+  `bodies.sweep.{pendingActivation,overdue,archived}` (sweep-timer
+  notices; 0.25.3), `bodies.notice.invitationBounced` (DSN bounce alert;
+  0.25.3), plus the `renderProofBlock` / `renderOrganiserStepList` /
+  `formatReferenceDocList` renderers. Senders never compose subject/body
+  inline. The two exceptions by design — the verification reports
+  (`verify.js` / `reverify.js`) — are the verify subsystem's own product,
+  not scattered transactional text, so they stay in their domain modules.
 
 Deliberate deviations from the original plan: there is **no
 `${edge}_notified_at` idempotency stamp** — re-fire is already gated
@@ -179,10 +187,13 @@ write would add non-semantic commits to the per-event proof repo
 (which IS the proof artifact). Redaction idempotency is the
 `attestor_emails_redacted_at` stamp, written once on close.
 
-**Still inline (pending → 0.25.2):** the per-commit (A) reply/command
-acks in `receive.js` move into `email-bodies.js` as `bodies.replyAck.*`
-/ `bodies.cmd.*`; the dispatch logic (decision.reason → which template)
-stays in `receive.js`.
+**Fully migrated (0.25.3):** the per-commit (A) reply/command acks now
+live in `email-bodies.js` (`bodies.replyAck.*` / `bodies.cmd.*`);
+`email-commands.js` is computation + state-machines only, returning
+structured outcomes that `receive.js` / `server.js` turn into receipts
+via the catalogue. The dispatch logic (decision.reason / command →
+which builder) stays in the caller. No composed transactional email
+text remains inline in `receive.js`, `sweep.js`, or `email-commands.js`.
 
 After the refactor, the dual-source bug class is structurally
 unreachable: one recipient resolver, one PII-state owner, one redaction
@@ -635,7 +646,7 @@ Common contract across every body:
 ## 16. Initiator command — stats
 
 - **Trigger.** DKIM-authenticated reply to `stats+<id>@<domain>`.
-- **Sent by.** `app/bin/receive.js` (composer in `app/src/email-commands.js`).
+- **Sent by.** `app/bin/receive.js` (body in `bodies.cmd.stats`).
 - **Recipient.** Sender (envelope sender, must equal initiator).
 - **Subject.**
   - Workflow: `[gitdone] stats "<title>" [<done>/<total>] step done`
