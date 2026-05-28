@@ -94,6 +94,17 @@ function isComplete(event) {
   return !!(event.completion && event.completion.status === 'complete');
 }
 
+// Canonical signal that the event was terminated by an explicit
+// initiator action (dashboard close button, close+<id>@ command,
+// or close-via-knowless link) rather than completing naturally.
+// Set by every close site that stamps `completion.closed_by = 'initiator'`.
+// Read this — not structural inference like `!allStepsDone` — to avoid
+// the prior split where stats.js, summariseEvent, and the manage hero
+// each disagreed about what "closed early" meant.
+function isClosedByInitiator(event) {
+  return !!(event && event.completion && event.completion.closed_by === 'initiator');
+}
+
 function firstPendingStep(event) {
   if (!Array.isArray(event.steps)) return null;
   return event.steps.find((s) => s && s.status !== 'complete') || null;
@@ -716,6 +727,7 @@ module.exports = {
   applyDedup,
   applyRevoke,
   isComplete,
+  isClosedByInitiator,
   firstPendingStep,
   stepDepsMet,
   eligibleSteps,

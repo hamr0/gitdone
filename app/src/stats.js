@@ -12,6 +12,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const config = require('./config');
+const { isClosedByInitiator } = require('./completion');
 
 function lower(s) {
   return (s == null ? '' : String(s)).trim().toLowerCase();
@@ -19,10 +20,8 @@ function lower(s) {
 
 function statusOf(ev) {
   const terminal = ev.completion && ev.completion.status === 'complete';
-  const allStepsDone = ev.type === 'event' && Array.isArray(ev.steps) && ev.steps.length > 0
-    && ev.steps.every((s) => s.status === 'complete');
-  if (terminal && (ev.type !== 'event' || allStepsDone)) return 'completed';
-  if (terminal && ev.type === 'event' && !allStepsDone) return 'closed_early';
+  if (terminal && isClosedByInitiator(ev)) return 'closed_early';
+  if (terminal) return 'completed';
   if (ev.archived_at) return 'archived';
   if (!ev.activated_at) return 'pending_activation';
   return 'open';

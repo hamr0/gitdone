@@ -755,7 +755,10 @@ Max-Age. Sign-out deletes the session row.
   (use the proof bundle + `verify+` for byte-level recovery).
 - "Send reminders" button → `executeRemind`
 - "Close event" button → `executeClose` + `commitCompletion`
-- Email-fallback footer listing `stats+/remind+/close+` addresses
+- Email-fallback footer listing `stats+/remind+/close+` addresses,
+  plus `revoke+` on crypto attestation events (initiator-only,
+  surfaced inline in the event-details section so revocation is
+  discoverable without leaving the dashboard)
 
 ### 6.3 Receipt
 

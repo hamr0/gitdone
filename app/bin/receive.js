@@ -23,7 +23,7 @@ const { buildVerificationReport, formatVerifyReportBody } = require('../src/veri
 const { sendmail, buildRawMessage } = require('../src/outbound');
 const { forwardToOwner } = require('../src/forward');
 const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
-const { applyReply, applyRevoke, updateEventAtomic, hashSender } = require('../src/completion');
+const { applyReply, applyRevoke, updateEventAtomic, hashSender, revokedHashSet } = require('../src/completion');
 const { notifyWorkflowParticipants, notifyEventCompletion, notifyOrganiserOfStepProgress } = require('../src/notifications');
 const { authenticateInitiatorCommand, statsBody, executeRemind, executeCloseRequest } = require('../src/email-commands');
 const { bundleToBuffer, bundleFilename, buildAttachmentMessage } = require('../src/bundle');
@@ -1514,9 +1514,7 @@ async function main() {
         const replies = event.replies || [];
         // Module 8 — drop revoked sender_hashes from both counted and
         // verified; the ack reflects current state, not raw audit-trail.
-        const revokedSet = new Set(
-          ((event.revoked_senders) || []).map((r) => r && r.sender_hash).filter(Boolean)
-        );
+        const revokedSet = revokedHashSet(event);
         // Compute count using the same dedup rules as the engine.
         let counted;
         if (dedup === 'unique') {

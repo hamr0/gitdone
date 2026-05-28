@@ -50,6 +50,7 @@ const { layout: rawLayout, html, raw, truncateText } = require('../src/web/templ
 const { parseBody } = require('../src/web/body');
 const { validateWorkflowEvent, validateCryptoEvent, VALID_TRUST_LEVELS, VALID_CRYPTO_MODES, VALID_DEDUP_RULES } = require('../src/web/validation');
 const { createEvent } = require('../src/event-store');
+const { isClosedByInitiator, revokedHashSet } = require('../src/completion');
 const { getAuth } = require('../src/auth');
 const { createEventFinder } = require('../src/web/handle-events');
 const { sendmail, buildRawMessage, withSignature } = require('../src/outbound');
@@ -1597,13 +1598,8 @@ function summariseEvent(ev) {
   const terminal = ev.completion && ev.completion.status === 'complete';
   const allStepsDone = ev.type === 'event' && Array.isArray(ev.steps) && ev.steps.length > 0
     && ev.steps.every((s) => s.status === 'complete');
-  // Module 9 — crypto can also be closed early via the dashboard or
-  // close+<id>@. The signal is completion.closed_by === 'initiator';
-  // executeClose / executeCloseRequest both stamp it. Without this
-  // branch, a closed-early crypto event renders as "COMPLETED" on the
-  // dashboard, indistinguishable from one that reached threshold
-  // naturally.
-  const closedByInitiator = !!(terminal && ev.completion && ev.completion.closed_by === 'initiator');
+  // Canonical closed-early signal — see completion.isClosedByInitiator.
+  const closedByInitiator = terminal && isClosedByInitiator(ev);
   const completed = terminal && !closedByInitiator && (ev.type !== 'event' || allStepsDone);
   const closed = terminal && (
     (ev.type === 'event' && !allStepsDone) ||
@@ -1641,9 +1637,7 @@ function summariseEvent(ev) {
       && ev.reference_docs.length > 0;
     // Module 8 — revoked sender_hashes drop from counted + verified;
     // the audit trail (replies[]) is unchanged.
-    const revokedSet = new Set(
-      ((ev.revoked_senders) || []).map((r) => r && r.sender_hash).filter(Boolean)
-    );
+    const revokedSet = revokedHashSet(ev);
     let counted;
     let verified;
     if (strict) {
@@ -2940,9 +2934,7 @@ function renderAttestationHero(event, commits) {
   const strict = !!event.reference_url
     && Array.isArray(event.reference_docs)
     && event.reference_docs.length > 0;
-  const revokedSet = new Set(
-    ((event.revoked_senders) || []).map((r) => r && r.sender_hash).filter(Boolean)
-  );
+  const revokedSet = revokedHashSet(event);
   let count;
   if (strict) {
     const progress = event.attestor_progress || {};
@@ -2965,15 +2957,16 @@ function renderAttestationHero(event, commits) {
   const headlineCls = achieved ? `is-${achieved}` : 'is-unverified';
   const modalLabel = achieved ? TRUST_LABEL[achieved] : 'PENDING REPLIES';
   let headline;
-  if (accumulating && thresholdReached) {
-    const dateStr = thresholdReachedAt ? String(thresholdReachedAt).slice(0, 10) : '';
+  if (accumulating && thresholdReachedAt) {
+    const dateStr = String(thresholdReachedAt).slice(0, 10);
     // Strict mode counts distinct signers (not raw replies) so the
     // headline noun changes to match.
     const noun = strict ? 'signers' : 'replies';
     headline = html`${modalLabel} · ${String(count)} ${noun} · threshold reached ${dateStr}`;
   } else if (complete) {
     const dateStr = String(event.completion.completed_at).slice(0, 10);
-    headline = html`${modalLabel} · ${String(count)} of ${String(event.threshold)} · complete ${dateStr}`;
+    const verb = isClosedByInitiator(event) ? 'closed early' : 'complete';
+    headline = html`${modalLabel} · ${String(count)} of ${String(event.threshold)} · ${verb} ${dateStr}`;
   } else {
     headline = html`${modalLabel} · ${String(count)} of ${String(event.threshold)}`;
   }
@@ -3101,6 +3094,7 @@ function renderAttestationHero(event, commits) {
         ${renderReferenceDocsRow(event)}
         <div class="proof-row"><div class="proof-key">Initiator</div><div class="proof-value"><code class="copyable">${event.initiator}</code></div></div>
         <div class="proof-row"><div class="proof-key">Reply address</div><div class="proof-value"><code class="copyable">event+${event.id}@${config.domain}</code></div></div>
+        <div class="proof-row"><div class="proof-key">Revoke address</div><div class="proof-value"><code class="copyable">revoke+${event.id}@${config.domain}</code> <span style="color:#8b949e;font-size:0.86em">— initiator only; one email per line in the body, optional <code>reason:</code></span></div></div>
         <div class="proof-row"><div class="proof-key">Threshold</div><div class="proof-value">${String(event.threshold)}</div></div>
       </div>
       ${commits.length ? html`

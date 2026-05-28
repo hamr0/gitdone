@@ -16,7 +16,7 @@
 
 const crypto = require('node:crypto');
 const config = require('./config');
-const { meetsTrust, applyReply, updateEventAtomic, eligibleSteps, isComplete } = require('./completion');
+const { meetsTrust, applyReply, updateEventAtomic, eligibleSteps, isComplete, revokedHashSet } = require('./completion');
 const { notifyWorkflowParticipants, notifyDeclarationSigner } = require('./notifications');
 
 // close+ uses a two-step confirm so a single autoreply, stale forwarded
@@ -94,9 +94,7 @@ function cryptoStatsBody(event) {
     const replies = event.replies || [];
     const dedup = event.dedup || 'unique';
     // Module 8 — drop revoked sender_hashes from the user-facing count.
-    const revokedSet = new Set(
-      ((event.revoked_senders) || []).map((r) => r && r.sender_hash).filter(Boolean)
-    );
+    const revokedSet = revokedHashSet(event);
     let count;
     if (dedup === 'unique') {
       const seen = new Set();

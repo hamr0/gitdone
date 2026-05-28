@@ -17,6 +17,7 @@
 
 const config = require('./config');
 const { buildRawMessage, sendmail } = require('./outbound');
+const { revokedHashSet } = require('./completion');
 const proofRender = require('./web/proof-render');
 
 function stepReplyAddr(event, stepId) {
@@ -254,9 +255,7 @@ function renderProofBlock(event, commits, { recipient } = {}) {
     // what counted post-revoke. Aggregate trust counts are over the
     // effective (live, non-revoked) subset — that's what "verified"
     // means in the proof context.
-    const revokedSet = new Set(
-      ((event.revoked_senders) || []).map((r) => r && r.sender_hash).filter(Boolean)
-    );
+    const revokedSet = revokedHashSet(event);
     const liveCommits = revokedSet.size > 0
       ? commits.filter((c) => !c.sender_hash || !revokedSet.has(c.sender_hash))
       : commits;
@@ -617,9 +616,7 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
       counterTag = ` [${done}/${event.steps.length}]`;
     } else if (isAttestation && event.threshold) {
       const replies = Array.isArray(event.replies) ? event.replies : [];
-      const revokedSubjSet = new Set(
-        ((event.revoked_senders) || []).map((r) => r && r.sender_hash).filter(Boolean)
-      );
+      const revokedSubjSet = revokedHashSet(event);
       let counted;
       if (event.dedup === 'unique' || event.dedup === 'latest') {
         const distinct = new Set(replies.map((r) => r.sender_hash).filter(Boolean));

@@ -15,6 +15,47 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Revoke discoverability + closed-early consistency
+
+Live-deploy testing surfaced three gaps from the Module 9 polish pass.
+All three landed in one sweep; the underlying cause was the same — the
+"is this closed early?" question and the "is this sender revoked?"
+filter each had multiple readers that had drifted out of sync.
+
+- **Revoke address now visible in the manage UI.** The `revoke+{id}@`
+  channel existed since Module 8 but had zero in-product mention —
+  the initiator had to know about it from docs. Added a `Revoke
+  address` row in the attestation manage hero's event-details
+  section, next to the existing `Reply address` row, with a one-line
+  reminder of the syntax (one email per line in the body, optional
+  `reason:`). Initiator-only by virtue of the route being session-
+  gated; the public proof page is unchanged (revoke is not for
+  attestors to see how to revoke their own contribution).
+- **"Closed early" now consistent across every surface.** A crypto
+  event closed via the dashboard or `close+{id}@` was rendering
+  inconsistently: dashboard pill said "closed early" (correct,
+  Module 9 polish-2 fix), but the manage event-details hero still
+  said "complete <date>" and the platform stats counted it as
+  `completed` rather than `closed_early`. Three readers, one source
+  of truth — now all three go through a new
+  `completion.isClosedByInitiator(event)` helper that reads the
+  durable `completion.closed_by === 'initiator'` signal. The
+  attestation hero's headline flips from "complete <date>" to
+  "closed early <date>" accordingly, and the platform stats
+  counter (`app/src/stats.js`) labels crypto closed-early events
+  correctly in the by-status aggregate.
+- **Revoked-set filter consolidated.** The same five-line "build a
+  Set of revoked sender_hashes" snippet was copy-pasted at six call
+  sites (`server.js` dashboard summary, `server.js` attestation hero,
+  `notifications.js` proof-block, `notifications.js` subject
+  counterTag, `email-commands.js` stats body, `receive.js` ack
+  counter). All now import the existing
+  `completion.revokedHashSet(event)` helper — one canonical filter,
+  one place to maintain. No behaviour change; the helper already
+  existed and was identical.
+
+573 tests pass unchanged.
+
 ### Dependency hygiene — knowless 1.1.3 → 1.1.9
 
 - **`knowless` bumped 1.1.3 → 1.1.9** (pin `^1.1.1` → `^1.1.9`). Six
