@@ -23,8 +23,9 @@ const { buildVerificationReport, formatVerifyReportBody } = require('../src/veri
 const { sendmail, buildRawMessage } = require('../src/outbound');
 const { forwardToOwner } = require('../src/forward');
 const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
-const { applyReply, applyRevoke, updateEventAtomic, hashSender, revokedHashSet, isClosedByInitiator } = require('../src/completion');
+const { applyReply, applyRevoke, updateEventAtomic, hashSender, isClosedByInitiator } = require('../src/completion');
 const { notifyLifecycleEdge, notifyWorkflowParticipants } = require('../src/notifications');
+const { replyAck, formatReferenceDocList } = require('../src/email-bodies');
 const { authenticateInitiatorCommand, statsBody, executeRemind, executeCloseRequest } = require('../src/email-commands');
 const { bundleToBuffer, bundleFilename, buildAttachmentMessage } = require('../src/bundle');
 const { extractDsn } = require('../src/dsn');
@@ -141,31 +142,9 @@ function isReferenceDocSetFrozen(event) {
   return false;
 }
 
-// Format a reference_docs list for inclusion in an ack body.
-// Bullet-only by default ("• <filename> · <sha256> · <size>"), or
-// per-attestor progress checkboxes when signedSet is supplied
-// ("[x]" / "[ ]"). The checkbox form keeps the ack symmetric with the
-// manage UI's "N attestors signed" pill and answers the question
-// repliers actually ask: "did the file I sent get through?".
-function formatReferenceDocList(docs, { signedSet = null } = {}) {
-  if (!Array.isArray(docs) || docs.length === 0) return '  (none yet)';
-  return docs.map((d) => {
-    const name = d.filename || '(unnamed)';
-    const hashShort = d.sha256 ? d.sha256.replace(/^sha256:/, '').slice(0, 12) : '?';
-    const sz = humanSize(d.size);
-    const marker = signedSet ? (d.sha256 && signedSet.has(d.sha256) ? '[x]' : '[ ]') : '•';
-    return `  ${marker} ${name} · ${hashShort} · ${sz}`;
-  }).join('\n');
-}
-
-const { formatProgressBlock } = require('../src/ack-progress');
-
-function humanSize(n) {
-  if (!n && n !== 0) return '?';
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(2)} MB`;
-}
+// formatReferenceDocList + humanSize moved to email-bodies.js (the body
+// catalogue) — imported above; used by the attach+ command ack and the
+// reply-ack builders.
 
 // Module 8 — parse a revoke+ email body. One email per line; optional
 // final/standalone `reason: <free-form>` line captured separately.
@@ -1483,319 +1462,38 @@ async function main() {
       const cryptoLabel = isCrypto
         ? (event.mode === 'declaration' ? 'Crypto Declaration' : 'Crypto Attestation')
         : null;
+      // All ack TEXT lives in email-bodies.js (replyAck.*); this block
+      // stays the dispatch (decision.reason → which builder). ackCtx
+      // carries the shared precomputed primitives every builder draws on.
+      const ackCtx = { isCrypto, fromAddr, cryptoLabel, stepName, stepCounter, ackSenderHash, completion };
       let subject;
       let body;
       if (accepted && isCrypto && event.mode === 'declaration') {
-        // Module 4c: strict signing — under partial progress, ack lists
-        // matched/missing and the event stays open. Once every doc is
-        // signed, completion.completed_event is true and we send the
-        // "final" body.
-        const strictMode = !!event.reference_url
-          && Array.isArray(event.reference_docs)
-          && event.reference_docs.length > 0;
-        const allSigned = !!completion.completed_event;
-        if (strictMode && !allSigned) {
-          subject = `[gitdone] Signed in progress — ${event.title}`;
-          body = [
-            `Your reply on Crypto Declaration "${event.title}" was accepted in part.`,
-            `Reply is DKIM-verified, OpenTimestamped, and committed to the audit`,
-            `trail.`,
-            ``,
-            formatProgressBlock(event, { senderHash: ackSenderHash }),
-            ``,
-            `Reply again to ${fromAddr} attaching the remaining file${event.reference_docs.filter((d) => !d.signed_at).length === 1 ? '' : 's'}.`,
-            ``,
-            `Requester: ${event.initiator}`,
-          ].join('\n');
-        } else {
-          subject = `[gitdone] Signed — ${event.title}`;
-          const refDocsBlock = (event.reference_docs && event.reference_docs.length)
-            ? `\n\nReference documents (${event.reference_docs.length}):\n${formatReferenceDocList(event.reference_docs)}`
-            : '';
-          body = [
-            `Your signature on Crypto Declaration "${event.title}" was accepted.`,
-            `The reply is DKIM-verified, OpenTimestamped, and committed to the`,
-            `event's git audit trail.`,
-            ``,
-            `The declaration is now final and the audit trail is sealed. Thank you.`,
-            ``,
-            `Requester: ${event.initiator}` + refDocsBlock,
-          ].join('\n');
-        }
+        ({ subject, body } = replyAck.acceptedDeclaration(event, ackCtx));
       } else if (accepted && isCrypto && event.mode === 'attestation') {
-        const dedup = event.dedup || 'unique';
-        const replies = event.replies || [];
-        // Module 8 — drop revoked sender_hashes from both counted and
-        // verified; the ack reflects current state, not raw audit-trail.
-        const revokedSet = revokedHashSet(event);
-        // Compute count using the same dedup rules as the engine.
-        let counted;
-        if (dedup === 'unique') {
-          const seen = new Set();
-          for (const r of replies) {
-            if (r.sender_hash && !revokedSet.has(r.sender_hash)) seen.add(r.sender_hash);
-          }
-          counted = seen.size;
-        } else {
-          counted = replies.reduce((n, r) => n + (revokedSet.has(r.sender_hash) ? 0 : 1), 0);
-        }
-        // Module 6 — dual count. "Counted" reflects the dedup rule;
-        // "verified" is the DKIM-verified subset, which is what
-        // matters for vouching / legal / load-bearing use cases. For
-        // unique/latest dedup the two are equal (engine requires
-        // DKIM-verified); for accumulating they can diverge. Surfacing
-        // both gives the attestor honest signal about the trust shape
-        // of what they just joined.
-        let verified;
-        if (dedup === 'unique') {
-          const verifiedSenders = new Set();
-          for (const r of replies) {
-            if (r.trust_level === 'verified' && r.sender_hash && !revokedSet.has(r.sender_hash)) verifiedSenders.add(r.sender_hash);
-          }
-          verified = verifiedSenders.size;
-        } else {
-          verified = replies.filter((r) => r.trust_level === 'verified' && !revokedSet.has(r.sender_hash)).length;
-        }
-        const lockingDedup = dedup !== 'accumulating';
-        const reachedThreshold = lockingDedup
-          ? !!completion.completed_event
-          : (!!event.threshold_reached_at);
-        // Subject counter: `[counted/threshold]` is the original shape;
-        // append `· N verified` only when verified != counted (i.e.
-        // there's actually a non-verified contribution to disambiguate
-        // from — keeps the subject compact in the common case).
-        const counterTag = event.threshold
-          ? (verified === counted
-              ? ` [${counted}/${event.threshold}]`
-              : ` [${counted}/${event.threshold} · ${verified} verified]`)
-          : '';
-        subject = (lockingDedup && reachedThreshold)
-          ? `[gitdone] Attestation complete — ${event.title}${counterTag}`
-          : `[gitdone] Attestation reply recorded — ${event.title}${counterTag}`;
-        // Body always carries both numbers when they diverge, even if
-        // the subject elides — the body is the durable record.
-        const trustQual = (verified === counted)
-          ? `${counted}`
-          : `${counted} (${verified} verified)`;
-        let tail;
-        if (lockingDedup && reachedThreshold) {
-          tail = `Threshold reached (${event.threshold}). The audit trail is sealed.`;
-        } else if (!lockingDedup && reachedThreshold) {
-          const dateStr = String(event.threshold_reached_at).slice(0, 10);
-          tail = `Replies so far: ${trustQual} (threshold of ${event.threshold} reached on ${dateStr}). The attestation keeps counting; only the organiser can close it.`;
-        } else {
-          tail = `Replies so far: ${trustQual}/${event.threshold}. The attestation stays open until the threshold is met.`;
-        }
-        // Per-attestor progress checkboxes on the docs list — same source
-        // of truth as formatProgressBlock (attestor_progress[hash]
-        // .signed_doc_hashes). Closes the "did the file I sent get
-        // through?" loop directly in the accepted-ack so attestors don't
-        // need to interpret raw bullets.
-        const attProgressForSender = (event.attestor_progress || {})[ackSenderHash];
-        const ackSignedSet = attProgressForSender
-          ? new Set(attProgressForSender.signed_doc_hashes || [])
-          : null;
-        const refDocsBlock = (event.reference_docs && event.reference_docs.length)
-          ? `\n\nReference documents (${event.reference_docs.length}):\n${formatReferenceDocList(event.reference_docs, { signedSet: ackSignedSet })}`
-          : '';
-        body = [
-          `Your reply to Crypto Attestation "${event.title}" was recorded.`,
-          `It's DKIM-verified, OpenTimestamped, and committed to the event's`,
-          `git audit trail.`,
-          ``,
-          tail,
-          ``,
-          `Requester: ${event.initiator}` + refDocsBlock,
-        ].join('\n');
+        ({ subject, body } = replyAck.acceptedAttestation(event, ackCtx));
       } else if (accepted) {
-        subject = `[gitdone] Accepted — ${event.title} — ${stepName}${stepCounter}`;
-        const tail = completion.completed_event
-          ? `All steps are now complete; the event is marked completed. Thank you.`
-          : `Thank you — nothing else is needed from you on this step.`;
-        body = [
-          `Your reply for "${stepName}" on event "${event.title}" was accepted.`,
-          `The step is marked complete and the reply is recorded in the event's`,
-          `git audit trail (DKIM-verified, OpenTimestamped).`,
-          ``,
-          tail,
-          ``,
-          `Organiser: ${event.initiator}`,
-        ].join('\n');
+        ({ subject, body } = replyAck.acceptedWorkflow(event, ackCtx));
       } else if (isSelfReply) {
-        // Initiator self-replied — committed to the audit trail (forensic
-        // record) but never counts. Without an ack the sender wonders if
-        // the round-trip even worked. The ack closes that loop and
-        // explains why the count didn't move.
-        subject = `[gitdone] Self-reply not counted — ${event.title}`;
-        const kindLabel = isCrypto
-          ? (cryptoLabel || 'crypto event')
-          : 'event';
-        body = [
-          `Your email to ${kindLabel} "${event.title}" was committed to`,
-          `the audit trail (DKIM-verified, OpenTimestamped) but does NOT`,
-          `count as your own ${event.type === 'crypto' && event.mode === 'declaration' ? 'signature' : 'attestation'}: you're the initiator and a`,
-          `self-signature has no third-party value.`,
-          ``,
-          `If you meant to test, this confirms the round-trip works.`,
-          `Otherwise, share the reply address with someone else:`,
-          `  ${fromAddr}`,
-        ].join('\n');
+        ({ subject, body } = replyAck.selfReply(event, ackCtx));
       } else if (reason === 'attachment_set_mismatch') {
-        subject = `[gitdone] Attachment hash mismatch — ${event.title}`;
-        const m = (completion.decision && completion.decision.match_result) || {};
-        const mismatchLines = (m.mismatched || []).map((mm) => {
-          const exp = (mm.expected_sha256 || '').replace(/^sha256:/, '').slice(0, 16) + '…';
-          const got = (mm.got_sha256 || '').replace(/^sha256:/, '').slice(0, 16) + '…';
-          return `  • ${mm.attachment.filename || '(unnamed)'}   expected: ${exp}   got: ${got}`;
-        }).join('\n') || '  (no diff available)';
-        body = [
-          `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`,
-          ``,
-          `One or more attachments share a filename with a reference doc but`,
-          `their bytes don't match what was registered. Your reply is recorded`,
-          `in the audit trail but does NOT count.`,
-          ``,
-          mismatchLines,
-          ``,
-          `Send the exact file${(m.mismatched || []).length === 1 ? '' : 's'} that ${event.initiator} registered.`,
-          `You can spread the docs across multiple replies; we'll track`,
-          `progress.`,
-          ``,
-          formatProgressBlock(event, { senderHash: ackSenderHash }),
-        ].join('\n');
+        ({ subject, body } = replyAck.attachmentSetMismatch(event, ackCtx));
       } else if (reason === 'strict_no_matching_attachments') {
-        subject = `[gitdone] No matching attachments — ${event.title}`;
-        body = [
-          `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`,
-          ``,
-          `This event requires you to attach the registered reference document${event.reference_docs.length === 1 ? '' : 's'}.`,
-          `Your reply is in the audit trail but does NOT count.`,
-          ``,
-          formatProgressBlock(event, { senderHash: ackSenderHash }),
-          ``,
-          `Reply again to ${fromAddr} with the file${event.reference_docs.length === 1 ? '' : 's'} attached.`,
-        ].join('\n');
+        ({ subject, body } = replyAck.strictNoMatchingAttachments(event, ackCtx));
       } else if (reason === 'revoked_sender') {
-        // Module 9 — a revoked attestor re-replied. The audit trail
-        // (commitReply above) records the reply; this ack tells the
-        // sender their prior signature was withdrawn by the initiator
-        // and points to the public proof page where the revocation is
-        // visible. No reason string surfaced — the initiator's reason
-        // is on the ledger, not in this email.
-        subject = `[gitdone] Reply not counted — ${event.title}`;
-        const publicBase = (process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`).replace(/\/+$/, '');
-        body = [
-          `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`,
-          ``,
-          `Your prior signature on this attestation was revoked by the`,
-          `initiator and no longer counts toward the threshold. Your`,
-          `replies remain in the audit trail (DKIM-verified,`,
-          `OpenTimestamped); the public proof page shows the revocation:`,
-          `  ${publicBase}/proof/${event.id}`,
-          ``,
-          `If you believe this is in error, reach out to ${event.initiator}.`,
-        ].join('\n');
+        ({ subject, body } = replyAck.revokedSender(event, ackCtx));
       } else if (reason === 'strict_already_signed') {
-        // Module 6.5 — re-signing an already-complete bucket. Audit
-        // trail captures it; the count doesn't move because there's
-        // nothing further to attest to (manifest is finite and you
-        // already signed every doc on it).
-        subject = `[gitdone] Already signed — ${event.title}`;
-        body = [
-          `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`,
-          ``,
-          `You've already signed every required document for this`,
-          `attestation. Your reply is recorded in the audit trail for the`,
-          `record, but it does NOT add to the count — there's nothing`,
-          `further to attest to (the manifest is finite and frozen).`,
-          ``,
-          formatProgressBlock(event, { senderHash: ackSenderHash }),
-          ``,
-          `Requester: ${event.initiator}`,
-        ].join('\n');
+        ({ subject, body } = replyAck.strictAlreadySigned(event, ackCtx));
       } else if (reason === 'awaiting_reference_docs') {
-        subject = `[gitdone] Awaiting reference documents — ${event.title}`;
-        body = [
-          `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`,
-          ``,
-          `The requester cited a reference URL but hasn't yet registered the`,
-          `document hashes that pin what's being signed:`,
-          `  ${event.reference_url}`,
-          ``,
-          `Your message is recorded in the event's audit trail, but doesn't`,
-          `count yet — every signer needs to attest to the same document`,
-          `snapshot. Once ${event.initiator} registers the docs (by emailing`,
-          `attach+${event.id}@${config.domain} with the files attached), you`,
-          `can resend to:`,
-          `  ${fromAddr}`,
-          ``,
-          `If you believe this is a mistake, reach out to ${event.initiator}.`,
-        ].join('\n');
+        ({ subject, body } = replyAck.awaitingReferenceDocs(event, ackCtx));
       } else if (reason === 'missing_attachment') {
-        subject = isCrypto
-          ? `[gitdone] Attachment required — ${event.title}`
-          : `[gitdone] Attachment required — ${event.title} — ${stepName}${stepCounter}`;
-        const lede = isCrypto
-          ? `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`
-          : `Thanks — we received your reply for "${stepName}" on event "${event.title}".`;
-        body = [
-          lede,
-          ``,
-          `${isCrypto ? 'This event' : 'This step'} requires an attachment, and we didn't find one on your reply.`,
-          `Your message is recorded in the event's audit trail, but ${isCrypto ? 'it will not count' : 'the step will\nstay pending'}`,
-          `until a reply arrives with a file attached.`,
-          ``,
-          `Please reply again to this address with the document attached:`,
-          `  ${fromAddr}`,
-          ``,
-          `If you believe this is a mistake, reach out to ${event.initiator}.`,
-        ].join('\n');
+        ({ subject, body } = replyAck.missingAttachment(event, ackCtx));
       } else if (reason === 'event archived') {
-        subject = `[gitdone] ${isCrypto ? cryptoLabel + ' archived' : 'Event archived'} — ${event.title}`;
-        const lede = isCrypto
-          ? `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`
-          : `Thanks — we received your reply for "${stepName}" on event "${event.title}".`;
-        body = [
-          lede,
-          ``,
-          `This ${isCrypto ? cryptoLabel : 'event'} has been archived (either by the organiser, or automatically`,
-          `after a long period of inactivity past its deadline). Your reply was not`,
-          `counted toward completion, but is still recorded in the event's audit`,
-          `trail.`,
-          ``,
-          `If this is unexpected, reach out to ${event.initiator} — they can`,
-          `un-archive ${isCrypto ? 'it' : 'the event'} from their dashboard and your reply will become`,
-          `valid on resend.`,
-        ].join('\n');
+        ({ subject, body } = replyAck.eventArchived(event, ackCtx));
       } else if (reason === 'event not activated') {
-        subject = `[gitdone] ${isCrypto ? cryptoLabel + ' not yet activated' : 'Event not yet activated'} — ${event.title}`;
-        const lede = isCrypto
-          ? `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`
-          : `Thanks — we received your reply for "${stepName}" on event "${event.title}".`;
-        body = [
-          lede,
-          ``,
-          `This ${isCrypto ? cryptoLabel : 'event'} hasn't been activated by the ${isCrypto ? 'requester' : 'organiser'} yet, so your reply`,
-          `was not counted. Your message is still recorded in the event's audit`,
-          `trail. Once ${isCrypto ? 'they' : 'the organiser'} activate${isCrypto ? '' : 's'} the event, you'll get the normal`,
-          `${isCrypto ? 'invitation; please reply again then so it can be marked complete.' : 'invitation; please reply again then so the step can be marked complete.'}`,
-          ``,
-          `If this is unexpected, reach out to ${event.initiator}.`,
-        ].join('\n');
+        ({ subject, body } = replyAck.eventNotActivated(event, ackCtx));
       } else {
-        subject = `[gitdone] ${isCrypto ? cryptoLabel + ' closed' : 'Event closed'} — ${event.title}`;
-        const lede = isCrypto
-          ? `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`
-          : `Thanks — we received your reply for "${stepName}" on event "${event.title}".`;
-        body = [
-          lede,
-          ``,
-          `This ${isCrypto ? cryptoLabel : 'event'} has already been closed, so your reply was not counted`,
-          `toward completion. Your message is still recorded in the event's`,
-          `audit trail for posterity.`,
-          ``,
-          `If this was unexpected, reach out to ${event.initiator}.`,
-        ].join('\n');
+        ({ subject, body } = replyAck.eventClosed(event, ackCtx));
       }
       const rawMessage = buildRawMessage({
         from: `gitdone <${fromAddr}>`,
