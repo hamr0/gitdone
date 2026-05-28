@@ -339,47 +339,31 @@ async function notifyEventCompletion(event, { reason = 'all_steps_done', publicB
     ? event.steps.find((s) => s.id === completedStepId)
     : null;
   const finalIdx = finalStep ? event.steps.indexOf(finalStep) : -1;
-  const recipients = new Set();
-  if (event.initiator) recipients.add(event.initiator.toLowerCase());
-  if (event.type === 'event' && Array.isArray(event.steps)) {
-    for (const s of event.steps) {
-      if (s && s.participant) recipients.add(s.participant.toLowerCase());
-    }
-  } else if (event.type === 'crypto' && event.mode === 'declaration' && event.signer) {
-    recipients.add(event.signer.toLowerCase());
-  } else if (event.type === 'crypto' && event.mode === 'attestation') {
-    // Strict attestation: emails persist in attestor_progress until
-    // Module 4e redaction (post first-proof-email send). Reach every
-    // attestor who has at least started signing — covers both the
-    // natural completion path and the explicit close paths, where
-    // previously only the initiator was notified. Once redacted
-    // (p.email === null), nobody is added here — privacy by design.
-    // Loose attestation has only salted hashes, so this is a no-op.
-    const isStrict = !!event.reference_url
-      && Array.isArray(event.reference_docs)
-      && event.reference_docs.length > 0;
-    if (isStrict && event.attestor_progress) {
-      for (const p of Object.values(event.attestor_progress)) {
-        if (p && typeof p.email === 'string' && p.email.includes('@')) {
-          recipients.add(p.email.toLowerCase());
-        }
-      }
-    }
-  }
-  // Caller-supplied extraRecipients (kept for back-compat; the strict-
-  // attestation auto-gather above now covers the natural-completion
-  // path too, so the explicit list is mostly redundant — but harmless
-  // since recipients is a Set).
-  if (Array.isArray(extraRecipients)) {
-    for (const r of extraRecipients) {
-      if (typeof r === 'string' && r.includes('@')) recipients.add(r.toLowerCase());
-    }
-  }
 
   const isWorkflow = event.type === 'event';
   const isDeclaration = event.type === 'crypto' && event.mode === 'declaration';
   const isAttestation = event.type === 'crypto' && event.mode === 'attestation';
   const isClosedEarly = reason === 'closed_by_initiator';
+
+  // Single recipient resolver — see app/src/email-recipients.js.
+  // Maps each (edge, event-kind) combo to the right set, including
+  // the strict-attestation PII-state read that previously lived
+  // inline here as a 20-line block split across five call sites.
+  const { getRecipients } = require('./email-recipients');
+  const recipientsMap = getRecipients(event, isClosedEarly ? 'closed' : 'completed');
+  // Back-compat for callers still passing extraRecipients (e.g. the
+  // strict-attestation auto-gather in receive.js — now redundant
+  // since the resolver does the same read, but harmless as long as
+  // the merge stays idempotent on already-present keys).
+  if (Array.isArray(extraRecipients)) {
+    for (const r of extraRecipients) {
+      if (typeof r === 'string' && r.includes('@')) {
+        const k = r.toLowerCase();
+        if (!recipientsMap.has(k)) recipientsMap.set(k, 'attestor');
+      }
+    }
+  }
+  const recipients = new Set(recipientsMap.keys());
 
   // Mode-aware reason label so the body doesn't lie about what closed
   // the event ("Reason: all steps completed" on a crypto event was the
