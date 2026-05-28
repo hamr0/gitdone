@@ -15,6 +15,32 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Email bodies: reply acks join the catalogue (0.25.2)
+
+Internal architecture release, **no user-visible behaviour change** —
+every reply-ack body and subject is byte-identical to 0.25.1 (verified
+by the email-commands, receive, strict-signing, web-crypto,
+proof-emails, and oversubscribe-revoke-reopen suites, all of which
+assert on exact ack text; 607 tests pass).
+
+0.25.1 left the per-inbound-reply acks inline in `receive.js` as a
+deferred follow-up. This release moves them: the ~13 per-decision-reason
+acknowledgement bodies (accepted declaration/attestation/workflow,
+self-reply, attachment mismatch, no-matching-attachments, revoked
+sender, already-signed, awaiting-docs, missing-attachment, archived,
+not-activated, closed) now live in a `replyAck.*` namespace in
+`app/src/email-bodies.js`. `receive.js` keeps the dispatch
+(`decision.reason` → which builder) and passes a shared `ackCtx` of
+precomputed primitives; all ack TEXT lives in the catalogue.
+`formatReferenceDocList` + `humanSize` moved too (the `attach+` command
+ack imports `formatReferenceDocList` back).
+
+Still inline (next pass, 0.25.3): the per-command acks — bundle/attach/
+revoke bodies in `receive.js`, plus the stats/close/remind text in
+`email-commands.js`. The follow-up decouples those into `bodies.cmd.*`
+so `email-commands.js` is pure computation/state-machines returning
+structured results.
+
 ### Email bodies: one catalogue, one template per email (0.25.1)
 
 Internal architecture release, **no user-visible behaviour change** —

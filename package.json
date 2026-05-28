@@ -1,6 +1,6 @@
 {
   "name": "gitdone",
-  "version": "0.25.1",
+  "version": "0.25.2",
   "private": true,
   "description": "Email-native multi-party coordination. Cryptographic proof on every reply.",
   "homepage": "https://git-done.com",
