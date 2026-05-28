@@ -33,17 +33,18 @@ filter each had multiple readers that had drifted out of sync.
   attestors to see how to revoke their own contribution).
 - **"Closed early" now consistent across every surface.** A crypto
   event closed via the dashboard or `close+{id}@` was rendering
-  inconsistently: dashboard pill said "closed early" (correct,
-  Module 9 polish-2 fix), but the manage event-details hero still
-  said "complete <date>" and the platform stats counted it as
-  `completed` rather than `closed_early`. Three readers, one source
-  of truth — now all three go through a new
+  inconsistently across five places: dashboard list (correct since
+  M9 polish-2), manage hero headline (said "complete"), hero meta
+  strip (said "complete"), breadcrumb pill (said "complete", green),
+  and platform stats (counted as `completed`). Five readers, one
+  source of truth — now all five go through a new
   `completion.isClosedByInitiator(event)` helper that reads the
   durable `completion.closed_by === 'initiator'` signal. The
-  attestation hero's headline flips from "complete <date>" to
-  "closed early <date>" accordingly, and the platform stats
-  counter (`app/src/stats.js`) labels crypto closed-early events
-  correctly in the by-status aggregate.
+  attestation hero headline flips "complete <date>" → "closed early
+  <date>"; the meta strip mirrors; the breadcrumb pill gets a new
+  amber `.mg-pill.closed` class; the platform stats counter
+  (`app/src/stats.js`) labels crypto closed-early events under
+  `closed_early` in the by-status aggregate.
 - **Revoked-set filter consolidated.** The same five-line "build a
   Set of revoked sender_hashes" snippet was copy-pasted at six call
   sites (`server.js` dashboard summary, `server.js` attestation hero,

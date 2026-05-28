@@ -2394,6 +2394,7 @@ const MANAGE_CSS = `
 .mg-pill { display:inline-block; padding:0.15em 0.55em; border-radius:0; font-size:0.72em; font-weight:600; text-transform:uppercase; letter-spacing:0.1em; border:1px solid; }
 .mg-pill.open { background:#0d1117; color:#58a6ff; border-color:#58a6ff; }
 .mg-pill.complete { background:#0d1117; color:#3fb950; border-color:#3fb950; }
+.mg-pill.closed { background:#0d1117; color:#d29922; border-color:#d29922; }
 .mg-pill.pending-activation { background:#0d1117; color:#ffb000; border-color:#ffb000; }
 .mg-pill.archived { background:#0d1117; color:#6e7681; border-color:#6e7681; }
 .mg-archived-banner { background:rgba(110,118,129,0.06); border:1px solid #30363d; border-left:3px solid #6e7681; color:#8b949e; padding:0.7rem 0.95rem; margin:0 0 1rem; font-size:0.92em; line-height:1.5; }
@@ -3035,7 +3036,7 @@ function renderAttestationHero(event, commits) {
   const metaBits = [];
   if (auditOnlyN > 0) metaBits.push(`${auditOnlyN} audit-only`);
   if (complete && !accumulating && completedDateStr) {
-    metaBits.push(`complete ${completedDateStr}`);
+    metaBits.push(`${isClosedByInitiator(event) ? 'closed early' : 'complete'} ${completedDateStr}`);
   } else if (thresholdReached && thresholdDateStr) {
     metaBits.push(`threshold reached ${thresholdDateStr}`);
   }
@@ -3210,13 +3211,16 @@ function renderManagementDashboard({ eventId, initiatorEmail, event, flash, step
   const complete = event.completion && event.completion.status === 'complete';
   const pendingActivation = !event.activated_at && !complete;
   const archived = !!event.archived_at && !complete;
-  const pill = complete
-    ? html`<span class="mg-pill complete">complete</span>`
-    : (archived
-      ? html`<span class="mg-pill archived">archived</span>`
-      : (pendingActivation
-        ? html`<span class="mg-pill pending-activation">pending activation</span>`
-        : html`<span class="mg-pill open">active</span>`));
+  const closedEarly = complete && isClosedByInitiator(event);
+  const pill = closedEarly
+    ? html`<span class="mg-pill closed">closed early</span>`
+    : (complete
+      ? html`<span class="mg-pill complete">complete</span>`
+      : (archived
+        ? html`<span class="mg-pill archived">archived</span>`
+        : (pendingActivation
+          ? html`<span class="mg-pill pending-activation">pending activation</span>`
+          : html`<span class="mg-pill open">active</span>`)));
   let bodyMiddle;
   if (event.type === 'event' && pendingActivation) {
     // Pending workflow events have no live state (no replies, no

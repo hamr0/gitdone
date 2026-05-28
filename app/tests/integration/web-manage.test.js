@@ -458,7 +458,9 @@ test('POST /manage/event/:id/close flips state and redirects with flash', async 
 
   const view = await get(`/manage/event/${ev.id}?closed=1`, cookie);
   assert.match(view.body, /Event closed\./);
-  assert.match(view.body, /class="mg-pill complete"/);
+  // Dashboard close stamps completion.closed_by = 'initiator', so the
+  // breadcrumb pill is "closed early" (amber), not "complete" (green).
+  assert.match(view.body, /class="mg-pill closed"/);
 });
 
 test('POST /manage/event/:id/close on a pending event deletes it', async () => {
