@@ -133,41 +133,61 @@ named templates**.
 
 ---
 
-## Architecture (planned refactor — full category B + bodies file)
+## Architecture (shipped — 0.25.0 + 0.25.1)
 
-The recent dual-source bugs (`proof_email_sent_at`,
+The 0.24.6–0.24.8 dual-source bugs (`proof_email_sent_at`,
 `attestor_emails_redacted_at` stamped at one edge, read by another)
 were structural: ~8 trigger functions each computed their own
-recipient set; PII redaction was tied to "first proof email send"
-instead of the terminal close edge. Unification:
+recipient set, and PII redaction was tied to "first proof email send"
+instead of the terminal close edge. The unification shipped across two
+internal-architecture releases, both byte-identical (no user-visible
+change):
 
-- **`app/src/email-bodies.js`** — every named template lives here,
-  organised by the tree paths above (`bodies.cmd.revoke.applied`,
-  `bodies.replyAck.attestation.acceptedStrictComplete`,
-  `bodies.lifecycle.completed.attestation.organiser`, …). Each
-  template is a function `(event, args) → { subject, body }`. Senders
-  never compose subject/body inline.
-- **`app/src/email-recipients.js`** — single
-  `getEventRecipients(event, edge) → Map<email, role>`. Owns the
-  strict-attestation PII state. Anyone else asking "who's connected to
-  this event?" calls this and only this.
-- **`app/src/notifications.js`** slims to one entry point:
-  `notifyLifecycleEdge(event, edge, payload)`. Replaces
-  `notifyEventCompletion`, `notifyOrganiserOfActivation`,
-  `notifyOrganiserOfStepProgress`,
-  `notifyInitiatorOfSigningProgress`, `notifyProofAnchored`,
-  `notifyInitiatorAttachDocsNeeded`, `notifyDeclarationSigner`,
-  `notifyWorkflowParticipants` (8 → 1). Stamps
-  `event[${edge}_notified_at]` and fires edge-specific side effects
-  (redaction only on `closed`).
-- **Per-commit (A) bodies move into `email-bodies.js` too** — the
-  dispatch logic in `receive.js` (decision.reason → which template)
-  stays where it is; only the body strings move out.
+- **`app/src/email-recipients.js`** (0.25.0) — single
+  `getRecipients(event, edge) → Map<email, role>`. Owns the
+  strict-attestation PII state (respects `attestor_emails_redacted_at`
+  as the one redaction signal). Anyone asking "who's connected to this
+  event?" calls this and only this. Edges: `activated | progressed |
+  completed | closed | anchored | archived | overdue`; roles:
+  `organiser | participant | signer | attestor`.
+- **`app/src/notifications.js`** (0.25.0) — one entry point for
+  per-event lifecycle mail: `notifyLifecycleEdge(event, edge, payload)`
+  over the edges `completed | closed | anchored | activated |
+  progressed`. It resolves recipients via `getRecipients`, picks the
+  body template by `(edge, kind, role)`, and owns the single
+  edge-specific side effect: **redaction fires only on `closed`** (and
+  only for strict attestation), post-notify. The lifecycle composers
+  (`notifyEventCompletion`, `notifyProofAnchored`,
+  `notifyOrganiserOfActivation`, `notifyOrganiserOfStepProgress`) are
+  now private behind the dispatcher; `notifyInitiatorOfSigningProgress`
+  was dead and deleted. The invite/setup senders
+  (`notifyWorkflowParticipants`, `notifyDeclarationSigner`,
+  `notifyInitiatorAttachDocsNeeded`) stay public — they kick off
+  participation rather than report a lifecycle edge.
+- **`app/src/email-bodies.js`** (0.25.1) — every composed body/subject
+  template, keyed by tree path:
+  `bodies.lifecycle.completed.attestation.organiser`,
+  `bodies.lifecycle.{activated,progressed,anchored}`,
+  `bodies.invite.{workflowStep,declarationSigner,attachDocsNeeded}`,
+  plus the `renderProofBlock` / `renderOrganiserStepList` renderers.
+  Senders never compose subject/body inline.
+
+Deliberate deviations from the original plan: there is **no
+`${edge}_notified_at` idempotency stamp** — re-fire is already gated
+by `proof_email_sent_at` vs `completion.completed_at`, and a per-notify
+write would add non-semantic commits to the per-event proof repo
+(which IS the proof artifact). Redaction idempotency is the
+`attestor_emails_redacted_at` stamp, written once on close.
+
+**Still inline (pending → 0.25.2):** the per-commit (A) reply/command
+acks in `receive.js` move into `email-bodies.js` as `bodies.replyAck.*`
+/ `bodies.cmd.*`; the dispatch logic (decision.reason → which template)
+stays in `receive.js`.
 
 After the refactor, the dual-source bug class is structurally
-unreachable: one recipient resolver, one PII-state owner, per-edge
-idempotency stamps. See `CHANGELOG.md` 0.24.6–0.24.8 for the symptoms
-this addresses.
+unreachable: one recipient resolver, one PII-state owner, one redaction
+site. See `CHANGELOG.md` 0.24.6–0.24.8 (symptoms) and 0.25.0 / 0.25.1
+(the fix).
 
 ---
 
@@ -424,7 +444,8 @@ The attestation keeps counting; only the organiser can close it.
 ## 9. Activation receipt
 
 - **Trigger.** Organiser POSTs `/manage/event/<id>/activate`.
-- **Sent by.** `notifyOrganiserOfActivation`.
+- **Sent by.** `notifyLifecycleEdge(event, 'activated', …)`; body from
+  `bodies.lifecycle.activated`.
 - **Recipient.** `event.initiator`.
 - **Subject.** `[gitdone] "<title>" — activated, <K> invitation(s) sent`
 - **Body.** Confirms what just left, lists every step with `▸` next to
@@ -436,7 +457,8 @@ The attestation keeps counting; only the organiser can close it.
 
 - **Trigger.** A step transitions to `complete` and the cascade unblocks
   zero-or-more downstream steps.
-- **Sent by.** `notifyOrganiserOfStepProgress`.
+- **Sent by.** `notifyLifecycleEdge(event, 'progressed', …)`; body from
+  `bodies.lifecycle.progressed`.
 - **Recipient.** `event.initiator`.
 - **Subject.** `[gitdone] "<title>" [<N>/<M>] step done · next active`
   (the ` · next active` suffix is dropped when no downstream steps
@@ -465,7 +487,9 @@ record:
 Common contract across every body:
 - **Trigger.** Event reaches `complete` (all steps done, declaration
   signed, attestation threshold reached, or `close+` initiator command).
-- **Sent by.** `notifyEventCompletion` in `app/src/notifications.js`.
+- **Sent by.** `notifyLifecycleEdge(event, 'completed' | 'closed', …)`;
+  bodies from `bodies.lifecycle.completed.<kind>.<role>`. The `closed`
+  edge additionally redacts strict-attestation emails post-send.
 - **Subject.** `[gitdone] proof — "<title>"<counterTag>` where
   `counterTag` is `[<done>/<total>]` for workflow, `[<counted>/<threshold>]`
   for attestation, omitted for declaration. When no commits are

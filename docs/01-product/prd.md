@@ -348,16 +348,29 @@ loose attestation's dedup ledger.
 **Attestor email under strict mode (Module 4e).** Strict-mode
 attestation also persists each attestor's plaintext email
 (`attestor_progress[hash].email`) on the reply that fills their
-bucket, *only* so the one-shot proof email at threshold-reach can
-reach them. The instant `notifyEventCompletion` returns, every stored
-email is cleared and `event.attestor_emails_redacted_at` is stamped;
-post-redaction replies (only possible under accumulating dedup) refuse
-to re-introduce PII. Loose attestation never stores emails. The PII
-window is bounded by (bucket-completion → threshold-reach → send →
-redact) — typically seconds to days; never longer than the
-threshold-reach delay. The trade is justified by strict mode's
-self-selected non-anonymity: signers attach files matching a
-manifest, and their domain is already in the proof.
+bucket, so the proof email can reach them. The email persists through
+the event's *active lifetime* — not just the first proof send — so
+every completion edge (natural threshold-reach, the
+revoke→reopen→recomplete cycle, and post-threshold bucket completions
+under oversubscribe) can still reach every eligible attestor.
+Redaction is deferred to the **terminal close edge**: when the
+initiator closes the event (`close+{id}@` command or the dashboard
+"Close event" button), `notifyLifecycleEdge(event, 'closed', …)`
+clears every stored email and stamps
+`event.attestor_emails_redacted_at` *after* sending — the one place
+that side effect lives. Post-redaction replies (only possible under
+accumulating dedup) refuse to re-introduce PII. Loose attestation
+never stores emails. The PII window is bounded by (bucket-completion →
+close) — never longer than the event's open life. The trade is
+justified by strict mode's self-selected non-anonymity: signers attach
+files matching a manifest, and their domain is already in the proof.
+
+> History: the original Module 4e redacted "the instant the proof
+> email returns" (first threshold-reach send). That broke
+> revoke-reopen-recomplete and oversubscribe — once redacted, later
+> completion edges had no emails to reach. 0.24.8 moved redaction to
+> the close edge; 0.25.0 made that the dispatcher's single
+> `closed`-edge side effect. Do not reintroduce redact-on-first-send.
 
 `reference_url` alone (no docs registered) is **not** strict mode —
 it's just a pointer; replies count under the normal trust + dedup
@@ -666,16 +679,25 @@ immediately blast real notifications to real participants.
   themselves).
 
 **Organiser receipt and progress emails (workflow only).** After the
-fan-out completes, the organiser receives one summary email
-(`notifyOrganiserOfActivation`) listing every step with a `▸` marker
-on the DAG roots and per-recipient delivery status, so they can
-verify what just left the server without polling the dashboard. As
-replies land and downstream steps unblock, the cascade in `receive.js`
-emails the organiser a per-transition note
-(`notifyOrganiserOfStepProgress`) naming the completer and the newly-
-active step(s). The final transition is short-circuited by
-`!applied.completedEvent`; `notifyEventCompletion` carries the
-final-step name in the organiser body so no transition is silent.
+fan-out completes, the organiser receives one summary email (the
+`activated` lifecycle edge) listing every step with a `▸` marker on
+the DAG roots and per-recipient delivery status, so they can verify
+what just left the server without polling the dashboard. As replies
+land and downstream steps unblock, the cascade in `receive.js` emails
+the organiser a per-transition note (the `progressed` edge) naming the
+completer and the newly-active step(s). The final transition is
+short-circuited by `!applied.completedEvent`; the `completed` edge
+carries the final-step name in the organiser body so no transition is
+silent.
+
+> All per-event lifecycle emails route through one dispatcher,
+> `notifyLifecycleEdge(event, edge, payload)` (`app/src/notifications.js`),
+> over the edges `activated | progressed | completed | closed |
+> anchored`. Recipients resolve through the single
+> `getRecipients(event, edge)` (`app/src/email-recipients.js`); body +
+> subject text comes from the catalogue
+> (`app/src/email-bodies.js`). See `docs/01-product/emails.md`
+> ("Architecture") and the 0.25.0 / 0.25.1 changelog entries.
 
 **Pre-flight MX on every recipient.** Both the initiator address and
 every participant address are checked at confirm time
