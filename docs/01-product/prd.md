@@ -1536,6 +1536,10 @@ Phase 0 completed on a RackNerd VPS (AlmaLinux 8, Postfix 3.5.8, Node 20). All a
 
 41. **KNOWN GAP — `ots upgrade` not yet automated.** `.ots` proofs in the repo at commit time are calendar-pending (attestation from 3-4 calendars, no Bitcoin tx yet). `ots verify` works today because it queries calendars live to fetch the completed Bitcoin attestation when needed — but if all calendars died before we ran `ots upgrade` to fold the Bitcoin attestation into the local `.ots` file, the proof would become unverifiable. **Scheduled as module 1.E+** in `phase1-plan.md`: a 6-hour cron that walks `ots_proofs/*.ots` across all event repos, runs `ots upgrade` on each, and makes one git commit per event repo for any proofs that got upgraded. Idempotent (no change = no commit). Closes this operational gap.
 
+**Additional findings from the 2026-05-28 security audit (0.26.0):**
+
+42. **Edge concerns belong at nginx, not in the app.** The audit's two infra-layer findings — no rate limit on the unauthenticated create POSTs (mail-amplification vector) and no security response headers — are fixed at the reverse proxy, where TLS already terminates, rather than in `node:http`. `POST /events` / `/crypto` get a per-IP `limit_req` (12 req/min, burst 6); every response carries `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, HSTS, and a baseline CSP (`frame-ancestors`/`object-src`/`base-uri`/`form-action` locked down; inline script/style still allowed — a nonce'd `script-src` is the tracked next step, and the only part of M3 that needs app-layer work). The vhost is now version-controlled at `ops/nginx/gitdone.conf`. App-layer findings (forged-DSN deletion, session-secret validation, Origin checks) are handled in `receive.js` / `auth.js` / `server.js` under the same release.
+
 ---
 
 ### Phase 4 — Optional (deferred)

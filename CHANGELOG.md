@@ -15,6 +15,39 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Security audit hardening: edge rate-limiting + response headers (0.26.0)
+
+Response to the 2026-05-28 security audit (4 parallel review agents +
+manual verification; **no Critical/High** — core trust boundary sound:
+DKIM re-verified from raw bytes, IDOR-clean ownership gate on every
+`/manage` route, strict `^[a-zA-Z0-9]+$` event-IDs at every path/git
+boundary, no-shell `simple-git`, auto-escaping templates, `npm audit`
+clean). This release closes the two findings whose correct home is the
+nginx edge; the app-layer findings land in follow-up commits under the
+same version.
+
+**Edge (nginx) — live:**
+
+- **Rate limiting (M2).** `POST /events` and `POST /crypto` are
+  unauthenticated and each fires a magic-link email to a client-supplied
+  address — previously unthrottled (an email-amplification / disk-fill
+  vector). They now sit behind a per-IP `limit_req` (12 req/min, burst 6,
+  `429` on exceed) that comfortably clears a human's preview→edit→confirm
+  round-trip while capping single-source abuse.
+- **Security response headers (M3).** The vhost now sets
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`, HSTS (`max-age=31536000;
+  includeSubDomains`), and a baseline CSP whose real teeth are
+  `frame-ancestors 'none'` (clickjacking), `object-src 'none'`,
+  `base-uri 'none'`, and `form-action 'self'`. Inline script/style stay
+  permitted because the app ships inline `<script>` and `style=`;
+  tightening `script-src` to a per-request nonce is a tracked follow-up.
+  All set with `always`, so they cover error responses too.
+
+The production vhost is now version-controlled at
+`ops/nginx/gitdone.conf` (it previously lived only on the VPS); deploy it
+with `install` + `nginx -t` + `systemctl reload nginx`.
+
 ### Email bodies: command acks + sweep/bounce notices fully decoupled (0.25.3)
 
 Internal architecture release, **no user-visible behaviour change** —
