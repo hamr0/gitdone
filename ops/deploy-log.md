@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-28T14:17Z · `e63e832` · proof email re-fires after reopen + close paths notify attestors (0.24.7)
 - 2026-05-28T14:01Z · `1e83519` · receipt vocabulary aligned with threshold unit (0.24.6)
 - 2026-05-28T11:30Z · `2ebe62c` · closed-early consistency: breadcrumb pill + hero meta strip (0.24.5)
 - 2026-05-28T11:22Z · `e0c511c` · revoke discoverability + closed-early consistency (0.24.4)
