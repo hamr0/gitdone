@@ -696,8 +696,12 @@ silent.
 > anchored`. Recipients resolve through the single
 > `getRecipients(event, edge)` (`app/src/email-recipients.js`); body +
 > subject text comes from the catalogue
-> (`app/src/email-bodies.js`). See `docs/01-product/emails.md`
-> ("Architecture") and the 0.25.0 / 0.25.1 changelog entries.
+> (`app/src/email-bodies.js`) — which by 0.25.3 holds *every* composed
+> outbound body/subject (lifecycle, invite, reply acks, command acks,
+> sweep notices, bounce alert), so no transactional email text is
+> inline in `receive.js` / `sweep.js` / `email-commands.js`. See
+> `docs/01-product/emails.md` ("Architecture") and the 0.25.0–0.25.3
+> changelog entries.
 
 **Pre-flight MX on every recipient.** Both the initiator address and
 every participant address are checked at confirm time
