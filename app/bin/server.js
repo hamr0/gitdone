@@ -77,16 +77,27 @@ function publicBaseUrl() {
 
 // CSRF defence-in-depth (audit M5). The session cookie is SameSite=Lax,
 // which already blocks the classic cross-site form-POST, so this is a
-// belt-and-suspenders check on state-changing routes: if the request
-// carries an Origin/Referer, its host must match our public host. When
-// neither header is present (rare for a browser form POST) we allow it —
-// SameSite=Lax remains the backstop — rather than break non-browser callers.
+// belt-and-suspenders check on state-changing routes: reject ONLY when
+// the request carries a *parseable* Origin/Referer whose host differs
+// from ours.
+//
+// Anything that isn't a clear cross-origin signal is allowed — SameSite=Lax
+// remains the real backstop. In particular `Origin: null` must be allowed:
+// browsers send it for same-origin form-navigation POSTs under a strict
+// `Referrer-Policy` (we set `no-referrer` at the nginx edge), so treating
+// null as cross-origin 403s every legitimate create + dashboard mutation.
+// A genuine cross-site attacker's page is not under our referrer policy
+// and still sends its own real origin (e.g. https://evil.example), which
+// is parseable and mismatches → rejected; and if it forces null too,
+// SameSite=Lax already strips the session cookie.
 function sameOrigin(req) {
   const src = req.headers.origin || req.headers.referer;
-  if (!src) return true;
+  if (!src || src === 'null') return true;
   let expectedHost;
   try { expectedHost = new URL(publicBaseUrl()).host; } catch { return true; }
-  try { return new URL(src).host === expectedHost; } catch { return false; }
+  let srcHost;
+  try { srcHost = new URL(src).host; } catch { return true; } // unparseable → no signal
+  return srcHost === expectedHost;
 }
 
 // Reject a cross-origin state-changing request with a plain 403. Returns

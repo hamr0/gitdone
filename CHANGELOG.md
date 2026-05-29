@@ -15,6 +15,26 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Fix: `Origin: null` 403'd every create + dashboard mutation (0.26.2)
+
+**Regression fix.** The 0.26.0 CSRF Origin check (M5) and the
+`Referrer-Policy: no-referrer` header (M3) interacted badly: under a
+strict referrer policy, browsers send `Origin: null` on same-origin
+**form-navigation** POSTs, and `sameOrigin()` treated the unparseable
+`null` as cross-origin → **403 forbidden**. This broke every guarded
+flow under a real browser — workflow/crypto event creation *and* the
+dashboard activate / close / remind / edit / unarchive mutations. (The
+M5 unit test only exercised an explicit good/evil `Origin`, so it
+missed the `null` case; curl with a real origin worked, masking it.)
+
+Fix: `sameOrigin()` now rejects **only** a parseable Origin/Referer
+whose host differs from ours; missing, `null`, and unparseable values
+are treated as no signal and allowed, with SameSite=Lax as the real
+backstop. A genuine cross-site attacker still sends its own real origin
+(parseable, mismatching → blocked), and if it forces `null` too,
+SameSite=Lax already strips the session cookie. Regression test now
+covers `Origin: null` and unparseable origins.
+
 ### Email taxonomy doc reconciliation + subject polish (0.26.1)
 
 Validated a round of feedback against the email subsystem and fixed

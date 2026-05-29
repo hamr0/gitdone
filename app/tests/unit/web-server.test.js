@@ -133,6 +133,17 @@ test('POST /events rejects a cross-origin request with 403 (audit M5)', async ()
     // No Origin/Referer at all → allowed (SameSite=Lax is the backstop).
     const none = await post(port, '/events');
     assert.notEqual(none.status, 403);
+
+    // `Origin: null` → allowed. Browsers send this for same-origin
+    // form-navigation POSTs under our `Referrer-Policy: no-referrer`;
+    // treating it as cross-origin 403'd every real create + dashboard
+    // mutation (regression fixed in 0.26.2). Must NOT be a 403.
+    const nullOrigin = await post(port, '/events', { headers: { origin: 'null' } });
+    assert.notEqual(nullOrigin.status, 403);
+
+    // An unparseable Origin is likewise treated as no-signal, not 403.
+    const garbage = await post(port, '/events', { headers: { origin: 'not a url' } });
+    assert.notEqual(garbage.status, 403);
   } finally {
     server.close();
   }
