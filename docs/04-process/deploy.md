@@ -198,6 +198,33 @@ on Node-version drift or session-secret problems. We accept 200 *or*
 the last 40 lines of `journalctl -u gitdone-web.service` so the cause
 is visible without a second SSH round-trip.
 
+> **The automated smoke is `curl`-only, and `curl` is not a browser.**
+> It cannot reproduce browser-specific request shaping — most notably
+> the `Origin: null` header a browser sends on same-origin *form-navigation*
+> POSTs under our `Referrer-Policy: no-referrer`. The 0.26.2 CSRF
+> regression (every create + dashboard mutation 403'd) sailed through
+> the `curl` smoke because `curl` sends whatever `Origin` you hand it.
+> So **for any change that touches the request path** — auth, CSRF/Origin
+> checks, security headers, routing, body parsing — also run the manual
+> browser pass below before calling it done.
+
+#### 13b. Manual browser smoke (request-path changes only)
+
+In a real browser on https://git-done.com, signed in as an organiser:
+
+1. **Create a workflow event** — fill the form, Confirm. Expect the
+   "check your inbox" page, not `forbidden`.
+2. **Create a crypto declaration event** — same: fill, Create, expect
+   success not `forbidden`.
+3. **Dashboard mutations** — on an event you own, click **Activate**,
+   then **Remind**, then **Close**. Each must act, not 403. (These are
+   the form-navigation POSTs that carry `Origin: null`.)
+4. Confirm the security headers are still present (`curl -sSI
+   https://git-done.com/ | grep -i 'content-security\|x-frame'`).
+
+If any create/mutation returns `forbidden`, the Origin/CSRF path has
+regressed — see `sameOrigin()` in `bin/server.js` and PRD finding #44.
+
 #### 14. Record in `ops/deploy-log.md`
 
 ```markdown
