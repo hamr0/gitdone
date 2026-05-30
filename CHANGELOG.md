@@ -15,6 +15,24 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Fix: strict-attestation reply ack miscounted partial signers as complete (0.26.4)
+
+**Correctness fix.** The per-reply acknowledgement for a strict
+attestation (reference docs required) counted distinct *repliers* in its
+subject `[N/T]` and "Replies so far: N/T" line, instead of *complete
+attestor buckets* (signers who have attached every reference doc). So a
+partial signer (one of two docs sent) alongside one complete attestor
+read **`[2/2]` / "Replies so far: 2/2"**, while the engine, the stat-band
+command, and the proof receipt all correctly read **1/2**. The doc
+checklist in the same email was already correct, which made the headline
+number look especially wrong. Caught in live testing (event
+`3mfj9afh3qx0`). The ack now uses the same threshold unit as every other
+surface — `attestor_progress[hash].complete`, revoke-filtered — and its
+verified subset counts complete attestors all of whose contributing
+replies were DKIM-verified. Loose attestation (unique / latest /
+accumulating) counting is unchanged. PRD finding **#46**; regression
+tests in `reply-ack-attestation.test.js`.
+
 ### Fix: revoked attestor still received the completion proof email (0.26.3)
 
 **Correctness/privacy fix.** Revoking an attestor (Module 8) dropped them

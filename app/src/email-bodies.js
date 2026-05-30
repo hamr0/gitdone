@@ -749,28 +749,49 @@ const replyAck = {
     // Module 8 — drop revoked sender_hashes from both counted and
     // verified; the ack reflects current state, not raw audit-trail.
     const revokedSet = revokedHashSet(event);
-    let counted;
-    if (dedup === 'unique') {
-      const seen = new Set();
-      for (const r of replies) {
-        if (r.sender_hash && !revokedSet.has(r.sender_hash)) seen.add(r.sender_hash);
-      }
-      counted = seen.size;
-    } else {
-      counted = replies.reduce((n, r) => n + (revokedSet.has(r.sender_hash) ? 0 : 1), 0);
-    }
-    // Module 6 — dual count. "Counted" reflects the dedup rule;
+    // Strict signing: the threshold unit is a *complete attestor bucket*
+    // (every reference doc signed), NOT a distinct replier. A partial
+    // signer (some docs still pending) is in replies[]/attestor_progress
+    // but must not tick the count — otherwise the ack reads "2/2" while
+    // the engine, stat band, and proof receipt all read "1/2". This is
+    // the same unit as the receipt's primary line (countCompleteAttestors).
+    const isStrict = !!event.reference_url
+      && Array.isArray(event.reference_docs)
+      && event.reference_docs.length > 0;
+    // Module 6 — dual count. "Counted" reflects the threshold unit;
     // "verified" is the DKIM-verified subset (load-bearing for
-    // vouching / legal use). Equal for unique/latest; can diverge for
-    // accumulating. Surfacing both gives honest trust signal.
+    // vouching / legal use). Equal in the common case; can diverge.
+    let counted;
     let verified;
-    if (dedup === 'unique') {
+    if (isStrict) {
+      const progress = event.attestor_progress || {};
+      const completeKeys = Object.keys(progress)
+        .filter((k) => progress[k] && progress[k].complete && !revokedSet.has(k));
+      counted = completeKeys.length;
+      // A complete attestor is "verified" when every reply that filled
+      // their bucket was DKIM-verified. Strict mode appends only counting
+      // replies to replies[] (re-signs that add no new doc don't count),
+      // so "all replies from this sender verified" == "all contributing
+      // signatures verified".
+      const allVerifiedByHash = new Map();
+      for (const r of replies) {
+        if (!r.sender_hash) continue;
+        const prev = allVerifiedByHash.has(r.sender_hash) ? allVerifiedByHash.get(r.sender_hash) : true;
+        allVerifiedByHash.set(r.sender_hash, prev && r.trust_level === 'verified');
+      }
+      verified = completeKeys.filter((k) => allVerifiedByHash.get(k) === true).length;
+    } else if (dedup === 'unique') {
+      const seen = new Set();
       const verifiedSenders = new Set();
       for (const r of replies) {
-        if (r.trust_level === 'verified' && r.sender_hash && !revokedSet.has(r.sender_hash)) verifiedSenders.add(r.sender_hash);
+        if (!r.sender_hash || revokedSet.has(r.sender_hash)) continue;
+        seen.add(r.sender_hash);
+        if (r.trust_level === 'verified') verifiedSenders.add(r.sender_hash);
       }
+      counted = seen.size;
       verified = verifiedSenders.size;
     } else {
+      counted = replies.reduce((n, r) => n + (revokedSet.has(r.sender_hash) ? 0 : 1), 0);
       verified = replies.filter((r) => r.trust_level === 'verified' && !revokedSet.has(r.sender_hash)).length;
     }
     const lockingDedup = dedup !== 'accumulating';
