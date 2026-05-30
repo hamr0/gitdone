@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-30T13:23Z · `8387308` · fix(attestation): per-reply ack counts complete buckets, not repliers (0.26.4)
 - 2026-05-30T09:13Z · `0bbe4d6` · fix(attestation): exclude revoked attestors from proof-email recipients (0.26.3)
 - 2026-05-29T08:52Z · `b6eb21e` · fix(web): allow Origin: null in CSRF check — unbreak create + dashboard (0.26.2)
 - 2026-05-28T21:18Z · `e72d875` · docs(email): reconcile taxonomy + subject convention polish (0.26.1)
