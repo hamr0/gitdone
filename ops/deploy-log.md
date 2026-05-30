@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-30T09:13Z · `0bbe4d6` · fix(attestation): exclude revoked attestors from proof-email recipients (0.26.3)
 - 2026-05-29T08:52Z · `b6eb21e` · fix(web): allow Origin: null in CSRF check — unbreak create + dashboard (0.26.2)
 - 2026-05-28T21:18Z · `e72d875` · docs(email): reconcile taxonomy + subject convention polish (0.26.1)
 - 2026-05-28T20:52Z · `1c231da` · security(app): close audit findings M1/M4/M5 + L1/L2/L3 (0.26.0)
