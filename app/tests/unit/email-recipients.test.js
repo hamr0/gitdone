@@ -154,6 +154,27 @@ test('completed: loose attestation → organiser only (no stored PII)', () => {
     ['chair@ex.com']);
 });
 
+test('completed: strict attestation excludes a revoked attestor from the proof email', () => {
+  // Regression (0.26.x, event 3dryizzzu4pi): bob was revoked after a
+  // first threshold crossing; a later attestor re-crossed and the
+  // recompletion proof email still reached the revoked bob. Revoke
+  // must drop them from every lifecycle recipient set — they no longer
+  // count toward the threshold and must not be named in the proof.
+  const ev = strictAtt({
+    revoked_senders: [{ sender_hash: 'sha256:2', revoked_at: '2026-05-30T00:00:00Z', reason: 'wrong email' }],
+  });
+  const r = getRecipients(ev, 'completed');
+  assert.deepEqual(emails(r), ['alice@ex.com', 'chair@ex.com']);
+  assert.equal(r.has('bob@ex.com'), false);
+});
+
+test('closed: strict attestation also excludes a revoked attestor', () => {
+  const ev = strictAtt({
+    revoked_senders: [{ sender_hash: 'sha256:1' }],
+  });
+  assert.deepEqual(emails(getRecipients(ev, 'closed')), ['bob@ex.com', 'chair@ex.com']);
+});
+
 // --- closed -----------------------------------------------------------
 
 test('closed: shape matches completed (workflow)', () => {

@@ -90,13 +90,32 @@ function addDeclarationSigner(map, event) {
   }
 }
 
+// Set of revoked sender_hashes. The resolver owns revoked_senders
+// reading (see header) so a revoked attestor is dropped from every
+// lifecycle recipient set — revoke means "stop counting AND stop
+// communicating." Mirrors completion.js#revokedHashSet; kept inline
+// to avoid coupling email-recipients to the completion module.
+function revokedHashSet(event) {
+  const out = new Set();
+  for (const r of (event && event.revoked_senders) || []) {
+    if (r && r.sender_hash) out.add(r.sender_hash);
+  }
+  return out;
+}
+
 // Strict-attestation only: attestor emails persist in
 // attestor_progress[h].email through the active lifetime. Once
 // attestor_emails_redacted_at is set, every p.email is null and
-// this loop adds nothing.
+// this loop adds nothing. Revoked attestors are excluded: their
+// reply stays in the audit trail, but they no longer count toward
+// the threshold (completion.js#countCompleteAttestors) and must not
+// receive the durable proof email — it would name them as a
+// contributor they were explicitly removed from being.
 function addStrictAttestors(map, event) {
   if (!isStrictAttestation(event) || !event.attestor_progress) return;
-  for (const p of Object.values(event.attestor_progress)) {
+  const revoked = revokedHashSet(event);
+  for (const [hash, p] of Object.entries(event.attestor_progress)) {
+    if (revoked.has(hash)) continue;
     if (p && typeof p.email === 'string' && p.email.includes('@')) {
       const email = p.email.toLowerCase();
       if (!map.has(email)) map.set(email, ROLES.ATTESTOR);

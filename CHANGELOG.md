@@ -15,6 +15,25 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Fix: revoked attestor still received the completion proof email (0.26.3)
+
+**Correctness/privacy fix.** Revoking an attestor (Module 8) dropped them
+from the threshold count but **not** from the proof-email recipient set:
+the strict-attestation resolver (`addStrictAttestors`) emailed every
+attestor with a stored address, revoked or not. So on a revoke → reopen →
+recompletion sequence, a revoked address still got the durable
+"attestation reached its threshold — keep this forever" proof — naming
+them as a contributor the count provably excludes. Caught in live testing
+(event `3dryizzzu4pi`: an attestor completed, was revoked for "wrong
+email", a later attestor re-crossed the threshold, and the recompletion
+proof still reached the revoked address). The recipient resolver — the
+single owner of `revoked_senders` reading — now skips revoked
+`sender_hash`es, covering both the `completed` and `closed` proof emails.
+A proof sent *before* the revoke stays sent; the audit-trail reply is
+untouched; the per-reply ack path is unchanged (a revoked sender who
+replies again still gets the explicit "you've been revoked" ack). PRD
+finding **#45**; regression tests in `email-recipients.test.js`.
+
 ### Fix: `Origin: null` 403'd every create + dashboard mutation (0.26.2)
 
 **Regression fix.** The 0.26.0 CSRF Origin check (M5) and the
