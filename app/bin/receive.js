@@ -1464,7 +1464,13 @@ async function main() {
   });
 }
 
+// flightlog error net. exitOnRejection:true — a Postfix pipe process must exit
+// non-zero on failure, never silently exit 0. captureSync below guarantees the
+// final line is on disk before exit (plain async capture() would be lost).
+const { captureSync } = require('../src/flightlog').init({ proc: 'receive', exitOnRejection: true });
+
 main().catch((err) => {
+  captureSync(err, { where: 'receive.main' });
   process.stderr.write(`receive: ${err && err.stack || err}\n`);
   process.exit(1);
 });

@@ -70,9 +70,12 @@ Full standards: `.claude/memory/AGENT_RULES.md`.
 
 ## Tech Stack
 
-- **Runtime:** Node.js ≥18, CommonJS, no bundler.
+- **Runtime:** Node.js ≥22.12, CommonJS, no bundler. (Floor is 22.12,
+  not 18: `flightlog` is ESM-only and we `require()` it from CommonJS,
+  which is stable only from Node 22.12's `require(esm)`.)
 - **Production deps (`app/package.json`):** `mailauth` (DKIM/DMARC/SPF),
-  `mailparser` (MIME parsing), `simple-git` (per-event repos). That's
+  `mailparser` (MIME parsing), `simple-git` (per-event repos),
+  `flightlog` (local JSONL error flight-recorder; zero-dep, ESM). That's
   it — everything else is Node stdlib.
 - **HTTP:** vanilla `node:http` + a tiny router (`app/src/web/router.js`)
   + tagged-template HTML (`app/src/web/templates.js`). No Express, no
@@ -165,6 +168,21 @@ Env is in `/etc/default/gitdone-web`:
 `GITDONE_DOMAIN`, `GITDONE_SESSION_SECRET`.
 Session secret is 64 hex bytes, backed up at
 `pass gitdone/vps/session_secret`.
+
+**Error flight-recorder (`flightlog`).** All three entry points wire
+`flightlog` via `app/src/flightlog.js` — uncaught exceptions, unhandled
+rejections, and boundary `capture()`s land as one JSON line per error in
+`$GITDONE_DATA_DIR/logs/errors.jsonl` (override with
+`GITDONE_FLIGHTLOG_FILE`; rotates at ~5 MB → `errors.jsonl.1`). Read it
+with `tail`/`jq`. Local-only, never phones home — consistent with the
+no-telemetry principle. `receive.js`/`ots-upgrade.js` use `exitOnRejection`
++ `captureSync` (short-lived, must exit non-zero on failure); `server.js`
+logs-and-stays-up on stray rejections. NB: flightlog's boot writability
+probe is fatal *by default* — if `logs/` is unwritable at boot, `receive.js`
+exits non-zero and Postfix **defers** the message (queued/retried, not lost),
+self-healing once fixed. It self-creates under the already-owned data dir.
+flightlog 0.3.0 has a `bootCheck: false` knob to degrade instead of throw, but
+we keep the default: for a mail pipe defer-and-retry beats deliver-blind.
 
 Backup runs off-VPS on federver (daily 04:15 UTC) via
 `ops/homeserver/gitdone-backup.sh` — pulls events/repos/dkim/cert/env

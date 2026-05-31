@@ -265,6 +265,30 @@ journalctl -u gitdone-health.service --since today
 sudo -u gitdone /opt/gitdone/ops/health-check.sh    # force a run
 ```
 
+### 10.4 Error flight-recorder (flightlog)
+
+All three entry points record uncaught exceptions, unhandled rejections, and
+boundary `capture()`s as one JSON line per error in
+`$GITDONE_DATA_DIR/logs/errors.jsonl` (rotates at ~5 MB → `.1`). Local-only,
+never uploaded.
+
+```bash
+sudo -u gitdone tail -f /var/lib/gitdone/logs/errors.jsonl
+sudo -u gitdone jq -r 'select(.proc=="receive") | "\(.ts) \(.name): \(.message)"' \
+  /var/lib/gitdone/logs/errors.jsonl
+```
+
+**Runbook — unwritable log dir defers mail.** flightlog probes its sink at boot
+and, by default, throws if it can't write. Because `receive.js` is a per-message
+Postfix pipe, an unwritable `logs/` dir means **every inbound message exits
+non-zero and Postfix defers it** (queued and retried — *not* lost). The deferred
+queue will climb (the health check alerts at ≥50). Fix: ensure
+`/var/lib/gitdone/logs/` is owned by and writable by `gitdone` (it self-creates
+under the already-`gitdone`-owned data dir) and that the disk isn't full; the
+queue drains on the next retry. We deliberately keep the fail-loud default
+(flightlog's `bootCheck: false` would deliver blind instead) — for a mail pipe,
+defer-and-retry is the safer failure mode.
+
 ## 11. Runbook — deploy
 
 Local testing first, pre-flight against the VPS, then push-and-restart.

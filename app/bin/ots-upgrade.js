@@ -387,9 +387,14 @@ async function run({ dataDir = config.dataDir, binary = OTS_BIN, gitBin = GIT_BI
 }
 
 if (require.main === module) {
+  // flightlog error net, CLI-only (kept inside this guard so test imports of
+  // run()/processRepo don't register global handlers or create a sink).
+  // exitOnRejection:true — a cron run must exit non-zero on failure.
+  const { captureSync } = require('../src/flightlog').init({ proc: 'ots-upgrade', exitOnRejection: true });
   run().then((r) => {
     process.exit(r && r.ok === false ? 1 : 0);
   }).catch((err) => {
+    captureSync(err, { where: 'ots-upgrade.run' });
     process.stderr.write(`ots-upgrade: ${err && err.stack || err}\n`);
     process.exit(1);
   });

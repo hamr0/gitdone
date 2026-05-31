@@ -3613,6 +3613,11 @@ function serverError(res, err) {
   res.end(layout({ title: 'error', body }));
 }
 
+// flightlog manual-capture handle, wired at boot (require.main block below).
+// Stays null on module import (tests) so we never register the global net or
+// create a sink outside a real server process.
+let flightlogCapture = null;
+
 async function handle(req, res) {
   const u = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   // Dev-only endpoints before the main router
@@ -3630,6 +3635,10 @@ async function handle(req, res) {
   try {
     await m.handler(req, res, m.params);
   } catch (err) {
+    // Flight-record the failed request (async capture is fine — the server
+    // keeps living, so the append flushes). Set at boot below; null when
+    // server.js is imported as a module (tests), where we don't install.
+    if (flightlogCapture) flightlogCapture(err, { where: 'request', method: req.method, path: u.pathname });
     if (!res.headersSent) serverError(res, err);
   }
 }
@@ -3645,6 +3654,11 @@ if (require.main === module) {
     );
     process.exit(1);
   }
+  // flightlog error net for the long-lived server. exitOnUncaught:true (a
+  // corrupt event loop should restart clean under systemd); exitOnRejection
+  // left false (a stray rejection must not down the server — it's logged).
+  ({ capture: flightlogCapture } = require('../src/flightlog').init({ proc: 'server' }));
+
   const server = http.createServer(handle);
   // Attach the error listener BEFORE listen() so we catch synchronous
   // EADDRINUSE — otherwise the throw from listen() would land on the

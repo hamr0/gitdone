@@ -16,6 +16,11 @@ function runReceive(emlBuffer, envelopeArgs = [], extraEnv = {}) {
       // file logging disabled — stdout only, easy to capture
       GITDONE_LOG_FILE: '',
       GITDONE_LOG_STDOUT: 'true',
+      // flightlog (error flight-recorder) probes its sink at boot; point it at a
+      // writable temp path so receive.js can start even on the rejection-path
+      // tests that don't set GITDONE_DATA_DIR (whose default is the unwritable
+      // prod /var/lib/gitdone). Overridable per-test via extraEnv.
+      GITDONE_FLIGHTLOG_FILE: path.join(os.tmpdir(), 'gitdone-flightlog-test.jsonl'),
       ...extraEnv,
     };
     const proc = spawn('node', [RECEIVE, ...envelopeArgs], { env });

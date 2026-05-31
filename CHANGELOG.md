@@ -15,6 +15,35 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Add: local error flight-recorder via `flightlog` (0.26.5)
+
+**Observability.** All three entry points now wire
+[`flightlog`](https://github.com/hamr0/flightlog) (`app/src/flightlog.js`):
+uncaught exceptions, unhandled rejections, and boundary `capture()`s land as
+one JSON line per error in `$GITDONE_DATA_DIR/logs/errors.jsonl` (override
+`GITDONE_FLIGHTLOG_FILE`; rotates at ~5 MB). Read with `tail`/`jq`. It's
+**local-only and never phones home**, so it's consistent with the
+no-telemetry principle (§0.1.5) — the JSONL is the interface, no UI/server.
+- `server.js` (long-lived): global net installed at boot, `capture()` at the
+  per-request boundary; `exitOnRejection` stays off so a stray rejection logs
+  without downing the server.
+- `receive.js` / `ots-upgrade.js` (short-lived): `exitOnRejection: true` +
+  `captureSync()` before exit, so a failure is logged synchronously **and**
+  exits non-zero (a silent exit-0 would let Postfix treat a failed receive as
+  delivered). Needs flightlog **≥0.3.0** — `captureSync`/`exitOnRejection` (0.2.0)
+  and `bootCheck` (0.3.0) were all added in response to this integration.
+- **Node floor raised `>=22.5` → `>=22.12`** (`app/package.json`): flightlog is
+  ESM-only and we `require()` it from CommonJS, stable only from `require(esm)`
+  in 22.12. Fails loudly at install on an older Node, not silently at runtime.
+- Operational note: flightlog's boot writability probe is fatal by default, so
+  `$GITDONE_DATA_DIR/logs/` must be writable by the `gitdone` user (it
+  self-creates under the already-owned data dir). If it's ever unwritable at
+  boot, `receive.js` exits non-zero and Postfix **defers** the message (queued,
+  retried — not lost); it self-heals once the dir is fixed. flightlog 0.3.0 adds
+  a `bootCheck: false` knob to degrade-instead-of-throw, but we **keep the
+  default**: for a mail pipe, defer-and-retry is safer than deliver-blind. See
+  PRD finding **#47** and the deploy runbook §10.4.
+
 ### Fix: strict-attestation reply ack miscounted partial signers as complete (0.26.4)
 
 **Correctness fix.** The per-reply acknowledgement for a strict

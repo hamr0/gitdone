@@ -11,13 +11,14 @@
     "test:integration": "node --test 'tests/integration/**/*.test.js'"
   },
   "dependencies": {
+    "flightlog": "^0.3.0",
     "knowless": "^1.1.9",
     "mailauth": "^4.6.0",
     "mailparser": "^3.6.0",
     "simple-git": "^3.20.0"
   },
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.12"
   },
   "overrides": {
     "fast-xml-parser": "^5.7.3",

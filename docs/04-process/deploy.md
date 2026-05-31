@@ -225,6 +225,25 @@ In a real browser on https://git-done.com, signed in as an organiser:
 If any create/mutation returns `forbidden`, the Origin/CSRF path has
 regressed — see `sameOrigin()` in `bin/server.js` and PRD finding #44.
 
+#### 13c. flightlog sink check (after a deploy that touches error handling or the data dir)
+
+The error flight-recorder fails *loud at boot* — if its sink is unwritable the
+web unit won't start and `receive.js` defers all mail. After restart, confirm
+the sink exists and is writable by the `gitdone` user:
+
+```bash
+ssh gitdone-vps 'sudo -u gitdone test -w /var/lib/gitdone/logs/errors.jsonl \
+  && echo "sink writable ✓" || echo "SINK NOT WRITABLE — web/mail will fail at boot"'
+ssh gitdone-vps 'sudo -u gitdone tail -3 /var/lib/gitdone/logs/errors.jsonl'  # recent errors, if any
+```
+
+A green deploy already proves the web process booted (so its sink probe passed).
+This is the explicit confirmation for `receive.js`/`ots-upgrade.js`, which a
+web-only smoke doesn't exercise. *Pre-ship*, the local end-to-end is: boot
+`node bin/server.js --dev`, confirm `data-dev/logs/errors.jsonl` is created, then
+trigger a 500 (e.g. `GET /events/<id>` against a malformed `events/<id>.json`)
+and confirm a `{"kind":"manual","where":"request",…}` line lands.
+
 #### 14. Record in `ops/deploy-log.md`
 
 ```markdown
