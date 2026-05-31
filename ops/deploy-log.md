@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-05-31T18:40Z · `67a7987` · fix(security): per-IP login rate-limit reads real client IP (0.26.6)
 - 2026-05-31T15:09Z · `11f2f21` · feat(observability): wire flightlog error flight-recorder into all entry points (0.26.5)
 - 2026-05-30T13:23Z · `8387308` · fix(attestation): per-reply ack counts complete buckets, not repliers (0.26.4)
 - 2026-05-30T09:13Z · `0bbe4d6` · fix(attestation): exclude revoked attestors from proof-email recipients (0.26.3)
