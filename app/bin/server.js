@@ -51,7 +51,7 @@ const { parseBody } = require('../src/web/body');
 const { validateWorkflowEvent, validateCryptoEvent, VALID_TRUST_LEVELS, VALID_CRYPTO_MODES, VALID_DEDUP_RULES } = require('../src/web/validation');
 const { createEvent } = require('../src/event-store');
 const { isClosedByInitiator, revokedHashSet } = require('../src/completion');
-const { getAuth } = require('../src/auth');
+const { getAuth, sourceIp } = require('../src/auth');
 const { createEventFinder } = require('../src/web/handle-events');
 const { sendmail, buildRawMessage, withSignature } = require('../src/outbound');
 const { notifyWorkflowParticipants, notifyDeclarationSigner } = require('../src/notifications');
@@ -951,7 +951,7 @@ router.post('/events', async (req, res) => {
   await auth.startLogin({
     email: event.initiator,
     nextUrl: confirmPath,
-    sourceIp: req.socket.remoteAddress || '',
+    sourceIp: sourceIp(req),
     subjectOverride: activationSubject(event.title),
     bodyOverride: buildEventActivationBody(event),
     // gitdone is the trusted server-side caller (AF-10). The per-IP
@@ -1474,7 +1474,7 @@ router.post('/crypto', async (req, res) => {
   await auth.startLogin({
     email: event.initiator,
     nextUrl: confirmPath,
-    sourceIp: req.socket.remoteAddress || '',
+    sourceIp: sourceIp(req),
     subjectOverride: activationSubject(event.title),
     bodyOverride: buildCryptoActivationBody(event),
     bypassRateLimit: true, // see AF-10 note in POST /events
@@ -1946,7 +1946,11 @@ router.post('/manage', async (req, res) => {
   const next = (body.next || '/manage').toString();
   const auth = await getAuth();
   try {
-    await auth.startLogin({ email, nextUrl: next });
+    // sourceIp: real client IP so knowless's per-IP login rate-limit actually
+    // bites. Without it every sign-in attempt buckets under one empty key and
+    // per-IP limiting is disabled — the plato-class abuse vector (a bot feeding
+    // harvested addresses into this form). See src/auth.js sourceIp().
+    await auth.startLogin({ email, nextUrl: next, sourceIp: sourceIp(req) });
   } catch (err) {
     process.stderr.write(`manage-login: ${err.message || err}\n`);
     // Don't leak whether the email matched — the flash is intentionally

@@ -102,3 +102,48 @@ test('deriveHandle: case-insensitive and deterministic', async () => {
   assert.match(h1, /^[0-9a-f]{64}$/, '64-char hex handle');
   auth.close();
 });
+
+// --- sourceIp(): per-IP rate-limit anti-spoofing seam ---------------------
+// gitdone supplies the trusted-proxy policy (config.trustedProxies, default
+// loopback); knowless's determineSourceIp is the mechanism. These exercise the
+// real resolver end-to-end so a knowless behaviour change can't silently break
+// gitdone's per-IP login limiting.
+
+const fakeReq = (remoteAddress, headers = {}) => ({ socket: { remoteAddress }, headers });
+
+test('sourceIp: returns the raw peer when peer is NOT a trusted proxy (anti-spoof)', async () => {
+  delete require.cache[require.resolve('../../src/auth')];
+  const { getAuth, sourceIp, _resetAuth } = require('../../src/auth');
+  _resetAuth();
+  const auth = await getAuth();
+  // A direct (non-proxy) client cannot spoof its IP via a forged XFF header.
+  const ip = sourceIp(fakeReq('203.0.113.9', { 'x-forwarded-for': '1.2.3.4' }));
+  assert.equal(ip, '203.0.113.9', 'untrusted peer ignores X-Forwarded-For');
+  auth.close();
+});
+
+test('sourceIp: reads leftmost X-Forwarded-For when peer is a trusted proxy', async () => {
+  delete require.cache[require.resolve('../../src/auth')];
+  const { getAuth, sourceIp, _resetAuth } = require('../../src/auth');
+  _resetAuth();
+  const auth = await getAuth();
+  const ip = sourceIp(fakeReq('127.0.0.1', { 'x-forwarded-for': '198.51.100.7, 10.0.0.1' }));
+  assert.equal(ip, '198.51.100.7', 'trusted proxy → real client from XFF');
+  auth.close();
+});
+
+test('sourceIp: trusted proxy with no XFF falls back to the peer', async () => {
+  delete require.cache[require.resolve('../../src/auth')];
+  const { getAuth, sourceIp, _resetAuth } = require('../../src/auth');
+  _resetAuth();
+  const auth = await getAuth();
+  assert.equal(sourceIp(fakeReq('127.0.0.1', {})), '127.0.0.1');
+  auth.close();
+});
+
+test('sourceIp: throws if called before getAuth() bootstraps the resolver', async () => {
+  delete require.cache[require.resolve('../../src/auth')];
+  const { sourceIp, _resetAuth } = require('../../src/auth');
+  _resetAuth();
+  assert.throws(() => sourceIp(fakeReq('127.0.0.1')), /await getAuth\(\) before sourceIp/);
+});

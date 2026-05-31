@@ -208,6 +208,20 @@ server {
 }
 ```
 
+> **SECURITY INVARIANT — `X-Forwarded-For $remote_addr` must *overwrite*, never
+> *append*.** The app's per-IP login rate-limiter (`auth.sourceIp` →
+> knowless `determineSourceIp`) trusts the **leftmost** XFF element as the real
+> client. With `$remote_addr` nginx replaces the header with the true peer, so
+> that element is trustworthy. If this is ever changed to
+> `$proxy_add_x_forwarded_for` (append) — or the directive is dropped so nginx
+> forwards the client's raw header — the leftmost element becomes
+> **client-controlled**, and an attacker can forge `X-Forwarded-For:` to mint
+> unlimited per-IP buckets and bypass the cap entirely. The live host once
+> drifted to the appending form (caught 2026-05-31, PRD finding #48); the
+> version-controlled vhost at `ops/nginx/gitdone.conf` is the source of truth —
+> diff the live config against it after any nginx change. `GITDONE_TRUSTED_PROXIES`
+> (default `127.0.0.1,::1`) lists which peer addresses are allowed to set XFF.
+
 ```bash
 sudo certbot --nginx -d git-done.com
 sudo systemctl enable --now nginx

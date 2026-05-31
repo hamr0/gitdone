@@ -15,6 +15,28 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Fix: per-IP login rate-limiting now sees the real client IP (0.26.6)
+
+**Security / abuse-resistance.** gitdone's `auth.startLogin` calls fed
+`req.socket.remoteAddress` (the Mode B `/manage` sign-in form passed nothing at
+all) into knowless's per-IP rate limiter. Behind nginx that address is always
+`127.0.0.1`, so **every** login bucketed under one key and per-IP limiting was
+effectively disabled — the same latent hole that let a co-tenant app on the
+shared VPS get its sending IP blocklisted (bots feeding harvested addresses into
+a magic-link form). No gitdone abuse observed; this closes the door before it is.
+- New `auth.sourceIp(req)` resolves the client IP via knowless's exported
+  `determineSourceIp` (knowless bumped **`^1.1.9` → `^1.3.0`**, which surfaces
+  the helper), honouring `X-Forwarded-For` **only** when the peer is a trusted
+  proxy. Wired into all three `startLogin` call sites.
+- New config `GITDONE_TRUSTED_PROXIES` (default `127.0.0.1,::1`).
+- **Deploy precondition (host):** the nginx vhost MUST *overwrite*
+  `X-Forwarded-For` with `$remote_addr`, never *append* with
+  `$proxy_add_x_forwarded_for` — an appending proxy leaves the leftmost XFF
+  element client-controlled, so a forged header would mint unlimited per-IP
+  buckets and bypass the cap. `gitdone.conf` was the unsafe (appending) form and
+  is corrected as part of this change. See PRD finding **#48** and
+  `docs/04-process/deployment.md`.
+
 ### Add: local error flight-recorder via `flightlog` (0.26.5)
 
 **Observability.** All three entry points now wire

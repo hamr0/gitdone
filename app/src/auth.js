@@ -21,9 +21,13 @@ const FROM_ADDR = `gitdone@${config.domain}`;
 const FROM_NAME = 'gitdone';
 
 let _authPromise = null;
+// Captured from knowless at bootstrap so the CommonJS call sites in
+// bin/server.js can resolve the client IP synchronously (knowless is ESM).
+let _determineSourceIp = null;
 
 async function _bootstrap() {
-  const { knowless, dropShamRecipient } = await import('knowless');
+  const { knowless, dropShamRecipient, determineSourceIp } = await import('knowless');
+  _determineSourceIp = determineSourceIp;
 
   const secret = process.env.GITDONE_SESSION_SECRET;
   if (!secret) throw new Error('GITDONE_SESSION_SECRET is required for session auth');
@@ -82,8 +86,23 @@ function getAuth() {
   return _authPromise;
 }
 
-function _resetAuth() {
-  _authPromise = null;
+// Resolve the real client IP for per-IP login rate-limiting, honouring
+// X-Forwarded-For only when the peer is a trusted reverse proxy (knowless's
+// anti-spoofing resolver + gitdone's config.trustedProxies policy). Feed the
+// result to startLogin({ sourceIp }); passing req.socket.remoteAddress instead
+// buckets every login behind the proxy under one key and disables per-IP
+// limits. Callers MUST await getAuth() first — that bootstraps the resolver.
+// Safe only behind an XFF-overwriting proxy (see config.trustedProxies note).
+function sourceIp(req) {
+  if (!_determineSourceIp) {
+    throw new Error('auth not bootstrapped; await getAuth() before sourceIp()');
+  }
+  return _determineSourceIp(req, config.trustedProxies);
 }
 
-module.exports = { getAuth, _resetAuth, FROM_ADDR, FROM_NAME };
+function _resetAuth() {
+  _authPromise = null;
+  _determineSourceIp = null;
+}
+
+module.exports = { getAuth, sourceIp, _resetAuth, FROM_ADDR, FROM_NAME };

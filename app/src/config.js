@@ -13,6 +13,11 @@ function num(v, def) {
   return Number.isFinite(n) ? n : def;
 }
 
+function list(v, def) {
+  if (v == null) return def;
+  return String(v).split(',').map((s) => s.trim()).filter(Boolean);
+}
+
 const config = {
   mtaHostname: process.env.GITDONE_MTA_HOSTNAME || 'mail.git-done.com',
   domain: process.env.GITDONE_DOMAIN || 'git-done.com',
@@ -34,6 +39,15 @@ const config = {
   activationTtlHours: num(process.env.GITDONE_ACTIVATION_TTL_HOURS, 72),
   overdueNudgeDays: num(process.env.GITDONE_OVERDUE_NUDGE_DAYS, 14),
   archiveDays: num(process.env.GITDONE_ARCHIVE_DAYS, 45),
+  // Reverse proxies whose peer address means "trust X-Forwarded-For for the
+  // real client IP" (knowless `determineSourceIp`, used for per-IP login
+  // rate-limiting). gitdone sits behind a single nginx on the same host, so
+  // the default is loopback. SECURITY PRECONDITION: the trusted proxy MUST
+  // *overwrite* X-Forwarded-For with $remote_addr (never append
+  // $proxy_add_x_forwarded_for) — otherwise the leftmost XFF element is
+  // client-controlled and an attacker can forge it to mint unlimited per-IP
+  // buckets. See deployment.md §nginx and knowless 1.3.0 CHANGELOG.
+  trustedProxies: list(process.env.GITDONE_TRUSTED_PROXIES, ['127.0.0.1', '::1']),
 };
 
 module.exports = config;
