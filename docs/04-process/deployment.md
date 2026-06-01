@@ -48,7 +48,7 @@ sudo install -d -o root   -g root    /opt/gitdone
 sudo git clone https://github.com/<you>/gitdone /opt/gitdone
 cd /opt/gitdone/app && sudo npm ci --omit=dev
 sudo chown -R root:root /opt/gitdone
-sudo chmod +x /opt/gitdone/app/bin/receive.sh /opt/gitdone/ops/health-check.sh
+sudo chmod +x /opt/gitdone/app/bin/receive.sh
 ```
 
 Production code is read-only to `gitdone`; data/logs are writable.
@@ -248,20 +248,20 @@ sudo install -m 0644 /opt/gitdone/ops/systemd/gitdone-health.timer   /etc/system
 sudo systemctl daemon-reload
 sudo systemctl enable --now gitdone-health.timer
 
-# verify it runs + delivers a real alert before trusting it (and retiring the
-# old ops/health-check.sh): force one failure, confirm the email arrives.
+# verify it runs + delivers a real alert: force one failure, confirm the email
+# arrives. (The old ops/health-check.sh it replaced is gone as of 0.26.9.)
 sudo systemctl start gitdone-health.service
 journalctl -u gitdone-health.service -n 20 --no-pager
 tail -n 5 /var/lib/gitdone/logs/health.jsonl 2>/dev/null
 ```
 
-Covers (all in `ops/pulselog/health.config.json`):
+Covers (all in `ops/pulselog/pulselog.config.json`):
 
 | Check | pulselog type | Threshold |
 |---|---|---|
 | `gitdone-web.service` active | `service` | not `active` |
 | `gitdone-ots-upgrade.timer` armed | `service` | not `active` |
-| Local API `GET /health` | `http` | non-200 / >5s |
+| Local API `GET /health` | `http` | non-200 / >10s |
 | Disk usage `/` + `/var/lib/gitdone` | `disk` ×2 | ≥80% |
 | TLS cert `git-done.com:443` | `ssl` | <14 days |
 | Postfix queue depth | `command` | ≥50 queued |
@@ -276,10 +276,14 @@ summary to `alert.email` (`avoidaccess@gmail.com`) via local `sendmail`
 service + an armed timer); a oneshot `.service` would need a `command` check
 (`! systemctl is-failed`), see pulselog's adopter contract.
 
-> **Retire after first prod validation:** once the pulselog health check has
-> delivered a real alert email from the VPS, remove the superseded
-> `ops/health-check.sh` and any `/etc/default/gitdone-health`. Kept for now only
-> as a proven fallback while the alerting backend is swapped.
+Every check re-probes once (`retry: { retries: 1, retryDelayMs: 1000 }`) before
+it's recorded, and the contention-sensitive probes (`web`, `ots-timer`, `api`)
+carry a 10s `timeoutMs` — so a transient load spike on the shared VPS doesn't
+page (added 0.26.9, pulselog `0.4.1`; see PRD finding #49).
+
+> **Retired (0.26.9):** the superseded `ops/health-check.sh` and any
+> `/etc/default/gitdone-health` are gone — the pulselog health check has
+> delivered real alerts from the VPS and is the sole health path.
 
 ### 10.1b Weekly stats digest (pulselog)
 
@@ -494,8 +498,8 @@ Skip until real users exist. When you do:
    + a second master.cf entry exporting `GITDONE_DATA_DIR=/var/lib/gitdone-staging`
    via the pipe transport env, or have `receive.sh` branch on recipient domain.
 7. Duplicate `gitdone-ots-upgrade.service` for staging data dir.
-8. Extend `GITDONE_UNITS`, `GITDONE_CERT_DOMAINS`, and add a second
-   `HEALTH_URL` check in `ops/health-check.sh`.
+8. Add the staging units and a second `http` check (staging `/health`) to
+   `ops/pulselog/pulselog.config.json`.
 
 Runbook becomes: push → restart staging → bake → restart prod.
 

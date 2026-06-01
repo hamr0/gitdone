@@ -15,6 +15,38 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Fix: health checks no longer false-page on a shared-host load spike (0.26.9)
+
+**Reliability.** The pulselog health check ran every probe once with a 5s
+timeout and emailed on the first failure. On the shared 1 vCPU / 1 GB VPS, a
+transient load spike (noisy co-tenants) starved the two `fork+exec` probes
+(`systemctl is-active` ×2) and the localhost `fetch` long enough to blow 5s,
+so a healthy box paged every 15 min for ~40 min (`web`/`ots-timer` reported a
+bare `unknown`, `api` an opaque `unreachable: 23` — both *timeouts*, not an
+outage: units were active and `/health` answered in 39ms throughout).
+
+- **In-run retry** — `retry: { retries: 1, retryDelayMs: 1000 }`: a failing
+  check is re-probed 1s later within the same run and only recorded if it fails
+  again (`(after 2 attempts)`). A blip that clears in seconds is now green.
+- **Roomier timeout** — the three contention-sensitive checks (`web`,
+  `ots-timer`, `api`) move from 5s → `timeoutMs: 10000`. The `service` knob only
+  became configurable upstream in this pass (it was hardcoded 5s before).
+- Bumps pinned `ops/pulselog` to **`^0.4.1`**. The first-adopter pass drove the
+  upstream work: pulselog `0.4.0` added per-check `timeoutMs` (incl. `service`)
+  + in-run retry and labels a killed probe `timeout after Ns` instead of
+  `unknown`; `0.4.1` relaxed a new config-ownership gate to allow a root-owned
+  config (matching `ssh`'s precedent), so gitdone's root-owned tree keeps
+  working for the `gitdone`-run health/digest units with no chown or split.
+  Cross-run "page after N runs" debounce was deliberately *not* added upstream —
+  that's alert-dedup for the JSONL-consuming layer, not the probe. See PRD #49.
+
+### Remove: retired `ops/health-check.sh` (0.26.9)
+
+The 100-line bespoke health script that `pulselog` replaced in 0.26.7 is gone,
+now that the pulselog health path has delivered real alerts from prod. It was
+the last dormant artifact of the pulselog adoption (the old `stats-weekly.js` +
+daily-snapshot job were already removed in 0.26.7).
+
 ### Add: on-host backup via `pulselog --backup` (0.26.8)
 
 **Backup, step 1 of 2.** A nightly `gitdone-backup.timer` (03:00 UTC) runs
