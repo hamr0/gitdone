@@ -309,6 +309,37 @@ Snapshots metrics weekly via `stats.js --metrics-json` → one ISO-week line in
 `stats.log` job is gone; `stats.js --diff` still runs but shows no Δ (its source
 log is no longer written) — use the digest history instead.
 
+### 10.1c On-host backup (pulselog `--backup`)
+
+Nightly `gitdone-backup.timer` (03:00 UTC) → `pulselog --backup`, one rotated
+archive in `/var/lib/gitdone/backups/`. Runs as **root** (sources include
+`/etc/opendkim/keys`, `/etc/letsencrypt`, `/etc/default/gitdone-web`).
+
+```bash
+# (ops/pulselog already materialised by §10.1)
+sudo install -m 0644 /opt/gitdone/ops/systemd/gitdone-backup.service /etc/systemd/system/
+sudo install -m 0644 /opt/gitdone/ops/systemd/gitdone-backup.timer   /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now gitdone-backup.timer
+
+# validate once now:
+sudo systemctl start gitdone-backup.service
+sudo ls -la /var/lib/gitdone/backups/        # archive present, 0600
+tail -n1 /var/lib/gitdone/logs/backup.jsonl   # status:ok, bytes, files
+sudo tar tzf /var/lib/gitdone/backups/gitdone-backup-*.tar.gz | head  # contents
+```
+
+Integrity: a `command` guard fails the run if `repos/` is empty; `minBytes`
+fails a truncated archive (exit 1, no publish, no rotation). On failure pulselog
+emails `avoidaccess@gmail.com`. Retention: `keepLast 7` ∪ `keepDays 30`.
+
+> **This is the on-host half only.** Off-host DR is still the federver pull
+> (`ops/homeserver/gitdone-backup.sh`, 04:15 UTC), unchanged. The next step
+> switches federver to pull *this* archive with a key locked to a single
+> read-only forced `command=` (a compromised federver then can't shell the VPS)
+> + a `file-age` dead-man's-switch. Until then, both run — off-host coverage is
+> uninterrupted.
+
 ### 10.2 External liveness (VPS down)
 
 Self-monitoring can't detect the box being off. Use UptimeRobot free tier

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run gitdone local backup nightly (pulselog --backup)
+
+[Timer]
+# 03:00 UTC — ahead of the federver off-host pull window (04:15 UTC), so the
+# pull fetches a fresh archive once that step is wired.
+OnCalendar=*-*-* 03:00:00 UTC
+AccuracySec=2min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

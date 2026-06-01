@@ -15,6 +15,25 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Add: on-host backup via `pulselog --backup` (0.26.8)
+
+**Backup, step 1 of 2.** A nightly `gitdone-backup.timer` (03:00 UTC) runs
+`pulselog --backup` on the VPS, producing one rotated, integrity-floored
+`/var/lib/gitdone/backups/gitdone-<stamp>.tar.gz` of the full state —
+`events`, `repos`, `magic_tokens`, `/etc/letsencrypt`, `/etc/opendkim/keys`,
+`/etc/default/gitdone-web` — with a `kind:"backup"` line in
+`logs/backup.jsonl` and email-on-failure. Runs as root (the sources include
+root-only secrets); the archive is `0600`. A `command` guard refuses to publish
+if `repos/` is empty, and `minBytes` fails a truncated archive loud (exit 1, no
+rotation) so a bad run can't evict a good archive.
+
+This is the **on-host** half: it protects against corruption / bad deploy /
+accidental delete, and is testable on the box. The **off-host** half (federver
+pulls this one archive, its key locked to a single read-only forced `command=`,
+plus a `file-age` dead-man's-switch) is the next step — until then the existing
+federver full-pull (`ops/homeserver/gitdone-backup.sh`, 04:15 UTC) keeps running
+unchanged, so off-host coverage is uninterrupted. See PRD finding #49.
+
 ### Change: health + weekly digest now run on `pulselog` (0.26.7)
 
 **Observability.** gitdone is the first adopter of

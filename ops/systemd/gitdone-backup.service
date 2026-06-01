@@ -1,0 +1,15 @@
+[Unit]
+Description=GitDone local backup via pulselog (events, repos, certs, DKIM keys, env)
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Runs as ROOT: the sources include /etc/opendkim/keys (IRREPLACEABLE),
+# /etc/letsencrypt, and /etc/default/gitdone-web (root-only secrets). pulselog
+# writes the archive 0600 and dir/staging 0700. A failed run exits 1 (loud),
+# emails alert.email, and never rotates a good archive away. This produces the
+# on-host archive; the off-host copy (federver pull) is a separate, later step.
+ExecStart=/usr/bin/node /opt/gitdone/ops/pulselog/node_modules/pulselog/bin/pulselog.js --backup --config /opt/gitdone/ops/pulselog/pulselog.config.json
+TimeoutStartSec=300
+Nice=15
+IOSchedulingClass=idle

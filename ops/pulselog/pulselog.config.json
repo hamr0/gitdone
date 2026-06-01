@@ -43,5 +43,26 @@
       { "name": "attest_replies" }
     ],
     "flightlog": { "file": "/var/lib/gitdone/logs/errors.jsonl", "flagAtLeast": 10 }
+  },
+  "backup": {
+    "app": "gitdone",
+    "dir": "/var/lib/gitdone/backups",
+    "name": "gitdone-backup",
+    "include": [
+      "/var/lib/gitdone/events",
+      "/var/lib/gitdone/repos",
+      { "path": "/var/lib/gitdone/magic_tokens", "optional": true },
+      "/etc/letsencrypt",
+      "/etc/opendkim/keys",
+      "/etc/default/gitdone-web"
+    ],
+    "command": "sh",
+    "args": ["-c", "test -n \"$(ls -A /var/lib/gitdone/repos 2>/dev/null)\" || { echo 'backup guard: repos/ is empty — refusing to publish' >&2; exit 1; }"],
+    "keepLast": 7,
+    "keepDays": 30,
+    "minBytes": 4096,
+    "history": "/var/lib/gitdone/logs/backup.jsonl",
+    "email": "avoidaccess@gmail.com",
+    "from": "alerts@git-done.com"
   }
 }
