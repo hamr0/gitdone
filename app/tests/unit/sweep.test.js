@@ -4,7 +4,7 @@
 // from integration tests (the real system runs hourly via systemd).
 // These tests drive the pure functions directly with synthetic times.
 
-const { test, before, after } = require('node:test');
+const { test, before, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
@@ -19,6 +19,15 @@ before(async () => {
   for (const m of ['../../src/config', '../../src/event-store', '../../src/sweep']) {
     delete require.cache[require.resolve(m)];
   }
+});
+
+beforeEach(async () => {
+  // Isolate each test: these all share one tmp data dir, so without a clean
+  // events/ per test a fixture from one test leaks into the next. That bit us
+  // when a pending-activation fixture with a real-time `created_at` drifted into
+  // a later test's synthetic nudge window as the wall clock advanced.
+  await fs.rm(path.join(tmp, 'events'), { recursive: true, force: true });
+  await fs.mkdir(path.join(tmp, 'events'), { recursive: true });
 });
 
 after(async () => {
@@ -75,8 +84,9 @@ test('sweepPendingActivation deletes events older than TTL', async () => {
   });
   await writeEvent('freshactiv', {
     id: 'freshactiv', type: 'event', activated_at: null,
-    // 30 min old at the synthetic "now" below
-    created_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+    // 30 min old at the synthetic "now" below (fixed, not wall-clock — a
+    // real-time fixture here is what drifted into a later test's window)
+    created_at: new Date(new Date('2026-01-05T00:00:00Z').getTime() - 30 * 60 * 1000).toISOString(),
     initiator: 'c@d.com',
   });
   await writeEvent('alreadyactiv', {
