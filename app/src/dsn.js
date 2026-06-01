@@ -3,8 +3,9 @@
 // When an outbound notification fails permanently at a downstream MTA
 // (mailbox doesn't exist, domain rejects us, etc.), the original MTA
 // posts a multipart/report message-of-type=delivery-status back to the
-// envelope sender. We sign our outbound mail as gitdone@<domain>, so
-// these reports land in the same Postfix pipe as everything else.
+// envelope sender. Our outbound envelope MAIL FROM is noreply@<domain>,
+// which is not in virtual_alias_maps, so these reports fall through the
+// virtual_transport catch-all into the same Postfix pipe as everything else.
 //
 // This module recognises and parses such reports. It does NOT itself
 // route or persist; receive.js wires the parsed shape into

@@ -240,8 +240,8 @@ async function main() {
 
   // Phase D — RFC 3464 bounce handling. Postfix forwards bounces from
   // downstream MTAs back to the envelope sender, which for our outbound
-  // notifications is gitdone@<domain>; the catch-all pipe drops them
-  // into this script. We detect by Content-Type before the prefilter
+  // notifications is noreply@<domain>; the virtual_transport catch-all
+  // drops them into this script. We detect by Content-Type before the prefilter
   // rejects on system-sender (mailer-daemon), parse the
   // delivery-status part, and persist a per-step last_send_error so the
   // organiser sees a "delivery failed" row on the dashboard.

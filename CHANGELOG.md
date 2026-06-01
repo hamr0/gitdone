@@ -62,13 +62,22 @@ identifiers stay `gitdone` on purpose.
 - **Email**: subject prefix `[gitdone]` → `[signedreply]`; body prose,
   the standard signature sign-off, the sign-in subject/confirmation, and the
   emailed verification/re-verification report headers all rebranded.
-- **Sender identity**: outbound mail now comes from
+- **Sender identity**: all outbound mail (notifications, auth sign-in,
+  command acks, lifecycle sweep, bounce alerts) now comes from
   **`signedreply <noreply@signedreply.com>`** (was `gitdone <gitdone@…>`),
-  centralised in `outbound.js` (`senderHeader`/`senderAddress`). Replies are
-  still steered by `Reply-To` / the `verify+`/`attach+`/`revoke+` command
-  addresses, never to this no-reply From. **Deploy prerequisite:** add
-  `noreply@signedreply.com` to the Postfix virtual aliases (route to the
-  gitdone pipe or discard) so a stray reply doesn't hard-bounce.
+  centralised in `outbound.js` (`senderHeader` for the display From,
+  `senderAddress` for the bare envelope MAIL FROM) and threaded through
+  `notifications`/`auth`/`receive`/`sweep`. Replies are steered by `Reply-To`
+  / the `verify+`/`attach+`/`revoke+` command addresses, never to this
+  no-reply From.
+- **No Postfix change needed for the new envelope sender** (verified on
+  prod). `noreply@signedreply.com` isn't in `virtual_alias_maps`, so it falls
+  through the `virtual_transport = gitdone` catch-all into the receive pipe —
+  exactly where it must go: tagless human replies are accepted and dropped
+  cleanly (exit 0, no bounce), and **downstream bounce DSNs (which now return
+  to `noreply@`) keep reaching Phase D bounce handling**. A `discard:`
+  transport would silently break bounce processing, so `noreply@` must stay
+  routed to the pipe.
 - **Kept `gitdone`** (internal, by design): the `gitdone-verify` CLI + repo,
   `GITDONE_*` env, `gitdone-web`/timer service units, `/opt/gitdone` paths,
   the proof-bundle filename + git commit author, log/telemetry tags, and the

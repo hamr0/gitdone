@@ -28,7 +28,7 @@ const {
   archiveStale,
 } = require('../src/sweep');
 const config = require('../src/config');
-const { buildRawMessage, sendmail } = require('../src/outbound');
+const { buildRawMessage, sendmail, senderAddress, senderHeader } = require('../src/outbound');
 
 const dryRun = process.argv.includes('--dry-run');
 
@@ -38,9 +38,10 @@ const dryRun = process.argv.includes('--dry-run');
 const { sweep: sweepBodies } = require('../src/email-bodies');
 
 async function sendMail({ to, subject, body, eventId }) {
-  const from = `gitdone@${config.domain}`;
+  // Brand display name in the From header; bare no-reply address for the
+  // envelope MAIL FROM (same convention as notifications/receive).
   const raw = buildRawMessage({
-    from,
+    from: senderHeader(config.domain),
     to,
     subject,
     body,
@@ -48,7 +49,7 @@ async function sendMail({ to, subject, body, eventId }) {
     domain: config.domain,
     extraHeaders: eventId ? { 'X-GitDone-Event': eventId } : {},
   });
-  return sendmail({ from, rawMessage: raw, to: [to] });
+  return sendmail({ from: senderAddress(config.domain), rawMessage: raw, to: [to] });
 }
 
 async function main() {
