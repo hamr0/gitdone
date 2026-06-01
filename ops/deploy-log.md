@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-06-01T12:52Z · `2963866` · fix(ops): health checks retry + 10s timeout, stop false-paging on load spikes (0.26.9)
 - 2026-06-01T10:45Z · `80fd6c6` · feat(ops): on-host backup via pulselog --backup (0.26.8)
 - 2026-06-01T10:12Z · `8c3d66a` · feat(ops): run health + weekly digest on pulselog (0.26.7)
 - 2026-05-31T18:40Z · `67a7987` · fix(security): per-IP login rate-limit reads real client IP (0.26.6)

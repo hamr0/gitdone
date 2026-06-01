@@ -21,7 +21,7 @@ internal refactors and commit-level churn stay in `git log`.
 timeout and emailed on the first failure. On the shared 1 vCPU / 1 GB VPS, a
 transient load spike (noisy co-tenants) starved the two `fork+exec` probes
 (`systemctl is-active` ×2) and the localhost `fetch` long enough to blow 5s,
-so a healthy box paged every 15 min for ~40 min (`web`/`ots-timer` reported a
+a healthy box paged on every 15-min run for ~2.5h (`web`/`ots-timer` reported a
 bare `unknown`, `api` an opaque `unreachable: 23` — both *timeouts*, not an
 outage: units were active and `/health` answered in 39ms throughout).
 
