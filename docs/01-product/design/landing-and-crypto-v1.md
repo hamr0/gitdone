@@ -39,7 +39,7 @@ where ~8 fields + a step table genuinely warrant grouping.
 
 ```
 ┌──────────────────────────────────────────────┐
-│ gitdone                                      │
+│ signedreply                                  │
 │ Multi-party actions coordinated by email,    │
 │ proved by git.                               │
 │                                              │

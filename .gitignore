@@ -67,3 +67,6 @@ Thumbs.db
 app/data-dev/
 /dev-feedback.log
 app/dev-feedback.log
+
+# barebrowse screenshot output (ephemeral)
+.barebrowse/

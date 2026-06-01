@@ -515,7 +515,7 @@ No clicks on magic links. No web forms. No accounts. No app installs.
       - Event already complete / closed → your reply is on the audit trail
       - Event not activated → organiser hasn't confirmed yet; wait for invite
    i. Checks if event is complete; if yes, emails every distinct
-      contributor + the organiser a "[gitdone] '<title>' — complete"
+      contributor + the organiser a "[signedreply] '<title>' — complete"
       summary with steps and reason
 4. Git repo now has a cryptographically verifiable record
 
@@ -538,7 +538,7 @@ announced to everyone it affects.
 
 ### 6.1 Event creation (web UI, simplified)
 
-Initiator visits `git-done.com` and fills out a minimal form. Two
+Initiator visits `signedreply.com` and fills out a minimal form. Two
 entry points on the landing page, plus a self-serve sign-in strip for
 returning organizers.
 
@@ -814,7 +814,7 @@ Per the moat (§0.1.4 — "invisible beats correct"), the initiator's day-to-day
 
 **Initiator authentication via DKIM:** when an inbound message is DKIM-verified and its envelope sender matches `event.initiator`, that's cryptographic proof that the initiator authorised the command. As strong as (and often stronger than) a magic link — DKIM can't be spoofed, magic links can be forwarded.
 
-**Every outbound email from GitDone carries a standard signature** (RFC 3676 `-- ` delimiter, four ASCII lines): the no-storage claim, the integrity primitives we actually use (DKIM verification, SHA-256 hash, OpenTimestamps anchor), and `feedback@git-done.com` as the user-feedback channel. Magic-link activation bodies additionally publish the per-event command addresses (`stats+{id}@`, `remind+{id}@`, `close+{id}@`) so the initiator discovers the email-driven control surface in the first message they receive.
+**Every outbound email from GitDone carries a standard signature** (RFC 3676 `-- ` delimiter, four ASCII lines): the no-storage claim, the integrity primitives we actually use (DKIM verification, SHA-256 hash, OpenTimestamps anchor), and `feedback@signedreply.com` as the user-feedback channel. Magic-link activation bodies additionally publish the per-event command addresses (`stats+{id}@`, `remind+{id}@`, `close+{id}@`) so the initiator discovers the email-driven control surface in the first message they receive.
 
 **Two UX paths for `verify+{id}@`:**
 
@@ -1045,7 +1045,7 @@ key/value rows, same truncated hash format.
 **As durable email artifacts.** Two emails carry the proof outside
 the dashboard so it survives the service:
 
-- **Completion email** (`[gitdone] proof — "<title>"<counter>`) fires
+- **Completion email** (`[signedreply] proof — "<title>"<counter>`) fires
   once the event flips to `complete`. Recipients vary by mode:
   - **Workflow.** Initiator + every step participant who counted.
   - **Declaration.** Initiator AND the named signer — two-sided
@@ -1068,7 +1068,7 @@ the dashboard so it survives the service:
   organiser; this email is YOUR record only."* No aggregate count, no
   modal trust, no other attestors' domains. `emails.md` §11
   documents all five (mode × role) bodies.
-- **OTS-anchored email** (`[gitdone] proof anchored — "<title>"`)
+- **OTS-anchored email** (`[signedreply] proof anchored — "<title>"`)
   fires once per event when the 6-hour OTS upgrade cron flips the
   *last* pending commit to anchored. One consolidated email per
   event, threaded as a reply (same `In-Reply-To`) to the completion
@@ -1242,18 +1242,18 @@ Each `commit-NNN.json`:
 
 ### 9.1.1 Dev + prod on the same VPS
 
-Production runs on `git-done.com`. For integration testing (anything
+Production runs on `signedreply.com`. For integration testing (anything
 that needs inbound email — the receive pipeline, completion cascades,
 initiator email commands) we run a **staging environment on the same
-VPS under `staging.git-done.com`**:
+VPS under `staging.signedreply.com`**:
 
 - Separate systemd unit (`gitdone-web-staging.service`) on a second
   local port.
 - Separate data dir (`/var/lib/gitdone-staging/` vs `/var/lib/gitdone/`)
   — zero production risk from staging writes.
-- Separate Postfix transport routing `event+*@staging.git-done.com` →
+- Separate Postfix transport routing `event+*@staging.signedreply.com` →
   `receive.js` with `GITDONE_DATA_DIR` overridden.
-- Nginx server block for `staging.git-done.com` → staging port.
+- Nginx server block for `staging.signedreply.com` → staging port.
 - Same DKIM selector works for both since the signing key is domain-
   scoped; only the subdomain changes on outbound.
 

@@ -225,7 +225,7 @@ Every email gitdone sends, indexed by trigger. For each: who sends it,
 who receives it, the subject template, the body shape, and the source
 file. Subjects follow a consistent grammar:
 
-- **Tag** — every gitdone-originated subject starts with `[gitdone]`.
+- **Tag** — every gitdone-originated subject starts with `[signedreply]`.
 - **Title quoted** — the event title is wrapped in double quotes when
   present, so subjects that survive auto-quoting in mail clients still
   read clearly. **Exception:** the participant step-scoped subjects
@@ -236,7 +236,7 @@ file. Subjects follow a consistent grammar:
   counter goes after the title.
 - **Em dash separator** — clauses inside a subject are joined with ` — `.
 
-Most emails have a `from:` of `gitdone@git-done.com` and are
+Most emails have a `From:` of `signedreply <noreply@signedreply.com>` and are
 DKIM-signed by the milter. Per-event replies use a `Reply-To` set to
 the per-step or per-event reply address (`event+<id>-<step>@…`,
 `crypto+<id>@…`, `verify+<id>@…`, `stats+<id>@…`, etc.) so participants
@@ -279,7 +279,7 @@ can reply normally.
   knowless `startLogin` with `bypassRateLimit`).
 - **Sent by.** `app/src/auth.js` via knowless.
 - **Recipient.** The submitted email address.
-- **Subject.** `Sign in to gitdone`
+- **Subject.** `Sign in to signedreply`
 - **Body.** A short magic link valid for 15 minutes; opens a 30-day
   session and lands on either `/manage` (Mode B) or
   `/manage/event/<id>` (Mode A).
@@ -292,8 +292,8 @@ can reply normally.
 - **Sent by.** `notifyWorkflowParticipants` in `app/src/notifications.js`.
 - **Recipient.** Step `participant`.
 - **Subject.**
-  - first invite (activation/cascade): `[gitdone] <title> — <step.name> [<idx>/<total>] — your step`
-  - re-send via `remind+`: `[gitdone] "reminder" <title> — <step.name> [<idx>/<total>] — your step`
+  - first invite (activation/cascade): `[signedreply] <title> — <step.name> [<idx>/<total>] — your step`
+  - re-send via `remind+`: `[signedreply] "reminder" <title> — <step.name> [<idx>/<total>] — your step`
 - **Reply-To.** `event+<id>-<stepId>@<domain>`
 - **Body.** "What we need from you", deadline, attachment requirement
   flag, plain instructions to reply (with anything in the body) for
@@ -305,7 +305,7 @@ can reply normally.
   signer flow) or `remind+` is invoked.
 - **Sent by.** `notifyDeclarationSigner`.
 - **Recipient.** `event.signer`.
-- **Subject.** `[gitdone] "<title>" — please sign`
+- **Subject.** `[signedreply] "<title>" — please sign`
 - **Reply-To.** `crypto+<id>@<domain>`
 - **Body.** Signing prompt + DKIM/OTS guarantees; reply with anything
   to sign.
@@ -323,11 +323,11 @@ attestation slot.
 
 | # | Reason | Subject |
 |---|--------|---------|
-| 4 | accepted | `[gitdone] Accepted — <title> — <step> [<idx>/<total>]` |
-| 5 | `missing_attachment` | `[gitdone] Attachment required — <title> — <step> [<idx>/<total>]` |
-| 6 | `event archived` | `[gitdone] Event archived — <title>` |
-| 7 | `event not activated` | `[gitdone] Event not yet activated — <title>` |
-| 8 | `event closed` | `[gitdone] Event closed — <title>` |
+| 4 | accepted | `[signedreply] Accepted — <title> — <step> [<idx>/<total>]` |
+| 5 | `missing_attachment` | `[signedreply] Attachment required — <title> — <step> [<idx>/<total>]` |
+| 6 | `event archived` | `[signedreply] Event archived — <title>` |
+| 7 | `event not activated` | `[signedreply] Event not yet activated — <title>` |
+| 8 | `event closed` | `[signedreply] Event closed — <title>` |
 
 Bodies all open with "Thanks — we received your reply for "<step>" on
 event "<title>".", then explain the specific outcome and the audit
@@ -341,16 +341,16 @@ event a **Crypto Declaration** in body copy.
 
 | # | Reason | Subject |
 |---|--------|---------|
-| 4d | accepted (full strict match) | `[gitdone] Signed — <title>` |
-| 4d-partial | accepted, partial strict match (declaration only) | `[gitdone] Signed in progress — <title>` |
-| 5d | `missing_attachment` | `[gitdone] Attachment required — <title>` |
-| 5d-mismatch | `attachment_set_mismatch` (filename matched, bytes differ) | `[gitdone] Attachment hash mismatch — <title>` |
-| 5d-strict | `strict_no_matching_attachments` (no file matched any registered hash) | `[gitdone] No matching attachments — <title>` |
-| 5d-already | `strict_already_signed` (matching reply but bucket already complete; Module 6.5) | `[gitdone] Already signed — <title>` |
-| 5d-awaiting | `awaiting_reference_docs` (`reference_url` set but no docs registered yet) | `[gitdone] Awaiting reference documents — <title>` |
-| 6d | `event archived` | `[gitdone] Crypto Declaration archived — <title>` |
-| 7d | `event not activated` | `[gitdone] Crypto Declaration not yet activated — <title>` |
-| 8d | `event closed` | `[gitdone] Crypto Declaration closed — <title>` |
+| 4d | accepted (full strict match) | `[signedreply] Signed — <title>` |
+| 4d-partial | accepted, partial strict match (declaration only) | `[signedreply] Signed in progress — <title>` |
+| 5d | `missing_attachment` | `[signedreply] Attachment required — <title>` |
+| 5d-mismatch | `attachment_set_mismatch` (filename matched, bytes differ) | `[signedreply] Attachment hash mismatch — <title>` |
+| 5d-strict | `strict_no_matching_attachments` (no file matched any registered hash) | `[signedreply] No matching attachments — <title>` |
+| 5d-already | `strict_already_signed` (matching reply but bucket already complete; Module 6.5) | `[signedreply] Already signed — <title>` |
+| 5d-awaiting | `awaiting_reference_docs` (`reference_url` set but no docs registered yet) | `[signedreply] Awaiting reference documents — <title>` |
+| 6d | `event archived` | `[signedreply] Crypto Declaration archived — <title>` |
+| 7d | `event not activated` | `[signedreply] Crypto Declaration not yet activated — <title>` |
+| 8d | `event closed` | `[signedreply] Crypto Declaration closed — <title>` |
 
 Under **strict signing mode** (§4.2.3 of the PRD — `reference_url`
 set AND `reference_docs[]` registered), the signer/attestor MUST
@@ -390,13 +390,13 @@ Requester: <initiator>
 
 | # | Reason | Subject |
 |---|--------|---------|
-| 4a-partial | accepted, threshold not yet reached | `[gitdone] Attestation reply recorded — <title> [<K>/<threshold>]` |
-| 4a-final | accepted, this reply hits the threshold (locking dedups) | `[gitdone] Attestation complete — <title> [<threshold>/<threshold>]` |
-| 4a-overshoot | accepted, accumulating dedup past threshold | `[gitdone] Attestation reply recorded — <title> [<K>/<threshold>]` (with `K > threshold`, e.g. `[5/2]`) |
-| 5a | `missing_attachment` | `[gitdone] Attachment required — <title>` |
-| 6a | `event archived` | `[gitdone] Crypto Attestation archived — <title>` |
-| 7a | `event not activated` | `[gitdone] Crypto Attestation not yet activated — <title>` |
-| 8a | `event closed` | `[gitdone] Crypto Attestation closed — <title>` |
+| 4a-partial | accepted, threshold not yet reached | `[signedreply] Attestation reply recorded — <title> [<K>/<threshold>]` |
+| 4a-final | accepted, this reply hits the threshold (locking dedups) | `[signedreply] Attestation complete — <title> [<threshold>/<threshold>]` |
+| 4a-overshoot | accepted, accumulating dedup past threshold | `[signedreply] Attestation reply recorded — <title> [<K>/<threshold>]` (with `K > threshold`, e.g. `[5/2]`) |
+| 5a | `missing_attachment` | `[signedreply] Attachment required — <title>` |
+| 6a | `event archived` | `[signedreply] Crypto Attestation archived — <title>` |
+| 7a | `event not activated` | `[signedreply] Crypto Attestation not yet activated — <title>` |
+| 8a | `event closed` | `[signedreply] Crypto Attestation closed — <title>` |
 
 The `[<K>/<threshold>]` tag mirrors the workflow step counter so the
 participant sees their position at a glance. `K` is the post-update
@@ -478,7 +478,7 @@ The attestation keeps counting; only the organiser can close it.
 - **Sent by.** `notifyLifecycleEdge(event, 'activated', …)`; body from
   `bodies.lifecycle.activated`.
 - **Recipient.** `event.initiator`.
-- **Subject.** `[gitdone] "<title>" — activated, <K> invitation(s) sent`
+- **Subject.** `[signedreply] "<title>" — activated, <K> invitation(s) sent`
 - **Body.** Confirms what just left, lists every step with `▸` next to
   the ones currently waiting on a participant, and a per-recipient
   `sent`/`FAILED` delivery line so synchronous send errors are visible
@@ -491,7 +491,7 @@ The attestation keeps counting; only the organiser can close it.
 - **Sent by.** `notifyLifecycleEdge(event, 'progressed', …)`; body from
   `bodies.lifecycle.progressed`.
 - **Recipient.** `event.initiator`.
-- **Subject.** `[gitdone] "<title>" [<N>/<M>] step done · next active`
+- **Subject.** `[signedreply] "<title>" [<N>/<M>] step done · next active`
   (the ` · next active` suffix is dropped when no downstream steps
   unblocked — i.e. fan-in waiting on parallel branches).
 - **Body.** Which step finished and by whom, what's now active, and
@@ -521,11 +521,11 @@ Common contract across every body:
 - **Sent by.** `notifyLifecycleEdge(event, 'completed' | 'closed', …)`;
   bodies from `bodies.lifecycle.completed.<kind>.<role>`. The `closed`
   edge additionally redacts strict-attestation emails post-send.
-- **Subject.** `[gitdone] proof — "<title>"<counterTag>` where
+- **Subject.** `[signedreply] proof — "<title>"<counterTag>` where
   `counterTag` is `[<done>/<total>]` for workflow, `[<counted>/<threshold>]`
   for attestation, omitted for declaration. When no commits are
   available (rare edge case) it falls back to
-  `[gitdone] "<title>" — completed` or `… — closed early`.
+  `[signedreply] "<title>" — completed` or `… — closed early`.
 - **Mode line.** Every body now carries an explicit `Mode:` line
   (`Workflow` / `Declaration (one signer, one record)` /
   `Attestation - <dedup-blurb> - threshold N`) so the recipient
@@ -572,12 +572,12 @@ Common contract across every body:
 ### 11d. Attestation — organiser
 
 - **Recipient.** `event.initiator`.
-- **Subject.** `[gitdone] proof — "<title>" [<E>/<threshold>]` where
+- **Subject.** `[signedreply] proof — "<title>" [<E>/<threshold>]` where
   `E` is the **effective** (revoke-filtered) count: distinct
   non-revoked senders under `unique`/`latest`, raw non-revoked
   replies under `accumulating`. When the event was cut short via
   the dashboard or `close+<id>@`, the subject inserts ` — closed
-  early` before the counter: `[gitdone] proof — "<title>" — closed
+  early` before the counter: `[signedreply] proof — "<title>" — closed
   early [<E>/<threshold>]`.
 - **Body.** Title + ID + Mode (`Attestation - <dedup> - threshold N`)
   + `<Reached|Closed>: <iso>` (label flips on close-early) +
@@ -631,7 +631,7 @@ Common contract across every body:
   delivery for an event invitation.
 - **Sent by.** `app/bin/receive.js` DSN handler.
 - **Recipient.** `event.initiator`.
-- **Subject.** `[gitdone] "<title>" — invitation bounced`
+- **Subject.** `[signedreply] "<title>" — invitation bounced`
 - **Body.** Each failed recipient with status code + diagnostic, then a
   link to the dashboard so the organiser can edit the address.
 
@@ -640,7 +640,7 @@ Common contract across every body:
 - **Trigger.** Event sat unactivated and is within 24h of the 72h TTL.
 - **Sent by.** `app/bin/sweep.js` (`gitdone-sweep.timer`).
 - **Recipient.** `event.initiator`.
-- **Subject.** `[gitdone] "<title>" — activate within <H>h or it expires`
+- **Subject.** `[signedreply] "<title>" — activate within <H>h or it expires`
 - **Body.** Activation link + what happens at TTL.
 
 ## 14. Overdue nudge
@@ -649,7 +649,7 @@ Common contract across every body:
   nudged before.
 - **Sent by.** `app/bin/sweep.js`.
 - **Recipient.** `event.initiator`.
-- **Subject.** `[gitdone] "<title>" — overdue, <D> days past deadline [<done>/<total>]`
+- **Subject.** `[signedreply] "<title>" — overdue, <D> days past deadline [<done>/<total>]`
   (the `[N/M]` tag is omitted for crypto events).
 - **Body.** Step state summary + nudge to use `remind+<id>@` or close.
 
@@ -659,7 +659,7 @@ Common contract across every body:
   the archive sweep.
 - **Sent by.** `app/bin/sweep.js`.
 - **Recipient.** `event.initiator`.
-- **Subject.** `[gitdone] "<title>" — auto-archived`
+- **Subject.** `[signedreply] "<title>" — auto-archived`
 - **Body.** What "archived" means, that the audit trail is preserved,
   and how to re-open from the dashboard.
 
@@ -669,9 +669,9 @@ Common contract across every body:
 - **Sent by.** `app/bin/receive.js` (body in `bodies.cmd.stats`).
 - **Recipient.** Sender (envelope sender, must equal initiator).
 - **Subject.**
-  - Workflow: `[gitdone] stats "<title>" [<done>/<total>] step done`
+  - Workflow: `[signedreply] stats "<title>" [<done>/<total>] step done`
     (or `… complete` when finished).
-  - Crypto: `[gitdone] stats "<title>" — <mode> · <open|complete>`.
+  - Crypto: `[signedreply] stats "<title>" — <mode> · <open|complete>`.
 - **Body.** Title, ID, min trust, status, then a per-step list with
   `[x]/[ ]` ticks, dependencies, and completion timestamps.
 
@@ -682,9 +682,9 @@ Common contract across every body:
   (#2) to every still-pending participant whose dependencies are met,
   with the `"reminder"` subject tag.
 - **Subject.**
-  - workflow: `[gitdone] reminded "<title>" [<done>/<total>] step done`
+  - workflow: `[signedreply] reminded "<title>" [<done>/<total>] step done`
     (or `… complete` when the event has already finished).
-  - crypto: `[gitdone] reminded "<title>" — <mode> · <open|complete>`.
+  - crypto: `[signedreply] reminded "<title>" — <mode> · <open|complete>`.
 - **Body.** Either "no eligible steps" / "already complete", or
   `Reminders sent:` followed by per-recipient `✓`/`✗` lines.
 
@@ -706,7 +706,7 @@ The first reply records a `pending_close = { token, expires_at }` on
 the event (TTL 30 min) and replies with the token + instructions. No
 completion commit is written yet.
 
-- **Subject.** `[gitdone] close pending "<title>" — reply to confirm`
+- **Subject.** `[signedreply] close pending "<title>" — reply to confirm`
 - **Body.** "Closing is irreversible — to confirm, reply within 30 min
   with `CONFIRM <token>` in the subject or body. The token is
   case-insensitive."
@@ -717,22 +717,22 @@ A second DKIM-authenticated reply within the TTL, containing
 `CONFIRM <token>`, commits the close.
 
 - **Subject.**
-  - workflow: `[gitdone] closed "<title>" [<done>/<total>] step done`
+  - workflow: `[signedreply] closed "<title>" [<done>/<total>] step done`
     (or `… complete` when finished).
-  - crypto: `[gitdone] closed "<title>" — <mode> · <open|complete>`.
+  - crypto: `[signedreply] closed "<title>" — <mode> · <open|complete>`.
 - **Body.** Confirmation that the event is now closed + completion
   timestamp. The event itself also fans out a **completion notice**
   (#11) to participants.
 
 ### Edge subjects
 
-- `[gitdone] close pending "<title>" — still awaiting confirmation` —
+- `[signedreply] close pending "<title>" — still awaiting confirmation` —
   a `close+` reply arrived without the token while a valid intent is
   outstanding (gitdone reminds with the *same* token; doesn't reissue,
   so a stray re-send can't refresh the window).
-- `[gitdone] close pending "<title>" — token mismatch, retry` — token
+- `[signedreply] close pending "<title>" — token mismatch, retry` — token
   was supplied but didn't match the outstanding intent.
-- `[gitdone] closed "<title>" — already complete` — event was already
+- `[signedreply] closed "<title>" — already complete` — event was already
   finished; no-op.
 
 ## 19. Verify report
@@ -741,7 +741,7 @@ A second DKIM-authenticated reply within the TTL, containing
   message) to `verify+<id>@<domain>`.
 - **Sent by.** `app/bin/receive.js`.
 - **Recipient.** Sender.
-- **Subject.** `[gitdone] verification report for event <eventId>`
+- **Subject.** `[signedreply] verification report for event <eventId>`
 - **Body.** Pass/fail per check (DKIM, OTS, sequence presence,
   per-event-repo match) and the verified commit shas.
 
@@ -750,7 +750,7 @@ A second DKIM-authenticated reply within the TTL, containing
 - **Trigger.** Inbound to `reverify+<id>-<commitSequence>@<domain>` —
   the same verifier flow but pinned to one commit.
 - **Sent by.** `app/bin/receive.js`.
-- **Subject.** `[gitdone] re-verification report for <eventId> commit-<NNN>`
+- **Subject.** `[signedreply] re-verification report for <eventId> commit-<NNN>`
 - **Body.** Same shape as #19, scoped to the one commit.
 
 ## 21. Proof anchored (OTS)
@@ -769,7 +769,7 @@ confirmation that the proof is now permanently anchored.
   workflow participants of completed steps, the declaration signer.
   Strict attestation has **none** here — attestor PII was already
   redacted on the `closed`/`completed` edge.
-- **Subject.** `[gitdone] proof anchored — "<title>"`
+- **Subject.** `[signedreply] proof anchored — "<title>"`
 - **Body.** Confirmation the proof is permanently Bitcoin-anchored, with
   block height, anchored-at timestamp, and the in-repo proof file path.
 - **Idempotency.** Once-only: the upgrade run that flips a proof to
@@ -803,7 +803,7 @@ Both stream a `.tar.gz` of `data/repos/<id>/`, which contains
 
 ### When the repo has commits
 
-- **Subject.** `[gitdone] proof bundle — "<title>"`
+- **Subject.** `[signedreply] proof bundle — "<title>"`
 - **Headers.** `Content-Type: multipart/mixed; boundary=…`,
   `Content-Disposition: attachment; filename="gitdone-<id>-YYYYMMDD.tar.gz"`,
   `Content-Type: application/gzip` on the attachment part.
@@ -816,7 +816,7 @@ Both stream a `.tar.gz` of `data/repos/<id>/`, which contains
 The event was created but never received a reply (pending-activation,
 or activated but no inbound mail), so there's nothing to package.
 
-- **Subject.** `[gitdone] no proof yet — "<title>"`
+- **Subject.** `[signedreply] no proof yet — "<title>"`
 - **Body.** Plain text explaining the audit trail is empty and that a
   later `bundle+` after a reply arrives will return the archive.
 
@@ -837,7 +837,7 @@ first reply.
 - **Recipient.** Sender (must equal initiator).
 
 All outcomes (success, frozen, auth failure, etc.) share the same
-subject `[gitdone] attach+ — <title>` so the organiser's MUA threads
+subject `[signedreply] attach+ — <title>` so the organiser's MUA threads
 every attempt on the manifest together. The body distinguishes the
 outcome.
 
@@ -878,7 +878,7 @@ The manifest is one-shot. Any later attach+ reply bounces:
 
 ## 24. Initiator command — revoke (drop an attestor)
 
-- **Trigger.** Initiator emails `revoke+<id>@git-done.com` with one
+- **Trigger.** Initiator emails `revoke+<id>@signedreply.com` with one
   attestor email per body line. Optional `reason: <free-form>` line
   is captured separately. Crypto attestation events only —
   declarations have a single signer (no revocation surface) and
@@ -889,8 +889,8 @@ The manifest is one-shot. Any later attach+ reply bounces:
   writes a `kind: 'revoke'` commit, sends the ack).
 - **Recipient.** The initiator (the sender of the revoke email).
 - **From.** `revoke+<id>@<domain>`.
-- **Subject.** `[gitdone] revoke+ — <event title>` on success;
-  `[gitdone] revoke+ — <id>` if the event couldn't be loaded.
+- **Subject.** `[signedreply] revoke+ — <event title>` on success;
+  `[signedreply] revoke+ — <id>` if the event couldn't be loaded.
 
 **Auth.** DKIM-verified + envelope sender == `event.initiator`
 (same as `stats+ / remind+ / close+ / attach+`). Wrong sender →
@@ -1002,7 +1002,7 @@ decision reason `revoked_sender` (gated **before** strict-mode
 checks, so it overrides `strict_already_signed`). The reply still
 commits to the audit trail; the ack tells the sender:
 
-- **Subject.** `[gitdone] Reply not counted — <event title>`
+- **Subject.** `[signedreply] Reply not counted — <event title>`
 - **Body.**
   ```
   Thanks — we received your reply on Crypto Attestation "<title>".
@@ -1011,7 +1011,7 @@ commits to the audit trail; the ack tells the sender:
   initiator and no longer counts toward the threshold. Your
   replies remain in the audit trail (DKIM-verified,
   OpenTimestamped); the public proof page shows the revocation:
-    https://git-done.com/proof/<id>
+    https://signedreply.com/proof/<id>
 
   If you believe this is in error, reach out to <initiator>.
   ```
@@ -1049,14 +1049,14 @@ steps:
   2. video edit   → contractor2@example.com   deadline 2026-06-15   attachment required   after #1
 ```
 
-Event id assumed: `evd47k0vqc23`. Domain: `git-done.com`.
+Event id assumed: `evd47k0vqc23`. Domain: `signedreply.com`.
 
 ### Email A — activation receipt to organiser (#9)
 
 ```
-From:    gitdone <gitdone@git-done.com>
+From:    signedreply <noreply@signedreply.com>
 To:      jane@example.com
-Subject: [gitdone] "wedding video" — activated, 1 invitation sent
+Subject: [signedreply] "wedding video" — activated, 1 invitation sent
 
 Your event is now active. Invitations have been sent to the participants
 whose steps are unblocked (▸ in the list below). Downstream participants
@@ -1075,18 +1075,18 @@ Delivery:
 If a participant's address bounces you'll get a separate "invitation
 bounced" email and the dashboard will show "delivery failed" on that step.
 
-Manage: https://git-done.com/manage/event/evd47k0vqc23
+Manage: https://signedreply.com/manage/event/evd47k0vqc23
 ```
 
 ### Email B — first invitation to step 1 participant (#2)
 
 ```
-From:     gitdone <gitdone@git-done.com>
+From:     signedreply <noreply@signedreply.com>
 To:       contractor1@example.com
-Reply-To: event+evd47k0vqc23-s1@git-done.com
-Subject:  [gitdone] wedding video — audio mix [1/2] — your step
+Reply-To: event+evd47k0vqc23-s1@signedreply.com
+Subject:  [signedreply] wedding video — audio mix [1/2] — your step
 
-You've been named as a participant in a gitdone event.
+You've been named as a participant in a signedreply event.
 
 Event: wedding video
 Your step: audio mix (step 1 of 2)
@@ -1095,10 +1095,10 @@ Attachment: required
 Aspirational date: Mon 1 Jun 2026
 
 Reply from contractor1@example.com to:
-  event+evd47k0vqc23-s1@git-done.com
+  event+evd47k0vqc23-s1@signedreply.com
 
 Write whatever you want in the body. Attachments are forwarded to the
-organiser directly — gitdone only stores hashes of them, never content.
+organiser directly — signedreply only stores hashes of them, never content.
 Your reply is DKIM-verified, OpenTimestamped, and committed to a
 per-event git repository as a permanent record.
 
@@ -1111,9 +1111,9 @@ email. The organiser can see that your step is still pending.
 After contractor1 replies with the audio file attached:
 
 ```
-From:    gitdone <event+evd47k0vqc23-s1@git-done.com>
+From:    signedreply <event+evd47k0vqc23-s1@signedreply.com>
 To:      contractor1@example.com
-Subject: [gitdone] Accepted — wedding video — audio mix [1/2]
+Subject: [signedreply] Accepted — wedding video — audio mix [1/2]
 
 Your reply for "audio mix" on event "wedding video" was accepted.
 The step is marked complete and the reply is recorded in the event's
@@ -1127,9 +1127,9 @@ Organiser: jane@example.com
 ### Email D — step-progress update to organiser (#10)
 
 ```
-From:    gitdone <gitdone@git-done.com>
+From:    signedreply <noreply@signedreply.com>
 To:      jane@example.com
-Subject: [gitdone] "wedding video" [1/2] step done · next active
+Subject: [signedreply] "wedding video" [1/2] step done · next active
 
 Step #1 "audio mix" was just completed by contractor1@example.com.
 
@@ -1141,7 +1141,7 @@ Steps (▸ = waiting on this person now):
     1. audio mix → contractor1@example.com  [DONE]  (deadline 2026-06-01, attachment required)
   ▸ 2. video edit → contractor2@example.com  [pending]  (after #1, deadline 2026-06-15, attachment required)
 
-Manage: https://git-done.com/manage/event/evd47k0vqc23
+Manage: https://signedreply.com/manage/event/evd47k0vqc23
 ```
 
 ### Email E — cascaded invitation to step 2 participant (#2)
@@ -1149,12 +1149,12 @@ Manage: https://git-done.com/manage/event/evd47k0vqc23
 Same shape as Email B, sent the moment step 1 commits. Note `[2/2]`.
 
 ```
-From:     gitdone <gitdone@git-done.com>
+From:     signedreply <noreply@signedreply.com>
 To:       contractor2@example.com
-Reply-To: event+evd47k0vqc23-s2@git-done.com
-Subject:  [gitdone] wedding video — video edit [2/2] — your step
+Reply-To: event+evd47k0vqc23-s2@signedreply.com
+Subject:  [signedreply] wedding video — video edit [2/2] — your step
 
-You've been named as a participant in a gitdone event.
+You've been named as a participant in a signedreply event.
 
 Event: wedding video
 Your step: video edit (step 2 of 2)
@@ -1163,7 +1163,7 @@ Attachment: required
 Aspirational date: Mon 15 Jun 2026
 
 Reply from contractor2@example.com to:
-  event+evd47k0vqc23-s2@git-done.com
+  event+evd47k0vqc23-s2@signedreply.com
 
 […body identical to Email B…]
 ```
@@ -1174,9 +1174,9 @@ After contractor2 replies, the event reaches `complete` and one email
 goes to every distinct contributor. The organiser's variant:
 
 ```
-From:    gitdone <gitdone@git-done.com>
+From:    signedreply <noreply@signedreply.com>
 To:      jane@example.com
-Subject: [gitdone] "wedding video" — completed [2/2]
+Subject: [signedreply] "wedding video" — completed [2/2]
 
 The event you organized has completed.
 
@@ -1195,7 +1195,7 @@ reply, DKIM keys archived, and OpenTimestamps proofs attached. Anyone
 can verify it offline with the gitdone-verify CLI, even if gitdone itself
 goes away — the proofs outlive the service.
 
-  Event repo: git-done.com/events/evd47k0vqc23 (auth required)
+  Event repo: signedreply.com/events/evd47k0vqc23 (auth required)
   Organiser: jane@example.com
 ```
 
@@ -1205,14 +1205,14 @@ step table.
 ### Email G — what jane sees if she sends `remind+` mid-flow (#17, #2)
 
 After Email B but before contractor1 replies, jane sends to
-`remind+evd47k0vqc23@git-done.com`. Two messages go out:
+`remind+evd47k0vqc23@signedreply.com`. Two messages go out:
 
 **Receipt back to jane:**
 
 ```
-From:    gitdone <remind+evd47k0vqc23@git-done.com>
+From:    signedreply <remind+evd47k0vqc23@signedreply.com>
 To:      jane@example.com
-Subject: [gitdone] reminded "wedding video" [0/2] step done
+Subject: [signedreply] reminded "wedding video" [0/2] step done
 
 Reminders sent:
   ✓ contractor1@example.com
@@ -1223,7 +1223,7 @@ prefixed with `"reminder"` so the participant's MUA can disambiguate
 the resend:
 
 ```
-Subject: [gitdone] "reminder" wedding video — audio mix [1/2] — your step
+Subject: [signedreply] "reminder" wedding video — audio mix [1/2] — your step
 ```
 
 ### Email H — what jane sees if she sends `close+` (#18)
@@ -1231,9 +1231,9 @@ Subject: [gitdone] "reminder" wedding video — audio mix [1/2] — your step
 Two replies are required. First — pending intent:
 
 ```
-From:    gitdone <close+evd47k0vqc23@git-done.com>
+From:    signedreply <close+evd47k0vqc23@signedreply.com>
 To:      jane@example.com
-Subject: [gitdone] close pending "wedding video" — reply to confirm
+Subject: [signedreply] close pending "wedding video" — reply to confirm
 
 Closing an event is irreversible — confirmation required.
 
@@ -1253,9 +1253,9 @@ Then jane replies with `CONFIRM 7af31b9c` in the subject (or anywhere
 in the body) within 30 minutes:
 
 ```
-From:    gitdone <close+evd47k0vqc23@git-done.com>
+From:    signedreply <close+evd47k0vqc23@signedreply.com>
 To:      jane@example.com
-Subject: [gitdone] closed "wedding video" [1/2] step done
+Subject: [signedreply] closed "wedding video" [1/2] step done
 
 Confirmed. Event evd47k0vqc23 ("wedding video") closed by initiator at 2026-05-04T19:42:08Z.
 ```
@@ -1268,7 +1268,7 @@ with `closed early` rather than `completed` in the subject and reason.
 When adding a new email to gitdone, match these patterns so subjects
 stay scannable in cluttered inboxes:
 
-1. Always start with `[gitdone]`.
+1. Always start with `[signedreply]`.
 2. Quote the event title with `"…"` when present — except the
    participant step subjects (invitation, accepted, attachment-required),
    which lead with the bare title heading a `<title> — <step.name>`

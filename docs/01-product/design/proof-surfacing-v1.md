@@ -51,7 +51,7 @@ both modes.
 │  Type        declaration                         │
 │  Initiator   journo@example.com                  │  ← secondary
 │  Signer      witness@example.com                 │
-│  Reply addr  event+...@git-done.com              │
+│  Reply addr  event+...@signedreply.com              │
 │  Status      signed on 2026-04-15                │
 ├──────────────────────────────────────────────────┤
 │  ▸ Cryptographic proof                           │  ← <details>
@@ -149,7 +149,7 @@ Two durable artefacts ship the proof outside the dashboard. Both are
 ASCII-only (per outbound rule) and verify offline against the per-event
 git repo.
 
-### 1. Completion proof (`[gitdone] proof — "<title>"`)
+### 1. Completion proof (`[signedreply] proof — "<title>"`)
 
 Sent when an event flips to `completion.status === 'complete'`. Triggers:
 
@@ -176,7 +176,7 @@ follow-up email can thread to it.
 For workflow events the subject keeps `[N/M]`; crypto subjects drop the
 counter.
 
-### 2. Anchored proof (`[gitdone] proof anchored — "<title>"`)
+### 2. Anchored proof (`[signedreply] proof anchored — "<title>"`)
 
 Sent when the OTS-upgrade worker upgrades the LAST pending proof for an
 already-completed event (i.e. zero pending `.ots` files remain). Once

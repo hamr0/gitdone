@@ -1,4 +1,4 @@
-# gitdone
+# signedreply
 
 <p align="center">
   <img src="https://img.shields.io/github/package-json/v/hamr0/gitdone?label=version&color=2a4f8c" alt="version (auto from package.json)">
@@ -7,21 +7,21 @@
 
 **Email-native multi-party coordination. Cryptographic proof on every reply.**
 
-Live at **https://git-done.com**.
+Live at **https://signedreply.com**.
 
 ---
 
 ## What it is
 
 A tool for two things, both done entirely over email, both proved
-cryptographically, both verifiable offline forever — even if gitdone
+cryptographically, both verifiable offline forever — even if signedreply
 the service disappears.
 
 ### Path 1 — Track a multi-party workflow
 
 "Legal reviews, then Finance approves, then the CEO signs." Pick the
 people, pick the order (linear, parallel, mixed). Each step gets its
-own reply address. Participants reply from their normal inbox; gitdone
+own reply address. Participants reply from their normal inbox; signedreply
 verifies the reply is really from them, commits it to a per-event git
 repository, anchors it to the Bitcoin blockchain via OpenTimestamps,
 and moves the workflow forward. You see progress in your inbox and on
@@ -39,7 +39,7 @@ a dashboard.
 
 Optionally pin a **reference URL** (the contract, position paper, or
 statement being signed). When you also register canonical document(s)
-on the event — email them once to `attach+<id>@git-done.com` — gitdone
+on the event — email them once to `attach+<id>@signedreply.com` — signedreply
 hashes them, freezes the manifest, and the event enters **strict
 signing**: every signer must attach files whose SHA-256 hashes match
 exactly. Wrong bytes get a clear ack with a diff; partial sets across
@@ -53,11 +53,11 @@ hashes go in the proof.
 Recipients **get an email**. They **reply**. That's it.
 
 No account. No app. No magic link to click. No password. They reply
-from their own inbox; gitdone uses DKIM to prove the reply really came
+from their own inbox; signedreply uses DKIM to prove the reply really came
 from them.
 
 You (the organiser) sign in once via a one-time link to
-`https://git-done.com/manage` — magic-link only, no password ever.
+`https://signedreply.com/manage` — magic-link only, no password ever.
 
 ---
 
@@ -85,7 +85,7 @@ level per event.
 Two emails carry the cryptographic receipt outside the dashboard, so
 your proof outlives the service:
 
-- **`[gitdone] proof — "<title>"`** — fires once when the event
+- **`[signedreply] proof — "<title>"`** — fires once when the event
   completes. Embedded receipt: DKIM result + selector + algorithm,
   SPF, DMARC, ARC, raw email hash, OpenTimestamps state, offline
   verify command. Per-recipient body shape:
@@ -100,13 +100,13 @@ your proof outlives the service:
     YOUR record only."*
   - **Workflow** — organiser sees the step table + all per-step
     receipts; each participant sees their own step only.
-- **`[gitdone] proof anchored — "<title>"`** — fires once per event
+- **`[signedreply] proof anchored — "<title>"`** — fires once per event
   when the OpenTimestamps proof anchors to Bitcoin (every 6 hours).
   Threaded as a reply to the completion email. Carries the block
   height and the `.ots` proof file.
 
 Keep the emails. Together with the per-event git repository they're
-your evidence — no gitdone service required to verify them.
+your evidence — no signedreply service required to verify them.
 
 ---
 
@@ -116,7 +116,7 @@ Every event leaves behind a small git repository: every reply, every
 DKIM key archived at the moment of receipt, every OTS proof, every
 hash. Anyone holding a copy can verify it on a disconnected machine
 with the open-source [`gitdone-verify`](tools/gitdone-verify/) tool.
-One file, Node stdlib only, no calls to any gitdone service:
+One file, Node stdlib only, no calls to any signedreply service:
 
 ```sh
 gitdone-verify <repo-path>
@@ -125,19 +125,19 @@ gitdone-verify <repo-path> --min-trust verified
 ```
 
 The bundle is one click away on every event's manage page, or by
-emailing `bundle+<id>@git-done.com` from the organiser address.
+emailing `bundle+<id>@signedreply.com` from the organiser address.
 
 ---
 
 ## Start one
 
-1. Open **https://git-done.com**.
+1. Open **https://signedreply.com**.
 2. Pick **Event** (workflow) or **Crypto** (declaration / attestation).
 3. Fill in titles, emails, deadlines. Review the preview. Confirm.
 4. A magic-link arrives in your inbox. Click it, press **Activate**.
 5. Invites go out. Replies start landing.
 
-Or sign in at **https://git-done.com/manage** to see every event
+Or sign in at **https://signedreply.com/manage** to see every event
 you've ever organised.
 
 ---
@@ -147,9 +147,9 @@ you've ever organised.
 - **No accounts.** Participants never sign up, never install
   anything, never read terms.
 - **No tracking.** No analytics, no ads, no profile-building.
-- **It outlives the service.** If gitdone disappears, the per-event
+- **It outlives the service.** If signedreply disappears, the per-event
   repos, the proofs, and the verifier tool all keep working.
-- **Hashes, not bodies.** gitdone never stores email content or
+- **Hashes, not bodies.** signedreply never stores email content or
   attachments — both are forwarded to the organiser intact; only
   SHA-256 hashes go into the record.
 - **Salted, not plaintext.** Email addresses are hashed with a
@@ -175,7 +175,7 @@ you've ever organised.
 
 ## Trust concentration (named, not hidden)
 
-Trust ultimately rests on four pieces gitdone doesn't own:
+Trust ultimately rests on four pieces signedreply doesn't own:
 
 1. **Sender mail providers** that sign replies with DKIM.
 2. **Bitcoin miners** who anchor OpenTimestamps stamps.
@@ -190,7 +190,7 @@ We don't pretend there's zero trust; we try to make it visible.
 ## Docs
 
 - [PRD](docs/01-product/prd.md) — what it is, what it isn't, why.
-- [Email system](docs/01-product/emails.md) — every email gitdone
+- [Email system](docs/01-product/emails.md) — every email signedreply
   sends, with full taxonomy tree, end-to-end.
 - [Design references](docs/01-product/design/) — terminal theme,
   proof surfacing, frozen UI specs.
@@ -204,4 +204,4 @@ We don't pretend there's zero trust; we try to make it visible.
 
 `gitdone-verify` is and will remain MIT-licensed — every record must
 stay independently verifiable, forever. Contact:
-**feedback@git-done.com** (real human).
+**feedback@signedreply.com** (real human).
