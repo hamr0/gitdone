@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-06-01T21:56Z · `570207a` · docs+fix(brand): centralize sender for sweep path; correct noreply routing notes
 - 2026-06-01T20:32Z · `b8e4501` · feat: rename git-done.com → signedreply.com (0.27.0)
 - 2026-06-01T12:52Z · `2963866` · fix(ops): health checks retry + 10s timeout, stop false-paging on load spikes (0.26.9)
 - 2026-06-01T10:45Z · `80fd6c6` · feat(ops): on-host backup via pulselog --backup (0.26.8)
