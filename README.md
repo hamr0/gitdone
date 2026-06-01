@@ -1,4 +1,4 @@
-# signedreply
+# gitdone
 
 <p align="center">
   <img src="https://img.shields.io/github/package-json/v/hamr0/gitdone?label=version&color=2a4f8c" alt="version (auto from package.json)">

@@ -83,6 +83,15 @@ identifiers stay `gitdone` on purpose.
   the proof-bundle filename + git commit author, log/telemetry tags, and the
   operator-only stats digest.
 
+### Docs: README title back to `gitdone` (0.27.2)
+
+Repo README H1 reverted `# signedreply` → `# gitdone`. The README documents
+the project, whose internal name is `gitdone` (the repo, the CLI, the env,
+the service units); `signedreply` is the **customer-facing brand + domain**,
+not the project name. Body prose, the `[signedreply]` proof-email subject
+lines, and every `signedreply.com` reference are unchanged — they describe
+the live product accurately. One-line change.
+
 ### Fix: health checks no longer false-page on a shared-host load spike (0.26.9)
 
 **Reliability.** The pulselog health check ran every probe once with a 5s
