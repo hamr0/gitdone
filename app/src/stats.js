@@ -92,4 +92,31 @@ async function collect() {
   };
 }
 
-module.exports = { collect, statusOf };
+// Flatten a collect() snapshot to a single-level object of named whole-number
+// integers — the shape pulselog's digest `metricsCommand` consumes (one command
+// → one JSON object, values picked by name). Kept here (not in bin/) so it's
+// unit-testable, and so the metric key names live next to the snapshot they
+// derive from. The digest config declares which of these keys to trend.
+function flatMetrics(s) {
+  const int = (x) => (Number.isFinite(x) ? Math.trunc(x) : 0);
+  const bt = s.by_type || {};
+  const bs = s.by_status || {};
+  return {
+    orgs: int(s.unique_organisers),
+    rcpts: int(s.unique_recipients_named),
+    events: int(s.events_total),
+    type_workflow: int(bt.event),
+    type_declaration: int(bt.declaration),
+    type_attestation: int(bt.attestation),
+    pending: int(bs.pending_activation),
+    open: int(bs.open),
+    completed: int(bs.completed),
+    closed_early: int(bs.closed_early),
+    archived: int(bs.archived),
+    steps_done: int(s.workflow_step_completed_total),
+    steps_total: int(s.workflow_step_count_total),
+    attest_replies: int(s.attestation_replies_total),
+  };
+}
+
+module.exports = { collect, statusOf, flatMetrics };

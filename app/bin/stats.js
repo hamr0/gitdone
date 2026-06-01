@@ -8,6 +8,9 @@
 //   node app/bin/stats.js              human + json
 //   node app/bin/stats.js --json       json only (no human output)
 //   node app/bin/stats.js --quiet      json only (alias for --json)
+//   node app/bin/stats.js --metrics-json
+//                                      flat {name:integer} object only, for
+//                                      pulselog's digest metricsCommand.
 //   node app/bin/stats.js --diff       human output with a "Δ since
 //                                      <last-snapshot-date>" column;
 //                                      reads the most recent line of
@@ -20,10 +23,14 @@
 'use strict';
 
 const fs = require('node:fs');
-const { collect } = require('../src/stats');
+const { collect, flatMetrics } = require('../src/stats');
 
 const jsonOnly = process.argv.includes('--json') || process.argv.includes('--quiet');
 const wantDiff = process.argv.includes('--diff');
+// --metrics-json: print ONLY a flat {name:integer} object to stdout, for
+// pulselog's digest `metricsCommand` (one pass → all metrics). Nothing else may
+// touch stdout in this mode — pulselog parses stdout as a single JSON object.
+const metricsJson = process.argv.includes('--metrics-json');
 const STATS_LOG = process.env.GITDONE_STATS_LOG || '/var/log/gitdone/stats.log';
 
 // Read the most recent JSON line from the stats log. Returns null if
@@ -92,6 +99,10 @@ function formatHuman(s, prev) {
 
 (async () => {
   const s = await collect();
+  if (metricsJson) {
+    process.stdout.write(JSON.stringify(flatMetrics(s)) + '\n');
+    return;
+  }
   const prev = wantDiff ? readLastSnapshot(STATS_LOG) : null;
   if (!jsonOnly) process.stderr.write(formatHuman(s, prev) + '\n');
   process.stdout.write(JSON.stringify(s) + '\n');

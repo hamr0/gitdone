@@ -1,13 +1,16 @@
 [Unit]
-Description=GitDone weekly stats digest (emails last 4 weeks to alerts inbox)
+Description=GitDone weekly stats digest via pulselog (week-over-week email)
 After=network-online.target
 
 [Service]
 Type=oneshot
 User=gitdone
 Group=gitdone
-WorkingDirectory=/opt/gitdone/app
-ExecStart=/usr/bin/node /opt/gitdone/app/bin/stats-weekly.js
+# pulselog --digest runs the metricsCommand (app/bin/stats.js --metrics-json) in
+# one pass, appends one ISO-week snapshot line to digest.history, and emails the
+# WoW table. EnvironmentFile carries GITDONE_DATA_DIR through to the metrics
+# command (stats.js defaults to /var/lib/gitdone if unset).
+ExecStart=/usr/bin/node /opt/gitdone/ops/pulselog/node_modules/pulselog/bin/pulselog.js --digest --config /opt/gitdone/ops/pulselog/pulselog.config.json
 EnvironmentFile=-/etc/default/gitdone-web
 TimeoutStartSec=60
 Nice=10

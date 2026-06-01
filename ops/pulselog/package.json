@@ -1,0 +1,12 @@
+{
+  "name": "gitdone-pulselog",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pinned pulselog for gitdone's host-side watchers (health, digest). Installed on the VPS via `npm ci` in this dir; invoked by systemd timers. Not a gitdone app dependency — the app runs `npm ci --omit=dev` and never sees this.",
+  "dependencies": {
+    "pulselog": "^0.3.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

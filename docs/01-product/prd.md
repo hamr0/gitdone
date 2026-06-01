@@ -1285,19 +1285,23 @@ read-only walks of `data/events/*.json`.
   signers; attestation senders are anonymous-by-design and excluded),
   events by type and status, completed-vs-incomplete, workflow step
   totals, attestation reply totals. JSON to stdout, human table to
-  stderr. `--diff` adds a Δ column comparing to the most recent
-  entry in `/var/log/gitdone/stats.log`.
-- **Daily JSONL snapshot log** (`gitdone-stats.timer`, 04:30 UTC)
-  appends one line per day to `/var/log/gitdone/stats.log`. Trivial
-  to tail / `jq` / chart later.
+  stderr. `--metrics-json` emits a flat `{name:integer}` object (via
+  `flatMetrics` in `app/src/stats.js`) — the feed for pulselog's digest.
 - **Weekly digest email** (`gitdone-stats-weekly.timer`, Mondays
-  06:00 UTC) groups the daily snapshots by ISO week (Mon–Sun), takes
-  the most recent snapshot per week, and emails the last 4 weeks as
-  a compact week-over-week table to `GITDONE_STATS_RECIPIENT`
-  (default `avoidaccess@gmail.com` — the alerts identity, never
-  the organiser address).
+  06:00 UTC) is produced by [`pulselog`](https://github.com/hamr0/pulselog)
+  `--digest` (pinned in `ops/pulselog`): it runs `stats.js --metrics-json`
+  in one pass, appends one ISO-week snapshot line to
+  `/var/lib/gitdone/logs/stats.jsonl`, and emails the last 4 weeks as a
+  week-over-week table to `avoidaccess@gmail.com` (the alerts identity,
+  never the organiser address), with a 7-day flightlog error rollup
+  (counts + names only) folded in. pulselog's `loadWeeks` groups history
+  by ISO week, so the snapshot is taken weekly at digest time — the prior
+  separate daily snapshot job (`gitdone-stats.timer` → `stats.log`) is
+  **retired** (it only fed the old hand-rolled weekly digest). See finding #49.
 
-All three are aggregates only; no PII leaves the box.
+Both are aggregates only; no PII leaves the box — pulselog stores only the
+integers `stats.js` prints, and the error rollup is counts + names, never
+messages or stacks.
 
 ### 9.3 No vendor dependencies
 
@@ -1549,6 +1553,10 @@ Phase 0 completed on a RackNerd VPS (AlmaLinux 8, Postfix 3.5.8, Node 20). All a
 44. **A CSRF Origin check must fail OPEN on `Origin: null`, and it composes badly with `Referrer-Policy: no-referrer`.** The M5 Origin/Referer check (finding #42) shipped alongside the M3 `Referrer-Policy: no-referrer` edge header — and under a strict referrer policy, browsers send `Origin: null` on **same-origin form-navigation POSTs**. A naive check that 403s anything not matching the public host then rejects *every* legitimate create + dashboard mutation. The rule: reject only a **parseable** Origin/Referer whose host differs; treat missing / `null` / unparseable as no-signal and allow, leaning on `SameSite=Lax` as the real CSRF backstop. This stays safe because (a) a cross-site attacker's page isn't under our referrer policy, so it still sends its own real origin → parseable mismatch → blocked, and (b) if the attacker forces `null` too, `SameSite=Lax` has already stripped the session cookie. The M5 unit test missed this because it asserted explicit good/evil origins, never `null`; the regression test now covers it. Lesson: when testing header-driven security middleware, include the empty / `null` / malformed header cases, not just the happy and adversarial ones — **and verify in a real browser, not just `curl`**, since the breaking input (`Origin: null` on a same-origin form-navigation POST) is one only a browser produces. The deploy runbook now carries a manual browser smoke for request-path changes (`docs/04-process/deploy.md` §13b).
 
 **Additional finding from live attestation testing (2026-05-30):**
+
+**Findings from the pulselog first-adopter integration (2026-06-01):**
+
+49. **A monitoring tool earns its keep by what it *observes*, not by owning every job — adopt the modes that fit natively and let it watch the rest.** gitdone is the first adopter of [`pulselog`](https://github.com/hamr0/pulselog) (the outside sibling to flightlog: scheduled external probes, weekly digest, backup envelope, same JSONL dialect). The clean adoption replaces gitdone's two *bespoke* watchers — the 100-line `health-check.sh` and the hand-rolled `stats-weekly.js` + daily snapshot job — with config: a `pulselog.config.json` (9 health checks; 4 native + 3 `command` + 2 `service`) on the existing 15-min timer, and `pulselog --digest` fed by a new `stats.js --metrics-json` (a flat `{name:integer}` object, B1 below). pulselog's `loadWeeks` (ISO-week grouping) is strictly better than the hand-rolled weekly collapse, so the **daily** snapshot job is retired outright. **Backup was deliberately *not* migrated:** gitdone's backup is an off-host *pull* from the home server (federver), which already gives the disaster-recovery property pulselog's on-host backup mode targets; forcing it in would either wrap the pull as an unused-feature `command` or add a redundant on-VPS archive — and would lose the targeted `repos.tar.gz` integrity check and the Kuma dead-man's-switch. The right seam: pulselog **watches** backup freshness (a `file-age` health check), federver still **owns** the pull. Three reusable lessons: (a) a tool with N modes is not an obligation to use all N — fit beats coverage; (b) pull-from-the-safe-host beats push-from-the-exposed-host for backups, because a compromised source can't reach a copy it has no credentials to write (so "make it easy to drop to gdrive" is the *wrong* direction, not just out of scope); (c) the first-adopter pass is where a young library's surface gets validated — see B1. **B1 (the one upstream change):** pulselog was one-command-→-one-integer, but gitdone computes ~14 metrics in a single pass; surfacing a `metricsCommand` (one command → a flat JSON object of named integers, picked by name, same integer-only invariant) was an additive, back-compatible feature shipped in pulselog `0.3.0` — mechanism in the library, the metric list (policy) in the adopter. Everything else gitdone needed was already expressible; the rest of the first-adopter feedback (oneshot-vs-`service` semantics, `command`-as-sole-source, the file-age dead-man's-switch, payload posture of `alert.logTail`) resolved as doc hardening, not code. Incidental catch while greening the suite for deploy: a `sweep.test.js` fixture used real `Date.now()` in a shared, un-isolated tmp dir, so it leaked into a later test's fixed synthetic window and began failing only when the wall clock reached a certain date — real-time fixtures + shared test state = a dormant date-triggered failure; pinned the fixture and added per-test isolation.
 
 **Finding from the per-IP rate-limit hardening (2026-05-31):**
 

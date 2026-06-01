@@ -232,37 +232,82 @@ sudo systemctl enable --now nginx
 Local checks run every 15 min from a systemd timer; VPS-down detection
 comes from an external pinger (can't self-detect).
 
-### 10.1 Local health check
+### 10.1 Local health check (pulselog)
+
+Runs [`pulselog`](https://github.com/hamr0/pulselog) (pinned in `ops/pulselog`)
+from the existing `gitdone-health.timer`. The thresholds/checks live in
+`ops/pulselog/health.config.json` (self-contained — no `/etc/default` env file).
+pulselog has zero prod deps, so its `node_modules` is just pulselog itself.
 
 ```bash
+# pin + materialise pulselog on the box (re-run after a deploy that bumps it)
+cd /opt/gitdone/ops/pulselog && npm ci
+
 sudo install -m 0644 /opt/gitdone/ops/systemd/gitdone-health.service /etc/systemd/system/
 sudo install -m 0644 /opt/gitdone/ops/systemd/gitdone-health.timer   /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now gitdone-health.timer
+
+# verify it runs + delivers a real alert before trusting it (and retiring the
+# old ops/health-check.sh): force one failure, confirm the email arrives.
+sudo systemctl start gitdone-health.service
+journalctl -u gitdone-health.service -n 20 --no-pager
+tail -n 5 /var/lib/gitdone/logs/health.jsonl 2>/dev/null
 ```
 
-Covers (all configurable via `/etc/default/gitdone-health`):
+Covers (all in `ops/pulselog/health.config.json`):
 
-| Check | Default threshold | Override var |
+| Check | pulselog type | Threshold |
 |---|---|---|
-| systemd `is-failed` on web + ots timer | any failed | `GITDONE_UNITS` |
-| Local API `GET /health` | non-200 / >5s | `GITDONE_HEALTH_URL` |
-| Disk usage on `/` + data dir | ≥80% | `GITDONE_DISK_THRESHOLD` |
-| Postfix deferred queue size | ≥50 | `GITDONE_MAILQ_THRESHOLD` |
-| Journal errors (≥err) last 1h | any | — |
-| Stale OTS stamps (>48h, not upgraded) | any | `GITDONE_OTS_STALE_HOURS` |
-| TLS cert expiry | <14 days | `GITDONE_CERT_WARN_DAYS`, `GITDONE_CERT_DOMAINS` |
+| `gitdone-web.service` active | `service` | not `active` |
+| `gitdone-ots-upgrade.timer` armed | `service` | not `active` |
+| Local API `GET /health` | `http` | non-200 / >5s |
+| Disk usage `/` + `/var/lib/gitdone` | `disk` ×2 | ≥80% |
+| TLS cert `git-done.com:443` | `ssl` | <14 days |
+| Postfix queue depth | `command` | ≥50 queued |
+| Journal errors (≥err) last 1h | `command` | any |
+| Stale OTS stamps (>48h, <1KB) | `command` | any |
 
-Silent when green. One consolidated email to `GITDONE_ALERT_TO` (default
-`avoidaccess@gmail.com`) on any failing check, via local `sendmail`
-(opendkim signs it, so the alert itself is DMARC-clean).
+Silent when green. On any failing check pulselog writes one
+`/var/lib/gitdone/logs/health.jsonl` line per failure and emails **one**
+summary to `alert.email` (`avoidaccess@gmail.com`) via local `sendmail`
+(opendkim signs it → DMARC-clean), with recent flightlog error names folded in
+(`alert.logTail`). `service` tests `is-active` — correct here (a long-running
+service + an armed timer); a oneshot `.service` would need a `command` check
+(`! systemctl is-failed`), see pulselog's adopter contract.
 
-Example `/etc/default/gitdone-health`:
+> **Retire after first prod validation:** once the pulselog health check has
+> delivered a real alert email from the VPS, remove the superseded
+> `ops/health-check.sh` and any `/etc/default/gitdone-health`. Kept for now only
+> as a proven fallback while the alerting backend is swapped.
 
+### 10.1b Weekly stats digest (pulselog)
+
+Same pinned `ops/pulselog` as the health check; the existing
+`gitdone-stats-weekly.timer` (Mon 06:00 UTC) now runs `pulselog --digest`.
+
+```bash
+# (ops/pulselog already materialised by the §10.1 `npm ci`)
+sudo install -m 0644 /opt/gitdone/ops/systemd/gitdone-stats-weekly.service /etc/systemd/system/
+sudo install -m 0644 /opt/gitdone/ops/systemd/gitdone-stats-weekly.timer   /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now gitdone-stats-weekly.timer
+
+# RETIRE the old daily snapshot job (its files were deleted from the repo):
+sudo systemctl disable --now gitdone-stats.timer 2>/dev/null || true
+sudo rm -f /etc/systemd/system/gitdone-stats.service /etc/systemd/system/gitdone-stats.timer
+sudo systemctl daemon-reload
+
+# preview without sending/appending:
+sudo -u gitdone GITDONE_DATA_DIR=/var/lib/gitdone \
+  node /opt/gitdone/ops/pulselog/node_modules/pulselog/bin/pulselog.js \
+  --digest --dry-run --config /opt/gitdone/ops/pulselog/pulselog.config.json
 ```
-GITDONE_ALERT_TO=avoidaccess@gmail.com
-GITDONE_ALERT_FROM=alerts@git-done.com
-```
+
+Snapshots metrics weekly via `stats.js --metrics-json` → one ISO-week line in
+`/var/lib/gitdone/logs/stats.jsonl` → WoW email (+ flightlog rollup). The daily
+`stats.log` job is gone; `stats.js --diff` still runs but shows no Δ (its source
+log is no longer written) — use the digest history instead.
 
 ### 10.2 External liveness (VPS down)
 
@@ -276,7 +321,8 @@ Self-monitoring can't detect the box being off. Use UptimeRobot free tier
 systemctl list-timers 'gitdone-*'
 journalctl -u gitdone-web.service -f
 journalctl -u gitdone-health.service --since today
-sudo -u gitdone /opt/gitdone/ops/health-check.sh    # force a run
+sudo systemctl start gitdone-health.service          # force a health run
+tail -n 20 /var/lib/gitdone/logs/health.jsonl        # per-check failure lines
 ```
 
 ### 10.4 Error flight-recorder (flightlog)

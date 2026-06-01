@@ -15,6 +15,30 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Change: health + weekly digest now run on `pulselog` (0.26.7)
+
+**Observability.** gitdone is the first adopter of
+[`pulselog`](https://github.com/hamr0/pulselog) — the outside sibling to
+flightlog (scheduled external probes + weekly digest, same JSONL dialect, zero
+deps). It replaces two bespoke watchers:
+- **Health** — the 100-line `ops/health-check.sh` → `pulselog`
+  (`ops/pulselog/pulselog.config.json`, pinned in `ops/pulselog`) on the existing
+  `gitdone-health.timer`. Same nine checks (units, `/health`, disk ×2, cert,
+  mail-queue, journal errors, OTS backlog), now silent-on-green with one summary
+  email + a per-failure `health.jsonl` line, and recent flightlog error names
+  folded into the alert (`alert.logTail`).
+- **Weekly digest** — `stats-weekly.js` → `pulselog --digest`, fed by a new
+  `stats.js --metrics-json` (flat `{name:integer}` via `flatMetrics`). pulselog's
+  ISO-week grouping supersedes the hand-rolled weekly collapse, so the **daily**
+  snapshot job (`gitdone-stats.timer` → `stats.log`) is retired. The digest now
+  also carries a 7-day flightlog error rollup (counts + names only).
+- **Backup is unchanged** — it stays the off-host federver pull (pulselog's
+  backup mode is for on-host archives; the pull already gives off-host DR). See
+  PRD finding #49.
+- One upstream change drove this: pulselog `0.3.0` added `metricsCommand`
+  (one command → many named integers) so a costly snapshot isn't re-run per
+  metric — additive, back-compatible, mechanism-in-lib / policy-in-adopter.
+
 ### Fix: per-IP login rate-limiting now sees the real client IP (0.26.6)
 
 **Security / abuse-resistance.** gitdone's `auth.startLogin` calls fed

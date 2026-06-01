@@ -1,12 +1,14 @@
 [Unit]
-Description=GitDone health check (disk, API, units, queue, OTS, certs)
+Description=GitDone health check via pulselog (units, API, disk, queue, OTS, cert)
 After=network-online.target
 
 [Service]
 Type=oneshot
 User=gitdone
 Group=gitdone
-ExecStart=/opt/gitdone/ops/health-check.sh
-# Read /etc/default/gitdone-health for overrides (ALERT_TO, thresholds, etc.)
-EnvironmentFile=-/etc/default/gitdone-health
+# Thresholds/checks live in the config (self-contained JSON), not env. pulselog
+# stays silent on green; on any failure it writes one health.jsonl line per
+# failing check and emails one summary to alert.email. Pinned via ops/pulselog
+# (npm ci there on deploy — see deployment.md).
+ExecStart=/usr/bin/node /opt/gitdone/ops/pulselog/node_modules/pulselog/bin/pulselog.js --config /opt/gitdone/ops/pulselog/pulselog.config.json
 Nice=10

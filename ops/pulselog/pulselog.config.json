@@ -1,0 +1,47 @@
+{
+  "output": {
+    "file": "/var/lib/gitdone/logs/health.jsonl",
+    "maxBytes": 5000000,
+    "heartbeat": false
+  },
+  "alert": {
+    "email": "avoidaccess@gmail.com",
+    "from": "alerts@git-done.com",
+    "app": "gitdone",
+    "logTail": "/var/lib/gitdone/logs/errors.jsonl"
+  },
+  "checks": [
+    { "type": "service", "name": "web", "enabled": true, "unit": "gitdone-web.service" },
+    { "type": "service", "name": "ots-timer", "enabled": true, "unit": "gitdone-ots-upgrade.timer" },
+    { "type": "http", "name": "api", "enabled": true, "url": "http://127.0.0.1:3001/health", "expectStatus": 200, "timeoutMs": 5000 },
+    { "type": "disk", "name": "disk-root", "enabled": true, "path": "/", "maxPercent": 80 },
+    { "type": "disk", "name": "disk-data", "enabled": true, "path": "/var/lib/gitdone", "maxPercent": 80 },
+    { "type": "ssl", "name": "cert", "enabled": true, "host": "git-done.com", "port": 443, "warnDays": 14 },
+    { "type": "command", "name": "mailq", "enabled": true, "command": "sh", "args": ["-c", "test $(mailq | grep -c '^[A-F0-9]') -lt 50"] },
+    { "type": "command", "name": "log-errors", "enabled": true, "command": "sh", "args": ["-c", "test $(journalctl -u gitdone-web.service --since '1 hour ago' -p err --no-pager -q 2>/dev/null | wc -l) -eq 0"] },
+    { "type": "command", "name": "ots-backlog", "enabled": true, "command": "sh", "args": ["-c", "test $(find /var/lib/gitdone/repos -name '*.ots' -type f -mmin +2880 -size -1024c 2>/dev/null | wc -l) -eq 0"] }
+  ],
+  "digest": {
+    "app": "gitdone",
+    "history": "/var/lib/gitdone/logs/stats.jsonl",
+    "email": "avoidaccess@gmail.com",
+    "from": "alerts@git-done.com",
+    "weeks": 4,
+    "metricsCommand": {
+      "command": "/usr/bin/node",
+      "args": ["/opt/gitdone/app/bin/stats.js", "--metrics-json"],
+      "timeoutMs": 30000
+    },
+    "metrics": [
+      { "name": "orgs" },
+      { "name": "rcpts" },
+      { "name": "events" },
+      { "name": "pending" },
+      { "name": "open" },
+      { "name": "completed" },
+      { "name": "steps_done" },
+      { "name": "attest_replies" }
+    ],
+    "flightlog": { "file": "/var/lib/gitdone/logs/errors.jsonl", "flagAtLeast": 10 }
+  }
+}
