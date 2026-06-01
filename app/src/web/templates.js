@@ -58,7 +58,7 @@ function html(strings, ...values) {
 // be indexed; transactional routes pass nothing and rely on robots.txt
 // to keep them out of search.
 const DEFAULT_DESCRIPTION = 'Email-native multi-party workflow coordination with cryptographic proof of the reply sequence. No accounts, no API, no telemetry, open source.';
-const SITE_NAME = 'gitdone';
+const SITE_NAME = 'signedreply';
 const THEME_COLOR = '#0d1117';
 // og:image must be absolute (relative URLs are silently dropped by most
 // unfurl scrapers). Built from GITDONE_PUBLIC_URL the same way auth/forward
@@ -69,19 +69,19 @@ const OG_IMAGE_URL = `${PUBLIC_BASE}/og.png`;
 function layout({ title, body, dev, devHUD, pageName, pageTagline, description, canonical, noindex }) {
   // Auto-derive header from title when not explicitly given. Two title
   // shapes in the app:
-  //   "<page> — gitdone"   → name = "<page>",   no tagline (sub-pages)
-  //   "gitdone — <tag>"    → name = "gitdone",  tagline = "<tag>" (home)
-  //   just "gitdone"       → no header
+  //   "<page> — signedreply" → name = "<page>",     no tagline (sub-pages)
+  //   "signedreply — <tag>"  → name = "signedreply", tagline = "<tag>" (home)
+  //   just "signedreply"     → no header
   if (pageName === undefined && title) {
     const t = String(title).trim();
-    let m = t.match(/^(.*?)\s+—\s+gitdone\s*$/);
+    let m = t.match(/^(.*?)\s+—\s+signedreply\s*$/);
     if (m) {
       pageName = m[1].trim();
-    } else if ((m = t.match(/^gitdone\s+—\s+(.*)$/))) {
-      pageName = 'gitdone';
+    } else if ((m = t.match(/^signedreply\s+—\s+(.*)$/))) {
+      pageName = 'signedreply';
       if (pageTagline === undefined) pageTagline = m[1].trim();
     } else {
-      pageName = (t === 'gitdone' ? '' : t);
+      pageName = (t === 'signedreply' ? '' : t);
     }
   }
   const desc = description || DEFAULT_DESCRIPTION;
@@ -108,7 +108,7 @@ function layout({ title, body, dev, devHUD, pageName, pageTagline, description, 
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escapeHTML(title || 'gitdone')}</title>
+<title>${escapeHTML(title || 'signedreply')}</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 ${seoTags.join('\n')}
 <style>
@@ -182,10 +182,10 @@ th { color: #8b949e; font-weight: 500; text-transform: uppercase; font-size: 0.7
 </style>
 </head>
 <body>
-${pageName ? `<header class="page-header${pageTagline ? ' home' : ''}"><div class="line1"><a href="/">g</a><span class="slash">/</span><span class="name">${escapeHTML(pageName)}</span></div>${pageTagline ? `<div class="tagline">${escapeHTML(pageTagline)}</div>` : ''}</header>` : ''}
+${pageName ? `<header class="page-header${pageTagline ? ' home' : ''}"><div class="line1"><a href="/">s</a><span class="slash">/</span><span class="name">${escapeHTML(pageName)}</span></div>${pageTagline ? `<div class="tagline">${escapeHTML(pageTagline)}</div>` : ''}</header>` : ''}
 ${(body && body[RAW_MARK]) ? body.html : escapeHTML(body || '')}
 <div class="footer">
-  <a href="/">gitdone</a> &middot; proofs verify offline &middot;
+  <a href="/">signedreply</a> &middot; proofs verify offline &middot;
   <a href="https://github.com/hamr0/gitdone">source</a>
 ${dev ? ' &middot; <strong style="color:#ffb000">DEV MODE</strong>' : ''}
 </div>

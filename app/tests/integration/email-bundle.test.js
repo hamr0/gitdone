@@ -130,7 +130,7 @@ test('bundle+ from initiator: replies with .tar.gz attachment', async () => {
     assert.equal(replies.length, 1);
     const raw = replies[0];
     const text = raw.toString('utf8');
-    assert.match(text, /Subject: \[gitdone\] proof bundle — "bundle test"/);
+    assert.match(text, /Subject: \[signedreply\] proof bundle — "bundle test"/);
     assert.match(text, /Content-Type: multipart\/mixed; boundary="gitdone_/);
     assert.match(text, /Content-Type: application\/gzip; name="gitdone-evbn001-\d{8}\.tar\.gz"/);
     assert.match(text, /Content-Disposition: attachment; filename="gitdone-evbn001-\d{8}\.tar\.gz"/);
@@ -182,7 +182,7 @@ test('bundle+ when no repo exists: replies with "no proof yet" body, no attachme
     const replies = await capturesFor(captureDir, 'boss@ex.com');
     assert.equal(replies.length, 1);
     const text = replies[0].toString('utf8');
-    assert.match(text, /Subject: \[gitdone\] no proof yet — "no commits yet"/);
+    assert.match(text, /Subject: \[signedreply\] no proof yet — "no commits yet"/);
     assert.match(text, /hasn't received any\s*\r?\nreplies/);
     assert.doesNotMatch(text, /Content-Disposition: attachment/);
     assert.doesNotMatch(text, /multipart\/mixed/);

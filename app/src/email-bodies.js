@@ -343,8 +343,8 @@ function completedSubject(event, ctx) {
   // event reached threshold naturally or was cut short.
   const closedEarlyTag = (isClosedEarly && isAttestation) ? ' — closed early' : '';
   return commits
-    ? `[gitdone] proof — "${event.title}"${closedEarlyTag}${counterTag}`
-    : `[gitdone] "${event.title}" — ${subjectVerb}${counterTag}`;
+    ? `[signedreply] proof — "${event.title}"${closedEarlyTag}${counterTag}`
+    : `[signedreply] "${event.title}" — ${subjectVerb}${counterTag}`;
 }
 
 const completed = {
@@ -362,7 +362,7 @@ const completed = {
         ``,
         commits ? 'This email is your durable proof of completion. Keep it forever --' : '',
         commits ? 'it verifies offline against the per-event git repository, even if' : '',
-        commits ? 'gitdone goes away.' : '',
+        commits ? 'signedreply goes away.' : '',
         commits ? '' : '',
         `Event: ${event.title}`,
         `Event ID: ${event.id}`,
@@ -379,7 +379,7 @@ const completed = {
         ``,
         `The full audit trail is stored as a git repository with one commit per`,
         `reply, DKIM keys archived, and OpenTimestamps proofs attached. Anyone`,
-        `can verify it offline with the gitdone-verify CLI, even if gitdone`,
+        `can verify it offline with the gitdone-verify CLI, even if signedreply`,
         `itself goes away -- the proofs outlive the service.`,
         ``,
         repoHint,
@@ -405,7 +405,7 @@ const completed = {
         verifyHint,
         ``,
         `Your reply is recorded in the event's git audit trail (DKIM-verified,`,
-        `OpenTimestamped) and will stay verifiable offline even if gitdone`,
+        `OpenTimestamped) and will stay verifiable offline even if signedreply`,
         `itself goes away.`,
         ``,
         `  Organised by ${event.initiator}`,
@@ -427,7 +427,7 @@ const completed = {
         : `Your signature on a declaration has been recorded.`,
       ``,
       commits ? 'This email is your durable proof. Keep it forever -- it verifies' : '',
-      commits ? 'offline against the per-event git repository, even if gitdone goes' : '',
+      commits ? 'offline against the per-event git repository, even if signedreply goes' : '',
       commits ? 'away.' : '',
       commits ? '' : '',
       `Event: ${event.title}`,
@@ -444,7 +444,7 @@ const completed = {
       ``,
       `The audit trail is stored as a git repository with DKIM keys archived`,
       `and OpenTimestamps proofs attached. Anyone can verify it offline`,
-      `with the gitdone-verify CLI, even if gitdone itself goes away --`,
+      `with the gitdone-verify CLI, even if signedreply itself goes away --`,
       `the proofs outlive the service.`,
       ``,
       repoHint,
@@ -490,7 +490,7 @@ const completed = {
           : `The attestation you organised has reached its threshold.`,
         ``,
         commits ? 'This email is your durable proof. Keep it forever -- it verifies' : '',
-        commits ? 'offline against the per-event git repository, even if gitdone goes' : '',
+        commits ? 'offline against the per-event git repository, even if signedreply goes' : '',
         commits ? 'away.' : '',
         commits ? '' : '',
         `Event: ${event.title}`,
@@ -508,7 +508,7 @@ const completed = {
         `The full audit trail is stored as a git repository with one commit`,
         `per reply, DKIM keys archived, and OpenTimestamps proofs attached.`,
         `Anyone can verify it offline with the gitdone-verify CLI, even if`,
-        `gitdone itself goes away -- the proofs outlive the service.`,
+        `signedreply itself goes away -- the proofs outlive the service.`,
         ``,
         repoHint,
       ].filter((l) => l !== '').join('\n');
@@ -526,7 +526,7 @@ const completed = {
         `Your reply is preserved as part of the cryptographic record.`,
         ``,
         commits ? 'This email is your durable proof. Keep it forever -- it verifies' : '',
-        commits ? "offline against your contribution's commit, even if gitdone goes" : '',
+        commits ? "offline against your contribution's commit, even if signedreply goes" : '',
         commits ? 'away.' : '',
         commits ? '' : '',
         `Event: ${event.title}`,
@@ -540,7 +540,7 @@ const completed = {
         verifyHint,
         ``,
         `Your reply is committed to the event's git audit trail (DKIM-verified,`,
-        `OpenTimestamped) and will stay verifiable offline even if gitdone`,
+        `OpenTimestamped) and will stay verifiable offline even if signedreply`,
         `itself goes away. The aggregate result is private to the organiser;`,
         `this email is YOUR record only.`,
         ``,
@@ -581,7 +581,7 @@ function activated(event, { sendResults = [], publicBaseUrl } = {}) {
     `Manage: ${baseUrl}/manage/event/${event.id}`,
   ].filter((l) => l !== '').join('\n');
   return {
-    subject: `[gitdone] "${event.title}" — activated, ${activeIds.length} invitation${activeIds.length === 1 ? '' : 's'} sent`,
+    subject: `[signedreply] "${event.title}" — activated, ${activeIds.length} invitation${activeIds.length === 1 ? '' : 's'} sent`,
     body,
   };
 }
@@ -616,7 +616,7 @@ function progressed(event, { completedStepId, newlyActiveSteps = [], publicBaseU
     `Manage: ${baseUrl}/manage/event/${event.id}`,
   ].join('\n');
   return {
-    subject: `[gitdone] "${event.title}" [${completedIdx + 1}/${event.steps.length}] step done${newlyActiveSteps.length ? ' · next active' : ''}`,
+    subject: `[signedreply] "${event.title}" [${completedIdx + 1}/${event.steps.length}] step done${newlyActiveSteps.length ? ' · next active' : ''}`,
     body,
   };
 }
@@ -651,7 +651,7 @@ function anchored(event, { anchorInfo = {} } = {}) {
     `  gitdone-verify ${event.id}`,
   ].join('\n');
   return {
-    subject: `[gitdone] proof anchored — "${event.title}"`,
+    subject: `[signedreply] proof anchored — "${event.title}"`,
     body,
   };
 }
@@ -711,7 +711,7 @@ const replyAck = {
     const allSigned = !!completion.completed_event;
     if (strictMode && !allSigned) {
       return {
-        subject: `[gitdone] Signed in progress — ${event.title}`,
+        subject: `[signedreply] Signed in progress — ${event.title}`,
         body: [
           `Your reply on Crypto Declaration "${event.title}" was accepted in part.`,
           `Reply is DKIM-verified, OpenTimestamped, and committed to the audit`,
@@ -729,7 +729,7 @@ const replyAck = {
       ? `\n\nReference documents (${event.reference_docs.length}):\n${formatReferenceDocList(event.reference_docs)}`
       : '';
     return {
-      subject: `[gitdone] Signed — ${event.title}`,
+      subject: `[signedreply] Signed — ${event.title}`,
       body: [
         `Your signature on Crypto Declaration "${event.title}" was accepted.`,
         `The reply is DKIM-verified, OpenTimestamped, and committed to the`,
@@ -806,8 +806,8 @@ const replyAck = {
           : ` [${counted}/${event.threshold} · ${verified} verified]`)
       : '';
     const subject = (lockingDedup && reachedThreshold)
-      ? `[gitdone] Attestation complete — ${event.title}${counterTag}`
-      : `[gitdone] Attestation reply recorded — ${event.title}${counterTag}`;
+      ? `[signedreply] Attestation complete — ${event.title}${counterTag}`
+      : `[signedreply] Attestation reply recorded — ${event.title}${counterTag}`;
     // Body always carries both numbers when they diverge — the body is
     // the durable record.
     const trustQual = (verified === counted)
@@ -851,7 +851,7 @@ const replyAck = {
       ? `All steps are now complete; the event is marked completed. Thank you.`
       : `Thank you — nothing else is needed from you on this step.`;
     return {
-      subject: `[gitdone] Accepted — ${event.title} — ${stepName}${stepCounter}`,
+      subject: `[signedreply] Accepted — ${event.title} — ${stepName}${stepCounter}`,
       body: [
         `Your reply for "${stepName}" on event "${event.title}" was accepted.`,
         `The step is marked complete and the reply is recorded in the event's`,
@@ -871,7 +871,7 @@ const replyAck = {
     const { isCrypto, cryptoLabel, fromAddr } = ctx;
     const kindLabel = isCrypto ? (cryptoLabel || 'crypto event') : 'event';
     return {
-      subject: `[gitdone] Self-reply not counted — ${event.title}`,
+      subject: `[signedreply] Self-reply not counted — ${event.title}`,
       body: [
         `Your email to ${kindLabel} "${event.title}" was committed to`,
         `the audit trail (DKIM-verified, OpenTimestamped) but does NOT`,
@@ -894,7 +894,7 @@ const replyAck = {
       return `  • ${mm.attachment.filename || '(unnamed)'}   expected: ${exp}   got: ${got}`;
     }).join('\n') || '  (no diff available)';
     return {
-      subject: `[gitdone] Attachment hash mismatch — ${event.title}`,
+      subject: `[signedreply] Attachment hash mismatch — ${event.title}`,
       body: [
         `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`,
         ``,
@@ -916,7 +916,7 @@ const replyAck = {
   strictNoMatchingAttachments(event, ctx) {
     const { cryptoLabel, ackSenderHash, fromAddr } = ctx;
     return {
-      subject: `[gitdone] No matching attachments — ${event.title}`,
+      subject: `[signedreply] No matching attachments — ${event.title}`,
       body: [
         `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`,
         ``,
@@ -937,7 +937,7 @@ const replyAck = {
     const { cryptoLabel } = ctx;
     const publicBase = (process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`).replace(/\/+$/, '');
     return {
-      subject: `[gitdone] Reply not counted — ${event.title}`,
+      subject: `[signedreply] Reply not counted — ${event.title}`,
       body: [
         `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`,
         ``,
@@ -957,7 +957,7 @@ const replyAck = {
   strictAlreadySigned(event, ctx) {
     const { cryptoLabel, ackSenderHash } = ctx;
     return {
-      subject: `[gitdone] Already signed — ${event.title}`,
+      subject: `[signedreply] Already signed — ${event.title}`,
       body: [
         `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`,
         ``,
@@ -976,7 +976,7 @@ const replyAck = {
   awaitingReferenceDocs(event, ctx) {
     const { cryptoLabel, fromAddr } = ctx;
     return {
-      subject: `[gitdone] Awaiting reference documents — ${event.title}`,
+      subject: `[signedreply] Awaiting reference documents — ${event.title}`,
       body: [
         `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`,
         ``,
@@ -999,8 +999,8 @@ const replyAck = {
   missingAttachment(event, ctx) {
     const { isCrypto, cryptoLabel, stepName, stepCounter, fromAddr } = ctx;
     const subject = isCrypto
-      ? `[gitdone] Attachment required — ${event.title}`
-      : `[gitdone] Attachment required — ${event.title} — ${stepName}${stepCounter}`;
+      ? `[signedreply] Attachment required — ${event.title}`
+      : `[signedreply] Attachment required — ${event.title} — ${stepName}${stepCounter}`;
     const lede = isCrypto
       ? `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`
       : `Thanks — we received your reply for "${stepName}" on event "${event.title}".`;
@@ -1027,7 +1027,7 @@ const replyAck = {
       ? `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`
       : `Thanks — we received your reply for "${stepName}" on event "${event.title}".`;
     return {
-      subject: `[gitdone] ${isCrypto ? cryptoLabel + ' archived' : 'Event archived'} — ${event.title}`,
+      subject: `[signedreply] ${isCrypto ? cryptoLabel + ' archived' : 'Event archived'} — ${event.title}`,
       body: [
         lede,
         ``,
@@ -1049,7 +1049,7 @@ const replyAck = {
       ? `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`
       : `Thanks — we received your reply for "${stepName}" on event "${event.title}".`;
     return {
-      subject: `[gitdone] ${isCrypto ? cryptoLabel + ' not yet activated' : 'Event not yet activated'} — ${event.title}`,
+      subject: `[signedreply] ${isCrypto ? cryptoLabel + ' not yet activated' : 'Event not yet activated'} — ${event.title}`,
       body: [
         lede,
         ``,
@@ -1069,7 +1069,7 @@ const replyAck = {
       ? `Thanks — we received your reply on ${cryptoLabel} "${event.title}".`
       : `Thanks — we received your reply for "${stepName}" on event "${event.title}".`;
     return {
-      subject: `[gitdone] ${isCrypto ? cryptoLabel + ' closed' : 'Event closed'} — ${event.title}`,
+      subject: `[signedreply] ${isCrypto ? cryptoLabel + ' closed' : 'Event closed'} — ${event.title}`,
       body: [
         lede,
         ``,
@@ -1460,7 +1460,7 @@ const cmd = {
 function workflowStepBody({ event, step, stepIndex, totalSteps }) {
   const replyAddr = stepReplyAddr(event, step.id);
   const lines = [
-    `You've been named as a participant in a gitdone event.`,
+    `You've been named as a participant in a signedreply event.`,
     ``,
     `Event: ${event.title}`,
     `Your step: ${step.name} (step ${stepIndex + 1} of ${totalSteps})`,
@@ -1481,7 +1481,7 @@ function workflowStepBody({ event, step, stepIndex, totalSteps }) {
     `  ${replyAddr}`,
     ``,
     `Write whatever you want in the body. Attachments are forwarded to the`,
-    `organiser directly — gitdone only stores hashes of them, never content.`,
+    `organiser directly — signedreply only stores hashes of them, never content.`,
     `Your reply is DKIM-verified, OpenTimestamped, and committed to a`,
     `per-event git repository as a permanent record.`,
     ``,
@@ -1497,7 +1497,7 @@ function declarationSignerBody({ event }) {
   const strict = !!event.reference_url && refDocs.length > 0;
   if (strict) {
     const lines = [
-      `${event.initiator} asked you to sign a gitdone declaration.`,
+      `${event.initiator} asked you to sign a signedreply declaration.`,
       ``,
       `Event: ${event.title}`,
       `Type: declaration (one signer, one permanent record)`,
@@ -1532,7 +1532,7 @@ function declarationSignerBody({ event }) {
     return lines.join('\n');
   }
   return [
-    `${event.initiator} asked you to sign a gitdone declaration.`,
+    `${event.initiator} asked you to sign a signedreply declaration.`,
     ``,
     `Event: ${event.title}`,
     `Type: declaration (one signer, one permanent record)`,
@@ -1541,7 +1541,7 @@ function declarationSignerBody({ event }) {
     `  ${replyAddr}`,
     ``,
     `Your DKIM-verified reply becomes the declaration. The message body is`,
-    `what gets recorded. Attachments are forwarded to the organiser; gitdone`,
+    `what gets recorded. Attachments are forwarded to the organiser; signedreply`,
     `stores only hashes.`,
     ``,
     `If this is unexpected, ignore this email.`,
@@ -1584,7 +1584,7 @@ function attachDocsNeeded(event, { publicBaseUrl } = {}) {
     `Manage: ${baseUrl}/manage/event/${event.id}`,
   ].join('\n');
   return {
-    subject: `[gitdone] "${event.title}" — please attach reference document${event.mode === 'declaration' ? '' : 's'} (${labelKind})`,
+    subject: `[signedreply] "${event.title}" — please attach reference document${event.mode === 'declaration' ? '' : 's'} (${labelKind})`,
     body,
     replyTo: attachAddr,
   };
@@ -1599,9 +1599,9 @@ const sweep = {
   pendingActivation(event, { hoursLeft } = {}) {
     const baseUrl = process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
     return {
-      subject: `[gitdone] "${event.title}" — activate within ${hoursLeft}h or it expires`,
+      subject: `[signedreply] "${event.title}" — activate within ${hoursLeft}h or it expires`,
       body: [
-        `Heads up — your gitdone event "${event.title}" is still pending`,
+        `Heads up — your signedreply event "${event.title}" is still pending`,
         `activation. If you don't activate it, it will be deleted in about`,
         `${hoursLeft} hour${hoursLeft === 1 ? '' : 's'}, leaving no record.`,
         ``,
@@ -1625,15 +1625,15 @@ const sweep = {
       ? ` [${steps.filter((s) => s.status === 'complete').length}/${steps.length}]`
       : '';
     return {
-      subject: `[gitdone] "${event.title}" — overdue, ${daysOver} days past deadline${tag}`,
+      subject: `[signedreply] "${event.title}" — overdue, ${daysOver} days past deadline${tag}`,
       body: [
-        `Heads up — your gitdone event "${event.title}" has been open for`,
+        `Heads up — your signedreply event "${event.title}" has been open for`,
         `${daysOver} days past its reference deadline with work still pending.`,
         ``,
         `Still waiting on:`,
         pending,
         ``,
-        `No action is required from gitdone — this is a one-time nudge. Options:`,
+        `No action is required from signedreply — this is a one-time nudge. Options:`,
         `  - Send a reminder:  remind+${event.id}@${config.domain}`,
         `  - Close it early:   close+${event.id}@${config.domain}`,
         `  - Do nothing:       the event stays open; if it's still idle at`,
@@ -1648,9 +1648,9 @@ const sweep = {
   archived(event, { daysIdle } = {}) {
     const baseUrl = process.env.GITDONE_PUBLIC_URL || `https://${config.domain}`;
     return {
-      subject: `[gitdone] "${event.title}" — auto-archived`,
+      subject: `[signedreply] "${event.title}" — auto-archived`,
       body: [
-        `Your gitdone event "${event.title}" has been auto-archived after`,
+        `Your signedreply event "${event.title}" has been auto-archived after`,
         `${daysIdle} days of inactivity past its reference deadline.`,
         ``,
         `What this means:`,
@@ -1702,7 +1702,7 @@ const notice = {
       `  ${baseUrl}/manage/event/${id}`,
     );
     return {
-      subject: `[gitdone] "${event.title}" — invitation bounced`,
+      subject: `[signedreply] "${event.title}" — invitation bounced`,
       body: lines.join('\n'),
     };
   },

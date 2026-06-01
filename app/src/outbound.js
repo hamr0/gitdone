@@ -25,12 +25,26 @@ const SENDMAIL_BIN = process.env.GITDONE_SENDMAIL_BIN || '/usr/sbin/sendmail';
 // in messages we compose ourselves; knowless adds the separator itself
 // when consuming the footer.
 const SIGNATURE_FOOTER = [
-  "gitdone -- we don't store email bodies or attachments; those go to",
+  "signedreply -- we don't store email bodies or attachments; those go to",
   'the organiser. We keep DKIM proof, a SHA-256 hash of each message,',
   'and an OpenTimestamps anchor so the record is tamper-evident.',
   'feedback@signedreply.com',
 ].join('\n');
 const SIGNATURE = `-- \n${SIGNATURE_FOOTER}`;
+
+// Service sender identity. The display name is the brand; the local-part
+// is a no-reply mailbox — genuine replies travel on the per-message
+// Reply-To (notifications) or the functional command addresses
+// (verify+/attach+/revoke+/…), never to this From. The bare address is
+// what the envelope MAIL FROM (-f) needs; senderHeader() is the
+// human-visible "Name <addr>" form for the From header.
+const SENDER_NAME = 'signedreply';
+function senderAddress(domain) {
+  return `noreply@${domain || 'signedreply.com'}`;
+}
+function senderHeader(domain) {
+  return `${SENDER_NAME} <${senderAddress(domain)}>`;
+}
 
 // Append the standard signature with a blank line separator. Idempotent
 // so callers that already include it (e.g. via a body builder that
@@ -161,4 +175,4 @@ function sendmail({ from, rawMessage, binary = SENDMAIL_BIN, to }) {
   });
 }
 
-module.exports = { sendmail, buildRawMessage, sanitizeSubject, newMessageId, rfc5322Date, SIGNATURE, SIGNATURE_FOOTER, withSignature };
+module.exports = { sendmail, buildRawMessage, sanitizeSubject, newMessageId, rfc5322Date, SIGNATURE, SIGNATURE_FOOTER, withSignature, SENDER_NAME, senderAddress, senderHeader };

@@ -135,7 +135,7 @@ test('buildAttachmentMessage: multipart/mixed with base64 attachment', () => {
   const msg = bundle.buildAttachmentMessage({
     from: 'gitdone <bundle+ev1@git-done.com>',
     to: 'org@example.com',
-    subject: '[gitdone] proof bundle — "Demo"',
+    subject: '[signedreply] proof bundle — "Demo"',
     body: 'Attached.',
     attachment: {
       filename: 'gitdone-ev1-20260506.tar.gz',
@@ -149,7 +149,7 @@ test('buildAttachmentMessage: multipart/mixed with base64 attachment', () => {
   // Headers
   assert.match(msg, /^From: gitdone <bundle\+ev1@git-done\.com>/m);
   assert.match(msg, /^To: org@example\.com/m);
-  assert.match(msg, /^Subject: \[gitdone\] proof bundle — "Demo"/m);
+  assert.match(msg, /^Subject: \[signedreply\] proof bundle — "Demo"/m);
   assert.match(msg, /^MIME-Version: 1\.0/m);
   assert.match(msg, /^Content-Type: multipart\/mixed; boundary="gitdone_[a-f0-9]+"/m);
   assert.match(msg, /^In-Reply-To: <orig@host>/m);

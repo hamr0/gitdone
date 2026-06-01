@@ -165,7 +165,7 @@ async function clearCaptures(captureDir) {
 }
 
 // Scan captured outbound mail and return the set of To: addresses
-// across messages whose Subject contains "[gitdone] proof ". This is
+// across messages whose Subject contains "[signedreply] proof ". This is
 // the durable proof-email subject family — per-reply acks and command
 // receipts use other prefixes and are filtered out.
 async function proofRecipientSet(captureDir) {
@@ -173,7 +173,7 @@ async function proofRecipientSet(captureDir) {
   for (const f of await fs.readdir(captureDir)) {
     const body = await fs.readFile(path.join(captureDir, f), 'utf8');
     const subjectLine = body.split(/\r?\n/).find((l) => /^Subject:/i.test(l)) || '';
-    if (!/\[gitdone\] proof /i.test(subjectLine)) continue;
+    if (!/\[signedreply\] proof /i.test(subjectLine)) continue;
     const toLine = body.split(/\r?\n/).find((l) => /^To:/i.test(l)) || '';
     const m = toLine.match(/<([^>]+)>|([\w.+-]+@[\w.-]+)/);
     if (m) set.add((m[1] || m[2]).toLowerCase());

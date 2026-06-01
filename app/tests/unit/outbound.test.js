@@ -40,7 +40,7 @@ test('buildRawMessage: emits required headers in CRLF', () => {
   assert.match(raw, /\r\nMIME-Version: 1\.0\r\n/);
   assert.match(raw, /\r\nContent-Type: text\/plain; charset=utf-8\r\n/);
   // Header/body separator, body, then standard signature
-  assert.match(raw, /\r\n\r\nhello world\r\n\r\n-- \r\ngitdone -- /);
+  assert.match(raw, /\r\n\r\nhello world\r\n\r\n-- \r\nsignedreply -- /);
   assert.match(raw, /\r\nfeedback@signedreply\.com$/);
 });
 
@@ -51,7 +51,7 @@ test('buildRawMessage: noSignature opt-out emits body verbatim', () => {
     domain: 'x', noSignature: true,
   });
   assert.match(raw, /\r\n\r\nhello world$/);
-  assert.doesNotMatch(raw, /-- \r\ngitdone --/);
+  assert.doesNotMatch(raw, /-- \r\nsignedreply --/);
 });
 
 test('buildRawMessage: optional threading headers', () => {

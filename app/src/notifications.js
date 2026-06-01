@@ -27,24 +27,23 @@ const {
   workflowStepBody, declarationSignerBody,
 } = bodies;
 
-function gitdoneFrom() {
-  return `gitdone@${config.domain}`;
-}
-
 // workflowStepBody + declarationSignerBody now live in
 // app/src/email-bodies.js (imported above, re-exported below).
 
 // --- senders ---
 
-const { newMessageId } = require('./outbound');
+const { newMessageId, senderAddress, senderHeader } = require('./outbound');
 
 async function sendOne({ to, subject, body, event, replyTo, stepId, inReplyTo, references, messageId }) {
-  const from = gitdoneFrom();
+  // Display name (brand) in the From header; bare no-reply address for the
+  // envelope MAIL FROM. Replies are steered by replyTo, not this From.
+  const fromHeader = senderHeader(config.domain);
+  const fromEnvelope = senderAddress(config.domain);
   // Mint the Message-Id ourselves so the caller can persist it (proof
   // email threading needs it for the OTS-anchored follow-up).
   const mid = messageId || newMessageId(config.domain || 'signedreply.com');
   const rawMessage = buildRawMessage({
-    from,
+    from: fromHeader,
     to,
     subject,
     body,
@@ -56,7 +55,7 @@ async function sendOne({ to, subject, body, event, replyTo, stepId, inReplyTo, r
     domain: config.domain,
     extraHeaders: { 'X-GitDone-Event': event.id },
   });
-  const result = await sendmail({ from, rawMessage, to: [to] });
+  const result = await sendmail({ from: fromEnvelope, rawMessage, to: [to] });
   return { to, ok: result.ok, reason: result.reason, code: result.code, step_id: stepId, message_id: mid };
 }
 
@@ -80,7 +79,7 @@ async function notifyWorkflowParticipants(event, { stepsOverride, reminder = fal
     const idx = event.steps.indexOf(step);
     return sendOne({
       to: step.participant,
-      subject: `[gitdone] ${tag}${event.title} — ${step.name} [${idx + 1}/${total}] — your step`,
+      subject: `[signedreply] ${tag}${event.title} — ${step.name} [${idx + 1}/${total}] — your step`,
       body: workflowStepBody({ event, step, stepIndex: idx, totalSteps: total }),
       event,
       replyTo: stepReplyAddr(event, step.id),
@@ -237,7 +236,7 @@ async function notifyDeclarationSigner(event) {
   }
   const result = await sendOne({
     to: event.signer,
-    subject: `[gitdone] "${event.title}" — please sign`,
+    subject: `[signedreply] "${event.title}" — please sign`,
     body: declarationSignerBody({ event }),
     event,
     replyTo: cryptoReplyAddr(event),

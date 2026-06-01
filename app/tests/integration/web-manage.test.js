@@ -129,13 +129,13 @@ test('POST /events sends a knowless magic link to the initiator', async () => {
 
   const bossCapture = path.join(tmp, 'captures', 'boss_at_example.com.eml');
   const submitted = fs.readFileSync(bossCapture, 'utf8');
-  // Subject matches the unified [gitdone] "<title>" - <verb> shape every
+  // Subject matches the unified [signedreply] "<title>" - <verb> shape every
   // other outbound message uses, so mail clients group all gitdone mail
   // under a single sender alias. The verb states the deadline so the
   // organiser sees "act within 72h" without opening the email.
   // Hyphen (not em dash) is deliberate: this subject goes through
   // knowless's ASCII-only validateSubject, where `—`/`·` are illegal.
-  assert.match(submitted, /^Subject: \[gitdone\] "Manage me" - activate within \d+h$/m);
+  assert.match(submitted, /^Subject: \[signedreply\] "Manage me" - activate within \d+h$/m);
   // Magic link is on /manage/callback, not on a gitdone-internal /activate path.
   assert.doesNotMatch(submitted, /\/activate\//);
   assert.match(submitted, /\/manage\/callback\?t=/);

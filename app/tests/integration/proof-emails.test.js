@@ -97,7 +97,7 @@ test('integration: counting reply that completes a workflow composes a proof ema
     let proofBody = '';
     for (const f of proofFiles) {
       const txt = await fs.readFile(path.join(captureDir, f), 'utf8');
-      if (/Subject: \[gitdone\] proof —/.test(txt)) { proofBody = txt; break; }
+      if (/Subject: \[signedreply\] proof —/.test(txt)) { proofBody = txt; break; }
     }
     assert.ok(proofBody, 'no proof-subject email captured for organiser');
     // Proof body must include the cryptographic receipt + the offline
@@ -190,7 +190,7 @@ exit 0
     let anchored = '';
     for (const f of captures) {
       const txt = await fs.readFile(path.join(captureDir, f), 'utf8');
-      if (/Subject: \[gitdone\] proof anchored —/.test(txt)) { anchored = txt; break; }
+      if (/Subject: \[signedreply\] proof anchored —/.test(txt)) { anchored = txt; break; }
     }
     assert.ok(anchored, 'no anchored email captured');
     assert.match(anchored, /In-Reply-To: <proof\.original@git-done\.com>/);
@@ -253,7 +253,7 @@ test('integration: attestation reply ack reflects the just-counted reply (no off
     // appends "· 0 verified" only when they diverge.
     assert.match(ack1, /Replies so far: 1 \(0 verified\)\/3/);
     assert.doesNotMatch(ack1, /Replies so far: 0\/3/);
-    assert.match(ack1, /Subject: \[gitdone\] Attestation reply recorded — tell me that you know me \[1\/3 · 0 verified\]/);
+    assert.match(ack1, /Subject: \[signedreply\] Attestation reply recorded — tell me that you know me \[1\/3 · 0 verified\]/);
 
     const eml2 = buildEml([
       'From: bob@ex.com', 'To: event+att01@git-done.com', 'Subject: same here',
@@ -265,7 +265,7 @@ test('integration: attestation reply ack reflects the just-counted reply (no off
     const ack2 = await findAck('bob@ex.com');
     assert.match(ack2, /Replies so far: 2 \(0 verified\)\/3/);
     assert.doesNotMatch(ack2, /Replies so far: 1\/3/);
-    assert.match(ack2, /Subject: \[gitdone\] Attestation reply recorded — tell me that you know me \[2\/3 · 0 verified\]/);
+    assert.match(ack2, /Subject: \[signedreply\] Attestation reply recorded — tell me that you know me \[2\/3 · 0 verified\]/);
   } finally {
     delete process.env.GITDONE_OTS_BIN;
     delete process.env.GITDONE_SENDMAIL_BIN;
@@ -317,7 +317,7 @@ test('integration: accumulating attestation subject keeps counting past threshol
     // → counted=5, verified=0 → subject "[5/2 · 0 verified]" and body
     // "Replies so far: 5 (0 verified) (threshold of 2 reached on …)".
     const ack5 = await ackFor('a5@ex.com');
-    assert.match(ack5, /Subject: \[gitdone\] Attestation reply recorded — how many know me \[5\/2 · 0 verified\]/);
+    assert.match(ack5, /Subject: \[signedreply\] Attestation reply recorded — how many know me \[5\/2 · 0 verified\]/);
     assert.match(ack5, /Replies so far: 5 \(0 verified\) \(threshold of 2 reached on \d{4}-\d{2}-\d{2}\)/);
   } finally {
     delete process.env.GITDONE_OTS_BIN;
@@ -370,7 +370,7 @@ test('integration: self-reply (initiator emails own event) gets explanatory ack 
       if (/Self-reply not counted/.test(txt)) { ackBody = txt; break; }
     }
     assert.ok(ackBody, `no self-reply ack to me@ex.com in ${matches.join(', ')}`);
-    assert.match(ackBody, /Subject: \[gitdone\] Self-reply not counted — tell me you know me/);
+    assert.match(ackBody, /Subject: \[signedreply\] Self-reply not counted — tell me you know me/);
     assert.match(ackBody, /you're the initiator/);
     assert.match(ackBody, /event\+self01@/);
   } finally {

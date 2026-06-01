@@ -257,7 +257,7 @@ test('activation emails the organiser a summary with ▸ on root steps', async (
   const msg = await readCapture('org@ex.com');
   assert.ok(msg, 'organiser received an email');
   // Subject confirms activation + count of root invitations sent (just one).
-  assert.match(msg, /Subject: \[gitdone\].*activated, 1 invitation sent/);
+  assert.match(msg, /Subject: \[signedreply\].*activated, 1 invitation sent/);
   // Body marks step 1 (root) as active and step 2 (depends on #1) as not.
   assert.match(msg, /▸ 1\. audio → a@ex\.com/);
   assert.match(msg, /^   {1,3}2\. video/m);

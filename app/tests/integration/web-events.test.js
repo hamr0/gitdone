@@ -220,7 +220,7 @@ test('GET / has SEO head tags (description, canonical, og:title, og:image, twitt
   assert.equal(r.status, 200);
   assert.match(r.body, /<meta name="description" content="[^"]*[Nn]o accounts[^"]*"/);
   assert.match(r.body, /<link rel="canonical" href="http:\/\/localhost:3001\/"/);
-  assert.match(r.body, /<meta property="og:title" content="[^"]*gitdone[^"]*"/);
+  assert.match(r.body, /<meta property="og:title" content="[^"]*signedreply[^"]*"/);
   assert.match(r.body, /<meta property="og:url" content="http:\/\/localhost:3001\/"/);
   // og:image must be absolute (relative URLs get dropped by most scrapers).
   assert.match(r.body, /<meta property="og:image" content="http:\/\/localhost:3001\/og\.png"/);

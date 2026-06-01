@@ -272,6 +272,6 @@ test('sweep notice subjects use the em-dash separator, not a hyphen', () => {
   }
   assert.match(
     sweep.pendingActivation(event, { hoursLeft: 12 }).subject,
-    /^\[gitdone\] "Quarterly review" — activate within 12h or it expires$/,
+    /^\[signedreply\] "Quarterly review" — activate within 12h or it expires$/,
   );
 });

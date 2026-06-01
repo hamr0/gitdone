@@ -20,7 +20,7 @@ const { loadEvent, findStep, senderMatchesStep, recordStepSendErrors } = require
 const { commitReply, commitCompletion, commitAttach, commitRevoke, saltedSenderHash } = require('../src/gitrepo');
 const { fetchDkimKey, pickSignatureToArchive } = require('../src/dkim-archive');
 const { buildVerificationReport, formatVerifyReportBody } = require('../src/verify');
-const { sendmail, buildRawMessage } = require('../src/outbound');
+const { sendmail, buildRawMessage, senderAddress, senderHeader } = require('../src/outbound');
 const { forwardToOwner } = require('../src/forward');
 const { buildReverifyRecord, persistReverifyRecord, formatReverifyReportBody } = require('../src/reverify');
 const { applyReply, applyRevoke, updateEventAtomic, hashSender, isClosedByInitiator } = require('../src/completion');
@@ -309,10 +309,10 @@ async function main() {
           recipients: bucket.recipients,
           eventId,
         });
-        const fromAddr = `gitdone@${config.domain}`;
+        const fromAddr = senderAddress(config.domain);
         try {
           const rawMessage = buildRawMessage({
-            from: fromAddr,
+            from: senderHeader(config.domain),
             to: alertEvent.initiator,
             subject,
             body,
@@ -378,9 +378,9 @@ async function main() {
     if (to) {
       const fromAddr = `verify+${verifyTag.eventId}@${config.domain}`;
       const rawMessage = buildRawMessage({
-        from: `gitdone <${fromAddr}>`,
+        from: `signedreply <${fromAddr}>`,
         to,
-        subject: `[gitdone] verification report for event ${verifyTag.eventId}`,
+        subject: `[signedreply] verification report for event ${verifyTag.eventId}`,
         inReplyTo: parsed.messageId || null,
         references: parsed.messageId || null,
         body: formatVerifyReportBody(report),
@@ -466,9 +466,9 @@ async function main() {
       const fromAddr = `reverify+${reverifyTag.eventId}-${reverifyTag.commitSequence}@${config.domain}`;
       const body = formatReverifyReportBody(reverifyTag.eventId, reverifyTag.commitSequence, record);
       const rawMessage = buildRawMessage({
-        from: `gitdone <${fromAddr}>`,
+        from: `signedreply <${fromAddr}>`,
         to,
-        subject: `[gitdone] re-verification report for ${reverifyTag.eventId} commit-${String(reverifyTag.commitSequence).padStart(3, '0')}`,
+        subject: `[signedreply] re-verification report for ${reverifyTag.eventId} commit-${String(reverifyTag.commitSequence).padStart(3, '0')}`,
         inReplyTo: parsed.messageId || null,
         references: parsed.messageId || null,
         body,
@@ -596,14 +596,14 @@ async function main() {
       // replies read like a status snapshot rather than a tag dump.
       // Falls back to the bare command·id form when the event isn't
       // loaded (rejected commands, unknown ids).
-      let subjectStr = `[gitdone] ${cmdTag.command} · ${cmdTag.eventId}`;
+      let subjectStr = `[signedreply] ${cmdTag.command} · ${cmdTag.eventId}`;
       // bundle+ has its own subject shape (proof bundle with .tar.gz
       // attachment) and threads to the proof email if there is one.
       // Build it before the verb-based subject for the other commands.
       if (cmdTag.command === 'bundle' && cmdEvent && bundleOutcome) {
         subjectStr = bundleOutcome.ok
-          ? `[gitdone] proof bundle — "${cmdEvent.title}"`
-          : `[gitdone] no proof yet — "${cmdEvent.title}"`;
+          ? `[signedreply] proof bundle — "${cmdEvent.title}"`
+          : `[signedreply] no proof yet — "${cmdEvent.title}"`;
       } else if (cmdEvent) {
         // Attestation has no participant list, so remind+ doesn't actually
         // remind anyone — the body explains how to share the reply
@@ -620,20 +620,20 @@ async function main() {
           const total = (cmdEvent.steps || []).length;
           const done = (cmdEvent.steps || []).filter((s) => s.status === 'complete').length;
           const phrase = cmdEvent.completion && cmdEvent.completion.status === 'complete' ? 'complete' : 'step done';
-          subjectStr = `[gitdone] ${verb} "${cmdEvent.title}" [${done}/${total}] ${phrase}`;
+          subjectStr = `[signedreply] ${verb} "${cmdEvent.title}" [${done}/${total}] ${phrase}`;
         } else if (cmdEvent.type === 'crypto') {
           const status = cmdEvent.completion && cmdEvent.completion.status === 'complete' ? 'complete' : 'open';
-          subjectStr = `[gitdone] ${verb} "${cmdEvent.title}" — ${cmdEvent.mode} · ${status}`;
+          subjectStr = `[signedreply] ${verb} "${cmdEvent.title}" — ${cmdEvent.mode} · ${status}`;
         }
         // Pending-close intermediate states get their own subject so the
         // initiator's MUA shows them as pending rather than closed.
         if (cmdTag.command === 'close' && closeOutcome) {
           if (closeOutcome.kind === 'pending_started') {
-            subjectStr = `[gitdone] close pending "${cmdEvent.title}" — reply to confirm`;
+            subjectStr = `[signedreply] close pending "${cmdEvent.title}" — reply to confirm`;
           } else if (closeOutcome.kind === 'pending_remind') {
-            subjectStr = `[gitdone] close pending "${cmdEvent.title}" — still awaiting confirmation`;
+            subjectStr = `[signedreply] close pending "${cmdEvent.title}" — still awaiting confirmation`;
           } else if (closeOutcome.kind === 'token_mismatch') {
-            subjectStr = `[gitdone] close pending "${cmdEvent.title}" — token mismatch, retry`;
+            subjectStr = `[signedreply] close pending "${cmdEvent.title}" — token mismatch, retry`;
           }
         }
       }
@@ -645,7 +645,7 @@ async function main() {
       if (cmdTag.command === 'bundle' && bundleOutcome && bundleOutcome.ok) {
         const proofMid = (cmdEvent && cmdEvent.proof_email_message_id) || null;
         rawMessage = buildAttachmentMessage({
-          from: `gitdone <${fromAddr}>`,
+          from: `signedreply <${fromAddr}>`,
           to,
           subject: subjectStr,
           body: replyBody,
@@ -660,7 +660,7 @@ async function main() {
         });
       } else {
         rawMessage = buildRawMessage({
-          from: `gitdone <${fromAddr}>`,
+          from: `signedreply <${fromAddr}>`,
           to,
           subject: subjectStr,
           inReplyTo: parsed.messageId || null,
@@ -779,10 +779,10 @@ async function main() {
 
     if (to && replyBody) {
       const subject = attachEvent
-        ? `[gitdone] attach+ — ${attachEvent.title}`
-        : `[gitdone] attach+ — ${attachTag.eventId}`;
+        ? `[signedreply] attach+ — ${attachEvent.title}`
+        : `[signedreply] attach+ — ${attachTag.eventId}`;
       const rawMessage = buildRawMessage({
-        from: `gitdone <${fromAddrAtt}>`,
+        from: `signedreply <${fromAddrAtt}>`,
         to, subject, body: replyBody,
         inReplyTo: parsed.messageId || null,
         references: parsed.messageId || null,
@@ -942,10 +942,10 @@ async function main() {
       const stillClosedEarly = revokeEvent && isClosedByInitiator(revokeEvent) && !revokeOutcome.reopened;
       const closedInfix = stillClosedEarly ? ' — closed early' : '';
       const subject = revokeEvent
-        ? `[gitdone] revoke+ — ${revokeEvent.title}${counterTag}${closedInfix}`
-        : `[gitdone] revoke+ — ${revokeTag.eventId}${counterTag}${closedInfix}`;
+        ? `[signedreply] revoke+ — ${revokeEvent.title}${counterTag}${closedInfix}`
+        : `[signedreply] revoke+ — ${revokeTag.eventId}${counterTag}${closedInfix}`;
       const rawMessage = buildRawMessage({
-        from: `gitdone <${fromAddrRev}>`,
+        from: `signedreply <${fromAddrRev}>`,
         to, subject, body: replyBody,
         inReplyTo: parsed.messageId || null,
         references: parsed.messageId || null,
@@ -1372,7 +1372,7 @@ async function main() {
         ({ subject, body } = replyAck.eventClosed(event, ackCtx));
       }
       const rawMessage = buildRawMessage({
-        from: `gitdone <${fromAddr}>`,
+        from: `signedreply <${fromAddr}>`,
         to,
         subject,
         inReplyTo: parsed.messageId || null,

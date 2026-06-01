@@ -228,7 +228,7 @@ router.get('/', async (req, res) => {
     <div class="vF" data-variant-root="F">
       <div class="top">
         <p class="kicker">email-native <span class="dot">●</span> git-proved <span class="dot">●</span> offline-verifiable</p>
-        <h1>git<span class="slash">/</span>done<span class="cursor"></span></h1>
+        <h1>signed<span class="slash">/</span>reply<span class="cursor"></span></h1>
         <p class="tag">Multi-party actions coordinated by email. Every reply <em>DKIM-verified</em>, <em>OpenTimestamped</em>, and committed to a per-event git repository.</p>
       </div>
       <div class="manage-strip">
@@ -259,7 +259,7 @@ router.get('/', async (req, res) => {
   `;
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
-    title: 'gitdone — multi-party workflows over email, with cryptographic proof',
+    title: 'signedreply — multi-party workflows over email, with cryptographic proof',
     description: 'Email-native multi-party workflow coordination with cryptographic proof of the reply sequence. No accounts, no API, no telemetry, open source.',
     canonical: `${publicBaseUrl()}/`,
     body,
@@ -649,7 +649,7 @@ router.get('/events/new', async (req, res) => {
   }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
-    title: 'create event — gitdone',
+    title: 'create event — signedreply',
     description: 'Create a multi-party workflow that runs over email. DKIM-verified replies, OpenTimestamped, committed to a per-event git repository. No accounts, no API.',
     canonical: `${publicBaseUrl()}/events/new`,
     body: renderWorkflowForm({ values }),
@@ -888,14 +888,14 @@ router.post('/events', async (req, res) => {
 
   if (action === 'edit') {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    return res.end(layout({ title: 'edit event — gitdone', body: renderWorkflowForm({ values: body }) }));
+    return res.end(layout({ title: 'edit event — signedreply', body: renderWorkflowForm({ values: body }) }));
   }
 
   const v = validateWorkflowEvent(body);
   if (!v.ok) {
     res.writeHead(422, { 'content-type': 'text/html; charset=utf-8' });
     return res.end(layout({
-      title: 'fix errors — gitdone',
+      title: 'fix errors — signedreply',
       body: renderWorkflowForm({ values: body, errors: v.errors }),
     }));
   }
@@ -904,7 +904,7 @@ router.post('/events', async (req, res) => {
     // First POST — show preview.
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     return res.end(layout({
-      title: 'preview — gitdone',
+      title: 'preview — signedreply',
       body: renderPreview({ validated: v.value, rawBody: body }),
     }));
   }
@@ -926,7 +926,7 @@ router.post('/events', async (req, res) => {
     }
     res.writeHead(422, { 'content-type': 'text/html; charset=utf-8' });
     return res.end(layout({
-      title: 'fix errors — gitdone',
+      title: 'fix errors — signedreply',
       body: renderWorkflowForm({ values: body, errors }),
     }));
   }
@@ -962,7 +962,7 @@ router.post('/events', async (req, res) => {
   });
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
-    title: 'event created — gitdone',
+    title: 'event created — signedreply',
     body: renderCheckYourInboxPage({ event, kind: 'event' }),
   }));
 });
@@ -1022,7 +1022,7 @@ function buildEventActivationBody(event) {
   // -- signature delimiter), so we must NOT also call withSignature
   // here — that double-signs the body.
   return ({ url }) => ([
-    `You created the event "${safeTitle}" on gitdone.`,
+    `You created the event "${safeTitle}" on signedreply.`,
     ``,
     `Clicking the link below signs you in and opens the event dashboard.`,
     `Review the steps below, then press Activate on the dashboard to send`,
@@ -1081,7 +1081,7 @@ function buildCryptoActivationBody(event) {
       ];
   return ({ url }) => {
     const lines = [
-      `You created the crypto event "${safeTitle}" on gitdone.`,
+      `You created the crypto event "${safeTitle}" on signedreply.`,
       ``,
       `Clicking the link below signs you in and opens the event dashboard.`,
       `Review the details below, then press Activate on the dashboard to make`,
@@ -1105,7 +1105,7 @@ function buildCryptoActivationBody(event) {
       lines.push(
         ``,
         `IMPORTANT - reference documents required before signing:`,
-        `  After you press Activate, gitdone will email you back asking`,
+        `  After you press Activate, signedreply will email you back asking`,
         `  you to attach the reference document${event.mode === 'declaration' ? '' : 's'} in ONE reply (one-shot`,
         `  freeze) to:`,
         `    ${attachAddr}`,
@@ -1140,7 +1140,7 @@ function activationSubject(title) {
   // em dash the subject convention prefers: knowless's validateSubject
   // (60-char cap, no CR/LF, ASCII-only) gates this string, and `—`/`·`
   // are non-ASCII. Hyphen is the ASCII fallback — see Conventions #4.
-  const prefix = '[gitdone] "';
+  const prefix = '[signedreply] "';
   const suffix = `" - activate within ${config.activationTtlHours}h`;
   const room = 60 - prefix.length - suffix.length;
   const ascii = String(title).replace(/[\r\n]/g, ' ').replace(/[^\x20-\x7e]/g, '');
@@ -1212,7 +1212,7 @@ function renderCheckYourInboxPage({ event, kind }) {
       ${refUrlBlock}
       <ol style="margin:1rem 0 0;padding-left:1.4rem;color:#c9d1d9;font-size:0.92em;line-height:1.6">
         <li>Open your inbox at <code>${event.initiator}</code>.</li>
-        <li>Click the gitdone sign-in link (valid 15 minutes).</li>
+        <li>Click the signedreply sign-in link (valid 15 minutes).</li>
         <li>You'll land back here on the dashboard for this ${noun}.</li>
         <li>Press <strong>Activate</strong> to ${kind === 'event'
           ? 'send invitations to all named participants'
@@ -1223,7 +1223,7 @@ function renderCheckYourInboxPage({ event, kind }) {
               : (event.mode === 'declaration'
                   ? 'invite the signer'
                   : 'make the reply address live'))}.</li>
-        ${strictMode ? html`<li>After we receive your docs, gitdone ${event.mode === 'declaration'
+        ${strictMode ? html`<li>After we receive your docs, signedreply ${event.mode === 'declaration'
               ? html`invites the signer (<code>${event.signer || 'configured signer'}</code>) with the file list + sha256 hashes they must match`
               : html`makes the reply address live; you share it with attestors. Each must attach the same files to count`}.</li>` : raw('')}
       </ol>
@@ -1418,7 +1418,7 @@ router.get('/crypto/new', async (req, res) => {
   };
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
-    title: 'create crypto — gitdone',
+    title: 'create crypto — signedreply',
     description: 'Cryptographically timestamped declarations and N-of-M attestations over email. DKIM + OpenTimestamps on every reply. No accounts, no API.',
     canonical: `${publicBaseUrl()}/crypto/new`,
     body: renderCryptoForm({ values }),
@@ -1437,7 +1437,7 @@ router.post('/crypto', async (req, res) => {
   if (!v.ok) {
     res.writeHead(422, { 'content-type': 'text/html; charset=utf-8' });
     return res.end(layout({
-      title: 'fix errors — gitdone',
+      title: 'fix errors — signedreply',
       body: renderCryptoForm({ values: body, errors: v.errors }),
     }));
   }
@@ -1459,7 +1459,7 @@ router.post('/crypto', async (req, res) => {
     }
     res.writeHead(422, { 'content-type': 'text/html; charset=utf-8' });
     return res.end(layout({
-      title: 'fix errors — gitdone',
+      title: 'fix errors — signedreply',
       body: renderCryptoForm({ values: body, errors }),
     }));
   }
@@ -1481,7 +1481,7 @@ router.post('/crypto', async (req, res) => {
   });
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
-    title: 'crypto event created — gitdone',
+    title: 'crypto event created — signedreply',
     body: renderCheckYourInboxPage({ event, kind: 'crypto' }),
   }));
 });
@@ -1513,7 +1513,7 @@ router.get('/events/:id', async (req, res, params) => {
   }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
-    title: `${event.title} — gitdone`,
+    title: `${event.title} — signedreply`,
     body: html`
       <h1>${event.title}</h1>
       <p>ID: <code>${event.id}</code></p>
@@ -1901,7 +1901,7 @@ router.get('/manage', async (req, res) => {
       ? `Cancelled "${cancelled}". The event was deleted; nothing was sent.`
       : null;
     res.end(layout({
-      title: 'your events — gitdone',
+      title: 'your events — signedreply',
       body: await renderSessionHub({
         handle, auth, flash,
         showArchived: /[?&]show=archived\b/.test(req.url || ''),
@@ -1920,11 +1920,11 @@ router.get('/manage', async (req, res) => {
     const next = u.searchParams.get('next') || '';
     const sent = u.searchParams.get('sent');
     const flash = sent
-      ? "Check your inbox. If your email has events on gitdone, a sign-in link is on its way."
+      ? "Check your inbox. If your email has events on signedreply, a sign-in link is on its way."
       : null;
     res.end(layout({
-      title: 'sign in — gitdone',
-      description: 'Sign in by email — no passwords. gitdone organisers manage their events here.',
+      title: 'sign in — signedreply',
+      description: 'Sign in by email — no passwords. signedreply organisers manage their events here.',
       canonical: `${publicBaseUrl()}/manage`,
       body: renderSignInForm({ next, flash }),
     }));

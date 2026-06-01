@@ -15,10 +15,10 @@
 
 const config = require('./config');
 const { createAuthMailer } = require('./auth-mailer');
-const { SIGNATURE_FOOTER } = require('./outbound');
+const { SIGNATURE_FOOTER, senderAddress, SENDER_NAME } = require('./outbound');
 
-const FROM_ADDR = `gitdone@${config.domain}`;
-const FROM_NAME = 'gitdone';
+const FROM_ADDR = senderAddress(config.domain);
+const FROM_NAME = SENDER_NAME;
 
 let _authPromise = null;
 // Captured from knowless at bootstrap so the CommonJS call sites in
@@ -72,9 +72,9 @@ async function _bootstrap() {
     verifyPath: '/manage/verify',
     logoutPath: '/manage/logout',
     failureRedirect: '/manage',
-    subject: 'Sign in to gitdone',
+    subject: 'Sign in to signedreply',
     bodyFooter: SIGNATURE_FOOTER,
-    confirmationMessage: 'Check your inbox. If {email} has events on gitdone, a sign-in link is on its way.',
+    confirmationMessage: 'Check your inbox. If {email} has events on signedreply, a sign-in link is on its way.',
     openRegistration: true,
     cookieSecure,
     devLogMagicLinks: process.env.GITDONE_DEV_MAGIC_LINKS === '1',

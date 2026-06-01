@@ -298,7 +298,7 @@ test('end-to-end proof flow: create -> activate -> reply -> bundle -> offline ve
     let proof = '';
     for (const f of ownerCaps) {
       const txt = await fsp.readFile(path.join(captureDir, f), 'utf8');
-      if (/Subject: \[gitdone\] proof — /.test(txt)) { proof = txt; break; }
+      if (/Subject: \[signedreply\] proof — /.test(txt)) { proof = txt; break; }
     }
     assert.ok(proof, 'proof-subject email captured for organiser');
     assert.match(proof, new RegExp(`gitdone-verify ${eventId}`));

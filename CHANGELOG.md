@@ -48,6 +48,32 @@ git-done.com is **fully retired** (see below). No live events were affected
   docs updated. End-to-end verified: signed outbound (`s=gd202606`), inbound
   reply routing, and `www`/apex over HTTPS on signedreply.com.
 
+### Change: brand identity gitdone → signed/reply (0.27.1)
+
+**Customer-facing rebrand.** The product is now **signed/reply** — the
+amber-slash terminal wordmark carries over from `git/done` unchanged
+(`signed` + amber `/` + `reply`, blinking phosphor cursor). Internal
+identifiers stay `gitdone` on purpose.
+
+- **Web**: landing hero `git/done` → `signed/reply`; page-header device
+  `g/<page>` → `s/<page>`; `favicon.svg` (`s/`); `og.svg` + regenerated
+  `og.png` now show the full wordmark with the kicker tagline; `SITE_NAME`,
+  `<title>`s, og:title, footer, and the SEO copy all read **signedreply**.
+- **Email**: subject prefix `[gitdone]` → `[signedreply]`; body prose,
+  the standard signature sign-off, the sign-in subject/confirmation, and the
+  emailed verification/re-verification report headers all rebranded.
+- **Sender identity**: outbound mail now comes from
+  **`signedreply <noreply@signedreply.com>`** (was `gitdone <gitdone@…>`),
+  centralised in `outbound.js` (`senderHeader`/`senderAddress`). Replies are
+  still steered by `Reply-To` / the `verify+`/`attach+`/`revoke+` command
+  addresses, never to this no-reply From. **Deploy prerequisite:** add
+  `noreply@signedreply.com` to the Postfix virtual aliases (route to the
+  gitdone pipe or discard) so a stray reply doesn't hard-bounce.
+- **Kept `gitdone`** (internal, by design): the `gitdone-verify` CLI + repo,
+  `GITDONE_*` env, `gitdone-web`/timer service units, `/opt/gitdone` paths,
+  the proof-bundle filename + git commit author, log/telemetry tags, and the
+  operator-only stats digest.
+
 ### Fix: health checks no longer false-page on a shared-host load spike (0.26.9)
 
 **Reliability.** The pulselog health check ran every probe once with a 5s

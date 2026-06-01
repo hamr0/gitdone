@@ -304,7 +304,7 @@ test('strict declaration: signer receives "Signed" final ack on the completing r
     let finalAckBody = '';
     for (const f of signerAcks) {
       const txt = await fs.readFile(path.join(captureDir, f), 'utf8');
-      if (/Subject: \[gitdone\] Signed —/.test(txt)) { finalAckBody = txt; break; }
+      if (/Subject: \[signedreply\] Signed —/.test(txt)) { finalAckBody = txt; break; }
     }
     assert.ok(finalAckBody, `no final "Signed —" ack to signer in ${signerAcks.join(',')}`);
     assert.match(finalAckBody, /declaration is now final/);
@@ -505,7 +505,7 @@ test('strict attestation 4e: completion notification reaches attestors + redact 
       { GITDONE_DATA_DIR: tmp, GITDONE_SENDMAIL_BIN: fake });
 
     // Read every captured outbound mail and bucket by To: header. The
-    // proof email subject is "[gitdone] proof — ..."; participant acks
+    // proof email subject is "[signedreply] proof — ..."; participant acks
     // and the per-reply attestation receipt are also captured, so we
     // filter to the proof subject.
     const captureFiles = await fs.readdir(captureDir);
@@ -513,7 +513,7 @@ test('strict attestation 4e: completion notification reaches attestors + redact 
     for (const f of captureFiles) {
       const body = await fs.readFile(path.join(captureDir, f), 'utf8');
       const subjectLine = body.split(/\r?\n/).find((l) => /^Subject:/i.test(l)) || '';
-      if (!/\[gitdone\] proof /.test(subjectLine)) continue;
+      if (!/\[signedreply\] proof /.test(subjectLine)) continue;
       const toLine = body.split(/\r?\n/).find((l) => /^To:/i.test(l)) || '';
       const m = toLine.match(/<([^>]+)>|([\w.+-]+@[\w.-]+)/);
       if (m) proofRecipients.add((m[1] || m[2]).toLowerCase());
@@ -530,7 +530,7 @@ test('strict attestation 4e: completion notification reaches attestors + redact 
     for (const f of captureFiles) {
       const body = await fs.readFile(path.join(captureDir, f), 'utf8');
       const subjectLine = body.split(/\r?\n/).find((l) => /^Subject:/i.test(l)) || '';
-      if (!/\[gitdone\] proof /.test(subjectLine)) continue;
+      if (!/\[signedreply\] proof /.test(subjectLine)) continue;
       const toLine = body.split(/\r?\n/).find((l) => /^To:/i.test(l)) || '';
       if (/chair@ex\.com/i.test(toLine)) organiserBody = body;
       if (/alice@ex\.com/i.test(toLine)) aliceBody = body;
