@@ -70,3 +70,7 @@ app/dev-feedback.log
 
 # barebrowse screenshot output (ephemeral)
 .barebrowse/
+
+# POC build artifacts (throwaway; app/package-lock.json stays tracked)
+poc/**/package-lock.json
+poc/**/node_modules/

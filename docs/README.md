@@ -8,7 +8,6 @@ code.
 docs/
 ├── 00-context/      WHY and WHAT EXISTS NOW
 │   ├── vision.md            product purpose + what it isn't
-│   ├── system-state.md      current architecture snapshot
 │   └── assumptions.md       constraints, risks, deferred items
 ├── 01-product/      WHAT the product must do
 │   ├── prd.md               authoritative spec
@@ -39,7 +38,8 @@ docs/
 ## Quick links
 
 - Want to **understand the product**: `00-context/vision.md` →
-  `00-context/system-state.md` → `01-product/prd.md`.
+  `01-product/prd.md` (architecture + current state live here; prod/ops
+  specifics in the root `CLAUDE.md`).
 - Want to **deploy**: `../ops/deploy.sh` (script) +
   `04-process/deploy.md` (its contract).
 - Want to **operate the host**: `04-process/deployment.md` +

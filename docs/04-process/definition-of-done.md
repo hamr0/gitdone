@@ -17,7 +17,7 @@ A feature or task is considered "done" when all applicable criteria are met.
 ## Documentation
 - [ ] Code changes are self-documenting (clear naming, minimal comments)
 - [ ] API changes reflected in `docs/02-features/api-reference.md`
-- [ ] Architecture changes reflected in `docs/00-context/system-state.md`
+- [ ] Architecture changes reflected in `docs/01-product/prd.md` (and prod/ops specifics in the root `CLAUDE.md`)
 - [ ] Decision logged in `docs/03-logs/decisions-log.md` if applicable
 
 ## Deployment
