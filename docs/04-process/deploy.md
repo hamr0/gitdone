@@ -185,8 +185,8 @@ window. That's expected and is what step 13 polls past.
 
 ```bash
 # poll /health up to 15× with 1s spacing
-curl -fsS -o /dev/null -w '%{http_code}' --max-time 3 https://git-done.com/health
-curl -fsS -o /dev/null -w '%{http_code}' --max-time 5 https://git-done.com/manage
+curl -fsS -o /dev/null -w '%{http_code}' --max-time 3 https://signedreply.com/health
+curl -fsS -o /dev/null -w '%{http_code}' --max-time 5 https://signedreply.com/manage
 ```
 
 `/health` is the zero-dep liveness endpoint — it returns 200 even when
@@ -210,7 +210,7 @@ is visible without a second SSH round-trip.
 
 #### 13b. Manual browser smoke (request-path changes only)
 
-In a real browser on https://git-done.com, signed in as an organiser:
+In a real browser on https://signedreply.com, signed in as an organiser:
 
 1. **Create a workflow event** — fill the form, Confirm. Expect the
    "check your inbox" page, not `forbidden`.
@@ -220,7 +220,7 @@ In a real browser on https://git-done.com, signed in as an organiser:
    then **Remind**, then **Close**. Each must act, not 403. (These are
    the form-navigation POSTs that carry `Origin: null`.)
 4. Confirm the security headers are still present (`curl -sSI
-   https://git-done.com/ | grep -i 'content-security\|x-frame'`).
+   https://signedreply.com/ | grep -i 'content-security\|x-frame'`).
 
 If any create/mutation returns `forbidden`, the Origin/CSRF path has
 regressed — see `sameOrigin()` in `bin/server.js` and PRD finding #44.

@@ -148,9 +148,9 @@ SSH key from `pass gitdone/vps/ssh_key_federver` and ships. Tests are
 not skippable. See `docs/04-process/deploy.md` for the contract;
 `deployment.md` is for host-level work the script doesn't automate.
 
-Live at **https://git-done.com**. AlmaLinux 8 VPS at `104.129.2.254`;
+Live at **https://signedreply.com**. AlmaLinux 8 VPS at `104.129.2.254`;
 nginx `:443 → :3001`; Postfix pipe-transport `gitdone` user →
-`/opt/gitdone/app/bin/receive.sh`; opendkim selector `gd202604`.
+`/opt/gitdone/app/bin/receive.sh`; opendkim selector `gd202606`.
 
 Code lives at `/opt/gitdone/` as a git clone. App is under
 `/opt/gitdone/app/` (note the nested path; earlier deploys had files at

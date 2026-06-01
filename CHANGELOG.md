@@ -15,6 +15,33 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Change: domain rename git-done.com → signedreply.com (0.27.0)
+
+**Hard rename.** The service moved from `git-done.com` to **signedreply.com**;
+git-done.com is kept only as a 301 redirect (its mail is being retired). No live
+events were affected (completed proofs are archival and verify offline).
+
+- **DNS** (Cloudflare): A apex + `mail` (grey/DNS-only — SMTP can't be proxied),
+  MX → `mail.signedreply.com`, SPF, DMARC (rua → postmaster@signedreply.com), and
+  a new **DKIM selector `gd202606`**. All verified authoritatively.
+- **TLS**: new Let's Encrypt cert for `signedreply.com` + `mail.signedreply.com`,
+  issued via **webroot** (auto-renewing — an improvement over git-done.com's
+  manual standalone).
+- **opendkim**: signs `*@signedreply.com` with `gd202606`; git-done.com and the
+  co-tenant domains are untouched.
+- **Postfix**: receives `*@signedreply.com` (catch-all → gitdone pipe);
+  `myhostname`/`mydomain` switched after the PTR (`104.129.2.254` →
+  `mail.signedreply.com`) was confirmed, keeping HELO/PTR aligned.
+- **App**: `GITDONE_PUBLIC_URL`/`GITDONE_DOMAIN`/`GITDONE_MTA_HOSTNAME` →
+  signedreply.com; config defaults and the few hardcoded fallbacks swept.
+- **`receive.sh` now sources `/etc/default/gitdone-web`** — the Postfix pipe runs
+  as `gitdone` (not via systemd) so it never inherited the unit's EnvironmentFile;
+  without this the inbound pipe silently kept generating git-done.com addresses
+  from config defaults. Caught by an end-to-end mail test during the rename.
+- nginx vhost + `ops/deploy.sh` smoke URLs + pulselog `ssl` host + operational
+  docs updated. End-to-end verified: signed outbound (`s=gd202606`) and inbound
+  reply routing on signedreply.com.
+
 ### Fix: health checks no longer false-page on a shared-host load spike (0.26.9)
 
 **Reliability.** The pulselog health check ran every probe once with a 5s

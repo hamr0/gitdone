@@ -28,7 +28,7 @@ const SIGNATURE_FOOTER = [
   "gitdone -- we don't store email bodies or attachments; those go to",
   'the organiser. We keep DKIM proof, a SHA-256 hash of each message,',
   'and an OpenTimestamps anchor so the record is tamper-evident.',
-  'feedback@git-done.com',
+  'feedback@signedreply.com',
 ].join('\n');
 const SIGNATURE = `-- \n${SIGNATURE_FOOTER}`;
 
@@ -88,7 +88,7 @@ function buildRawMessage({ from, to, subject, body, inReplyTo, references, autoS
   lines.push(`To: ${to}`);
   if (replyTo) lines.push(`Reply-To: ${replyTo}`);
   lines.push(`Subject: ${subject}`);
-  lines.push(`Message-Id: ${messageId || newMessageId(domain || 'git-done.com')}`);
+  lines.push(`Message-Id: ${messageId || newMessageId(domain || 'signedreply.com')}`);
   lines.push(`Date: ${rfc5322Date()}`);
   if (autoSubmitted !== false) {
     // RFC 3834: auto-replied is the right value for a response to a

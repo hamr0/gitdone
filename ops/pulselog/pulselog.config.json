@@ -6,7 +6,7 @@
   },
   "alert": {
     "email": "avoidaccess@gmail.com",
-    "from": "alerts@git-done.com",
+    "from": "alerts@signedreply.com",
     "app": "gitdone",
     "logTail": "/var/lib/gitdone/logs/errors.jsonl"
   },
@@ -17,7 +17,7 @@
     { "type": "http", "name": "api", "enabled": true, "url": "http://127.0.0.1:3001/health", "expectStatus": 200, "timeoutMs": 10000 },
     { "type": "disk", "name": "disk-root", "enabled": true, "path": "/", "maxPercent": 80 },
     { "type": "disk", "name": "disk-data", "enabled": true, "path": "/var/lib/gitdone", "maxPercent": 80 },
-    { "type": "ssl", "name": "cert", "enabled": true, "host": "git-done.com", "port": 443, "warnDays": 14 },
+    { "type": "ssl", "name": "cert", "enabled": true, "host": "signedreply.com", "port": 443, "warnDays": 14 },
     { "type": "command", "name": "mailq", "enabled": true, "command": "sh", "args": ["-c", "test $(mailq | grep -c '^[A-F0-9]') -lt 50"] },
     { "type": "command", "name": "log-errors", "enabled": true, "command": "sh", "args": ["-c", "test $(journalctl -u gitdone-web.service --since '1 hour ago' -p err --no-pager -q 2>/dev/null | wc -l) -eq 0"] },
     { "type": "command", "name": "ots-backlog", "enabled": true, "command": "sh", "args": ["-c", "test $(find /var/lib/gitdone/repos -name '*.ots' -type f -mmin +2880 -size -1024c 2>/dev/null | wc -l) -eq 0"] }
@@ -26,7 +26,7 @@
     "app": "gitdone",
     "history": "/var/lib/gitdone/logs/stats.jsonl",
     "email": "avoidaccess@gmail.com",
-    "from": "alerts@git-done.com",
+    "from": "alerts@signedreply.com",
     "weeks": 4,
     "metricsCommand": {
       "command": "/usr/bin/node",
@@ -64,6 +64,6 @@
     "minBytes": 4096,
     "history": "/var/lib/gitdone/logs/backup.jsonl",
     "email": "avoidaccess@gmail.com",
-    "from": "alerts@git-done.com"
+    "from": "alerts@signedreply.com"
   }
 }

@@ -19,8 +19,8 @@ function list(v, def) {
 }
 
 const config = {
-  mtaHostname: process.env.GITDONE_MTA_HOSTNAME || 'mail.git-done.com',
-  domain: process.env.GITDONE_DOMAIN || 'git-done.com',
+  mtaHostname: process.env.GITDONE_MTA_HOSTNAME || 'mail.signedreply.com',
+  domain: process.env.GITDONE_DOMAIN || 'signedreply.com',
   dataDir: process.env.GITDONE_DATA_DIR || '/var/lib/gitdone',
   logFile: process.env.GITDONE_LOG_FILE || '/var/log/gitdone/receive.log',
   logToStdout: bool(process.env.GITDONE_LOG_STDOUT, true),

@@ -136,7 +136,7 @@ function buildAttachmentMessage({
   const filename = String(attachment.filename || 'attachment.bin').replace(/[\r\n"\\]/g, '_');
   const contentType = String(attachment.contentType || 'application/octet-stream');
   const boundary = 'gitdone_' + crypto.randomBytes(16).toString('hex');
-  const msgId = messageId || `<${Date.now()}.${crypto.randomBytes(8).toString('hex')}@${domain || 'git-done.com'}>`;
+  const msgId = messageId || `<${Date.now()}.${crypto.randomBytes(8).toString('hex')}@${domain || 'signedreply.com'}>`;
   const date = new Date().toUTCString();
 
   const headers = [];

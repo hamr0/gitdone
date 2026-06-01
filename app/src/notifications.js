@@ -42,7 +42,7 @@ async function sendOne({ to, subject, body, event, replyTo, stepId, inReplyTo, r
   const from = gitdoneFrom();
   // Mint the Message-Id ourselves so the caller can persist it (proof
   // email threading needs it for the OTS-anchored follow-up).
-  const mid = messageId || newMessageId(config.domain || 'git-done.com');
+  const mid = messageId || newMessageId(config.domain || 'signedreply.com');
   const rawMessage = buildRawMessage({
     from,
     to,

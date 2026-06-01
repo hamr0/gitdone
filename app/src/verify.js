@@ -1,6 +1,6 @@
 // 1.L.1 — verify+{id}@ handler.
 //
-// A forwarded email arrives at verify+{eventId}@git-done.com. It contains
+// A forwarded email arrives at verify+{eventId}@signedreply.com. It contains
 // an inner email (as a message/rfc822 attachment) or a raw file attachment.
 // We:
 //   1. Extract the inner email bytes (or file bytes)

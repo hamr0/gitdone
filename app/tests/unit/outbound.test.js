@@ -9,8 +9,8 @@ const path = require('node:path');
 const { buildRawMessage, newMessageId, sendmail } = require('../../src/outbound');
 
 test('newMessageId: RFC 5322 shape with domain', () => {
-  const id = newMessageId('git-done.com');
-  assert.match(id, /^<\d+\.[0-9a-f]{16}@git-done\.com>$/);
+  const id = newMessageId('signedreply.com');
+  assert.match(id, /^<\d+\.[0-9a-f]{16}@signedreply\.com>$/);
 });
 
 test('newMessageId: unique across rapid calls', () => {
@@ -21,27 +21,27 @@ test('newMessageId: unique across rapid calls', () => {
 
 test('buildRawMessage: emits required headers in CRLF', () => {
   const raw = buildRawMessage({
-    from: 'A <a@git-done.com>',
+    from: 'A <a@signedreply.com>',
     to: 'b@example.com',
     subject: 'hi',
     body: 'hello world',
-    domain: 'git-done.com',
+    domain: 'signedreply.com',
   });
   // CRLF line endings
   assert.ok(raw.includes('\r\n'), 'has CRLF');
   assert.ok(!/(?<!\r)\n/.test(raw), 'no bare LF');
   // Required headers present
-  assert.match(raw, /^From: A <a@git-done\.com>\r\n/);
+  assert.match(raw, /^From: A <a@signedreply\.com>\r\n/);
   assert.match(raw, /\r\nTo: b@example\.com\r\n/);
   assert.match(raw, /\r\nSubject: hi\r\n/);
-  assert.match(raw, /\r\nMessage-Id: <\d+\.[0-9a-f]{16}@git-done\.com>\r\n/);
+  assert.match(raw, /\r\nMessage-Id: <\d+\.[0-9a-f]{16}@signedreply\.com>\r\n/);
   assert.match(raw, /\r\nDate: .+\r\n/);
   assert.match(raw, /\r\nAuto-Submitted: auto-replied\r\n/);
   assert.match(raw, /\r\nMIME-Version: 1\.0\r\n/);
   assert.match(raw, /\r\nContent-Type: text\/plain; charset=utf-8\r\n/);
   // Header/body separator, body, then standard signature
   assert.match(raw, /\r\n\r\nhello world\r\n\r\n-- \r\ngitdone -- /);
-  assert.match(raw, /\r\nfeedback@git-done\.com$/);
+  assert.match(raw, /\r\nfeedback@signedreply\.com$/);
 });
 
 test('buildRawMessage: noSignature opt-out emits body verbatim', () => {

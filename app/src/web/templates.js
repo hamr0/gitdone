@@ -63,7 +63,7 @@ const THEME_COLOR = '#0d1117';
 // og:image must be absolute (relative URLs are silently dropped by most
 // unfurl scrapers). Built from GITDONE_PUBLIC_URL the same way auth/forward
 // build their absolute URLs; defaults match config.js.
-const PUBLIC_BASE = (process.env.GITDONE_PUBLIC_URL || `https://${process.env.GITDONE_DOMAIN || 'git-done.com'}`).replace(/\/+$/, '');
+const PUBLIC_BASE = (process.env.GITDONE_PUBLIC_URL || `https://${process.env.GITDONE_DOMAIN || 'signedreply.com'}`).replace(/\/+$/, '');
 const OG_IMAGE_URL = `${PUBLIC_BASE}/og.png`;
 
 function layout({ title, body, dev, devHUD, pageName, pageTagline, description, canonical, noindex }) {

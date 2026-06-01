@@ -23,7 +23,7 @@
 //
 //   Reporting-MTA: dns; mta.example.com
 //   <blank line>
-//   Original-Recipient: rfc822;event+abc-step1@git-done.com
+//   Original-Recipient: rfc822;event+abc-step1@signedreply.com
 //   Final-Recipient: rfc822;real@example.com
 //   Action: failed
 //   Status: 5.1.1

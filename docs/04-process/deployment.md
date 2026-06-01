@@ -3,7 +3,7 @@
 **Stack:** Fedora Linux, Node.js ≥18 (vanilla `node:http`), Postfix, opendkim,
 nginx, systemd. No PM2, no bundler, no frontend framework.
 
-**Topology:** one VPS, one environment (`git-done.com`). Local laptop
+**Topology:** one VPS, one environment (`signedreply.com`). Local laptop
 `--dev` mode (`./data-dev/`, HUD, SSE live-reload) is the test environment
 for UI and business logic; prod is the only environment that runs the
 inbound-email pipeline. Staging on a subdomain is documented in the
@@ -16,13 +16,13 @@ Runbook at the bottom.
 ## 1. Prerequisites
 
 - VPS: Fedora 40+, 2 GB RAM, 20 GB disk. Current VPS IP: `104.129.2.254`.
-- DNS (Route 53, hosted zone `git-done.com`):
-  - `A   git-done.com              → 104.129.2.254`
-  - `MX  git-done.com              10 mail.git-done.com.`
-  - `A   mail.git-done.com         → 104.129.2.254` *(already set)*
-  - `TXT git-done.com              "v=spf1 mx -all"` *(already set)*
-  - `TXT gd202604._domainkey.git-done.com  "v=DKIM1; k=rsa; p=..."` *(already set)*
-  - `TXT _dmarc.git-done.com       "v=DMARC1; p=none; rua=mailto:postmaster@git-done.com; aspf=s; adkim=s"` *(already set)*
+- DNS (Route 53, hosted zone `signedreply.com`):
+  - `A   signedreply.com              → 104.129.2.254`
+  - `MX  signedreply.com              10 mail.signedreply.com.`
+  - `A   mail.signedreply.com         → 104.129.2.254` *(already set)*
+  - `TXT signedreply.com              "v=spf1 mx -all"` *(already set)*
+  - `TXT gd202606._domainkey.signedreply.com  "v=DKIM1; k=rsa; p=..."` *(already set)*
+  - `TXT _dmarc.signedreply.com       "v=DMARC1; p=none; rua=mailto:postmaster@signedreply.com; aspf=s; adkim=s"` *(already set)*
 
 ## 2. System packages
 
@@ -55,13 +55,13 @@ Production code is read-only to `gitdone`; data/logs are writable.
 
 ## 5. Outbound DKIM (opendkim)
 
-Selector `gd202604` already live. For reference:
+Selector `gd202606` already live. For reference:
 
 ```
 # /etc/opendkim.conf
-Domain       git-done.com
-Selector     gd202604
-KeyFile      /etc/opendkim/keys/git-done.com/gd202604.private
+Domain       signedreply.com
+Selector     gd202606
+KeyFile      /etc/opendkim/keys/signedreply.com/gd202606.private
 Socket       inet:8891@localhost
 Mode         sv
 SubDomains   yes
@@ -93,7 +93,7 @@ sudo systemctl enable --now opendkim postfix
 
 ### 6.1 Role-address aliases
 
-The `gitdone` pipe transport catches all `*@git-done.com` recipients by
+The `gitdone` pipe transport catches all `*@signedreply.com` recipients by
 default, which means `postmaster@`, `abuse@`, etc. never reach a real
 inbox. Add virtual aliases BEFORE the pipe fallback so RFC 2142 role
 addresses forward to the operator:
@@ -108,7 +108,7 @@ sudo postfix reload
 Confirm:
 
 ```bash
-postmap -q 'postmaster@git-done.com' hash:/etc/postfix/virtual
+postmap -q 'postmaster@signedreply.com' hash:/etc/postfix/virtual
 # → avoidaccess@gmail.com
 ```
 
@@ -133,7 +133,7 @@ WorkingDirectory=/opt/gitdone/app
 Environment=NODE_ENV=production
 Environment=GITDONE_DATA_DIR=/var/lib/gitdone
 Environment=GITDONE_HTTP_PORT=3001
-Environment=GITDONE_PUBLIC_BASE_URL=https://git-done.com
+Environment=GITDONE_PUBLIC_BASE_URL=https://signedreply.com
 ExecStart=/usr/bin/node /opt/gitdone/app/bin/server.js
 Restart=on-failure
 RestartSec=3
@@ -188,15 +188,15 @@ WantedBy=timers.target
 ```nginx
 server {
   listen 80;
-  server_name git-done.com;
+  server_name signedreply.com;
   return 301 https://$host$request_uri;
 }
 
 server {
   listen 443 ssl http2;
-  server_name git-done.com;
-  ssl_certificate     /etc/letsencrypt/live/git-done.com/fullchain.pem;
-  ssl_certificate_key /etc/letsencrypt/live/git-done.com/privkey.pem;
+  server_name signedreply.com;
+  ssl_certificate     /etc/letsencrypt/live/signedreply.com/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/signedreply.com/privkey.pem;
   client_max_body_size 25m;
 
   location / {
@@ -223,7 +223,7 @@ server {
 > (default `127.0.0.1,::1`) lists which peer addresses are allowed to set XFF.
 
 ```bash
-sudo certbot --nginx -d git-done.com
+sudo certbot --nginx -d signedreply.com
 sudo systemctl enable --now nginx
 ```
 
@@ -263,7 +263,7 @@ Covers (all in `ops/pulselog/pulselog.config.json`):
 | `gitdone-ots-upgrade.timer` armed | `service` | not `active` |
 | Local API `GET /health` | `http` | non-200 / >10s |
 | Disk usage `/` + `/var/lib/gitdone` | `disk` ×2 | ≥80% |
-| TLS cert `git-done.com:443` | `ssl` | <14 days |
+| TLS cert `signedreply.com:443` | `ssl` | <14 days |
 | Postfix queue depth | `command` | ≥50 queued |
 | Journal errors (≥err) last 1h | `command` | any |
 | Stale OTS stamps (>48h, <1KB) | `command` | any |
@@ -348,7 +348,7 @@ emails `avoidaccess@gmail.com`. Retention: `keepLast 7` ∪ `keepDays 30`.
 
 Self-monitoring can't detect the box being off. Use UptimeRobot free tier
 (50 monitors, 5-min cadence) — HTTPS monitor on
-`https://git-done.com/health` → email `avoidaccess@gmail.com` on down.
+`https://signedreply.com/health` → email `avoidaccess@gmail.com` on down.
 
 ### 10.3 Manual inspection
 
@@ -428,13 +428,13 @@ sudo git checkout <sha-or-tag>
 # Do NOT pipe `npm ci` through `tail` / `head` — it masks failure.
 sudo -u root bash -c 'cd app && npm ci --omit=dev'
 sudo systemctl restart gitdone-web.service
-curl -fsS https://git-done.com/health
+curl -fsS https://signedreply.com/health
 journalctl -u gitdone-web.service -n 50 --no-pager
 ```
 
 Note: `/health` returns 200 even when auth is broken — it's a zero-dep
 endpoint by design (§Appendix B). For real verification, also
-`curl -fsS -o /dev/null -w '%{http_code}\n' https://git-done.com/manage`
+`curl -fsS -o /dev/null -w '%{http_code}\n' https://signedreply.com/manage`
 (triggers the knowless bootstrap on first hit).
 
 ### 11.3 Rollback
@@ -482,19 +482,19 @@ sudo systemctl start gitdone-ots-upgrade.service   # smoke-test the timer-driven
 
 Skip until real users exist. When you do:
 
-1. DNS: add `A staging.git-done.com → 104.129.2.254` and
-   `MX staging.git-done.com → 10 mail.git-done.com.`
-2. `sudo certbot --nginx -d staging.git-done.com`
+1. DNS: add `A staging.signedreply.com → 104.129.2.254` and
+   `MX staging.signedreply.com → 10 mail.signedreply.com.`
+2. `sudo certbot --nginx -d staging.signedreply.com`
 3. Second systemd unit `gitdone-web-staging.service` — clone
    `gitdone-web.service` with:
    - `Environment=GITDONE_DATA_DIR=/var/lib/gitdone-staging`
    - `Environment=GITDONE_HTTP_PORT=3002`
-   - `Environment=GITDONE_PUBLIC_BASE_URL=https://staging.git-done.com`
+   - `Environment=GITDONE_PUBLIC_BASE_URL=https://staging.signedreply.com`
    - `ReadWritePaths=/var/lib/gitdone-staging /var/log/gitdone`
 4. `install -d -o gitdone -g gitdone /var/lib/gitdone-staging`
-5. nginx: add a second server block for `staging.git-done.com` → `:3002`.
+5. nginx: add a second server block for `staging.signedreply.com` → `:3002`.
 6. Postfix transport map (`/etc/postfix/transport`):
-   `staging.git-done.com  gitdone-staging:`
+   `staging.signedreply.com  gitdone-staging:`
    + a second master.cf entry exporting `GITDONE_DATA_DIR=/var/lib/gitdone-staging`
    via the pipe transport env, or have `receive.sh` branch on recipient domain.
 7. Duplicate `gitdone-ots-upgrade.service` for staging data dir.
@@ -509,5 +509,5 @@ Runbook becomes: push → restart staging → bake → restart prod.
   distinct DKIM identity, add a second selector.
 - `/health` must stay a zero-auth, zero-dependency endpoint — both
   UptimeRobot and the local health check rely on it being cheap.
-- The apex `A git-done.com` record was missing as of 2026-04-19; add it
-  before pointing users at `https://git-done.com/`.
+- The apex `A signedreply.com` record was missing as of 2026-04-19; add it
+  before pointing users at `https://signedreply.com/`.

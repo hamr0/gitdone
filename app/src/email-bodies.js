@@ -288,7 +288,7 @@ function completedContext(event, { reason = 'all_steps_done', completedStepId, c
     : '';
 
   const greetingParticiple = isClosedEarly ? 'been closed' : 'completed';
-  const repoHint = event.id ? `  Event repo: git-done.com/events/${event.id} (auth required)` : '';
+  const repoHint = event.id ? `  Event repo: ${config.domain}/events/${event.id} (auth required)` : '';
   const steps = (event.steps || []).map((s, i) => {
     const status = s.status === 'complete' ? 'DONE' : (s.status || 'pending').toUpperCase();
     return `  ${i + 1}. ${s.name} - ${status}`;

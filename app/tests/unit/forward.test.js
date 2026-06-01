@@ -108,7 +108,7 @@ test('forwardToOwner: end-to-end via fake sendmail captures correct bytes and ar
 
     const rawEmail = Buffer.from(
       'From: participant@gmail.com\r\n' +
-      'To: event+demo-step1@git-done.com\r\n' +
+      'To: event+demo-step1@signedreply.com\r\n' +
       'Subject: here are the docs\r\n' +
       'Date: Fri, 17 Apr 2026 00:00:00 GMT\r\n' +
       '\r\n' +
@@ -128,7 +128,7 @@ test('forwardToOwner: end-to-end via fake sendmail captures correct bytes and ar
     assert.ok(argv.includes('-i'));
     const fIdx = argv.indexOf('-f');
     assert.ok(fIdx >= 0);
-    assert.equal(argv[fIdx + 1], 'event+demo@git-done.com');
+    assert.equal(argv[fIdx + 1], 'event+demo@signedreply.com');
     assert.ok(argv.includes('--'));
     assert.ok(argv.includes('owner@example.com'));
     // -t must NOT be in args (we gave positional recipient)

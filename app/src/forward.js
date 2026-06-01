@@ -11,7 +11,7 @@
 // the original bytes unchanged. This:
 //   - preserves the original DKIM-Signature (signed bodies + headers
 //     like From/Subject are untouched)
-//   - lets opendkim add a git-done.com signature on the way out
+//   - lets opendkim add a signedreply.com signature on the way out
 //     (double DKIM is normal for forwarded mail)
 //   - keeps the initiator's forwarded copy exactly byte-identical to
 //     what we received, so they can re-verify DKIM later if needed
