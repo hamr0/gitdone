@@ -118,6 +118,11 @@ landed; the audit's lone Medium ("unbounded event creation") was re-confirmed as
   activation email runs through knowless's silent sham-work. An app-layer limiter
   was prototyped and reverted as redundant, knob-heavy, and *less* stealthy than
   nginx's opaque 429 — edge concerns stay at the edge.
+- **Host hygiene (no repo change).** Removed four stale `.bak` vhost backups
+  left in `/etc/nginx/conf.d/` by the domain rename — inert (nginx globs
+  `*.conf`) but a `cp`-back footgun carrying the retired `git-done.com` config
+  and the insecure append-XFF. Live `gitdone.conf` is byte-identical to the
+  version-controlled `ops/nginx/gitdone.conf`, which is the real backup.
 
 ### Fix: health checks no longer false-page on a shared-host load spike (0.26.9)
 
