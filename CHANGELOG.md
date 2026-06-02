@@ -124,6 +124,35 @@ landed; the audit's lone Medium ("unbounded event creation") was re-confirmed as
   and the insecure append-XFF. Live `gitdone.conf` is byte-identical to the
   version-controlled `ops/nginx/gitdone.conf`, which is the real backup.
 
+### Add: agent/LLM discoverability — JSON-LD, named AI crawlers, llms.txt, security.txt (0.27.4)
+
+Closed the remaining gaps from the privacy-respecting discoverability playbook.
+All declarative machine-readability (head tags / static-style routes) — no
+trackers, no scripts, consistent with §0.1.5 (no telemetry). Every change is a
+*route* served from `app/bin/server.js` (vanilla `node:http`, no static dir).
+
+- **JSON-LD on the landing** (`SoftwareApplication` + `FAQPage`). `layout()`
+  gained a `jsonLd` param that emits `<script type="application/ld+json">` with a
+  `</script>`-breakout guard (`<`→`<`). The three FAQ answers are grounded in
+  copy already visible on the page (no accounts / no API / no telemetry,
+  DKIM-verified, OpenTimestamped, per-event git repo, verify offline). Highest-
+  leverage signal for agent/LLM extraction.
+- **`robots.txt` now names AI crawlers** — retrieval/cite-live (`Claude-User`,
+  `Claude-SearchBot`, `OAI-SearchBot`, `ChatGPT-User`, `PerplexityBot`) and
+  training (`ClaudeBot`, `GPTBot`, `CCBot`), all **`Allow`**. An on-the-record
+  decision, not an implicit `User-agent: *`: the public pages are PII-free
+  marketing copy meant to spread; every PII surface is auth-gated, which is the
+  real control (finding #53).
+- **`/llms.txt`** — curated markdown index, privacy invariant up top, links to
+  the create/manage/verify surfaces only.
+- **`/.well-known/security.txt`** (RFC 9116) — `Contact:` → the GitHub issue
+  tracker (no email exposed); `Expires` recomputed ~1y out per request.
+- **`sitemap.xml`** switched to `<lastmod>` (from this module's git-checkout
+  mtime, so it advances on deploy) and dropped `<changefreq>` — Google documents
+  it as a no-op, so it was noise.
+- Tests: +5 (named crawlers, lastmod, llms.txt, security.txt, JSON-LD shape);
+  632 green.
+
 ### Fix: health checks no longer false-page on a shared-host load spike (0.26.9)
 
 **Reliability.** The pulselog health check ran every probe once with a 5s

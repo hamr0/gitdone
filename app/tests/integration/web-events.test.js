@@ -240,3 +240,66 @@ test('GET /og.png serves the OG card', async () => {
   assert.ok(parseInt(r.headers['content-length'], 10) > 1000,
     `expected og.png > 1KB, got ${r.headers['content-length']}`);
 });
+
+test('GET /robots.txt names AI crawlers (retrieval + training) and allows them', async () => {
+  const r = await get('/robots.txt');
+  assert.equal(r.status, 200);
+  // Retrieval / cite-live bots — must be present and allowed (not blocked).
+  for (const ua of ['Claude-User', 'Claude-SearchBot', 'OAI-SearchBot', 'ChatGPT-User', 'PerplexityBot']) {
+    assert.match(r.body, new RegExp(`^User-agent: ${ua}$`, 'm'), `missing retrieval bot ${ua}`);
+  }
+  // Training-corpus bots — allow-all decision on record.
+  for (const ua of ['ClaudeBot', 'GPTBot', 'CCBot']) {
+    assert.match(r.body, new RegExp(`^User-agent: ${ua}$`, 'm'), `missing training bot ${ua}`);
+  }
+  // None of the named bots may be Disallowed (the allow-all decision).
+  assert.doesNotMatch(r.body, /^Disallow: \/\s*$/m);
+});
+
+test('GET /sitemap.xml emits <lastmod> and drops <changefreq>/<priority>', async () => {
+  const r = await get('/sitemap.xml');
+  assert.equal(r.status, 200);
+  assert.match(r.body, /<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
+  assert.doesNotMatch(r.body, /<changefreq>/);
+  assert.doesNotMatch(r.body, /<priority>/);
+});
+
+test('GET /llms.txt is a markdown index leading with the privacy invariant', async () => {
+  const r = await get('/llms.txt');
+  assert.equal(r.status, 200);
+  assert.match(r.headers['content-type'], /text\/plain/);
+  assert.match(r.body, /^# signedreply/m);
+  assert.match(r.body, /no accounts, no API, no telemetry/i);
+  assert.match(r.body, /gitdone-verify/);
+  // Links point at the public, indexable surfaces.
+  assert.match(r.body, /http:\/\/localhost:3001\/events\/new/);
+  assert.match(r.body, /http:\/\/localhost:3001\/crypto\/new/);
+});
+
+test('GET /.well-known/security.txt is RFC 9116 shaped (Contact + future Expires)', async () => {
+  const r = await get('/.well-known/security.txt');
+  assert.equal(r.status, 200);
+  assert.match(r.headers['content-type'], /text\/plain/);
+  assert.match(r.body, /^Contact: https:\/\/github\.com\/hamr0\/gitdone\/issues$/m);
+  const m = r.body.match(/^Expires: (.+)$/m);
+  assert.ok(m, 'security.txt must carry an Expires field (RFC 9116)');
+  assert.ok(new Date(m[1]).getTime() > Date.now(), 'Expires must be in the future');
+});
+
+test('GET / embeds SoftwareApplication + FAQPage JSON-LD', async () => {
+  const r = await get('/');
+  assert.equal(r.status, 200);
+  const m = r.body.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+  assert.ok(m, 'landing must embed a JSON-LD block');
+  // The injected JSON must be parseable and must not contain a raw `<`
+  // (the </script>-breakout guard escapes it to <).
+  assert.doesNotMatch(m[1], /</);
+  const data = JSON.parse(m[1]);
+  const types = (data['@graph'] || []).map((n) => n['@type']);
+  assert.ok(types.includes('SoftwareApplication'), 'expected SoftwareApplication node');
+  assert.ok(types.includes('FAQPage'), 'expected FAQPage node');
+  const faq = data['@graph'].find((n) => n['@type'] === 'FAQPage');
+  assert.ok(faq.mainEntity.length >= 3, 'FAQ should carry the core Q&As');
+  assert.ok(faq.mainEntity.every((q) => q.acceptedAnswer && q.acceptedAnswer.text),
+    'every FAQ question needs an acceptedAnswer');
+});

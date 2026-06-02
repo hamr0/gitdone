@@ -257,11 +257,64 @@ router.get('/', async (req, res) => {
       </div>
     </div>
   `;
+  const base = publicBaseUrl();
+  // JSON-LD for agent/LLM extraction. SoftwareApplication describes the
+  // tool; FAQPage's answers are lifted verbatim by assistants — each one
+  // is grounded in copy visible on this page (no accounts / no api / no
+  // telemetry, DKIM-verified, OpenTimestamped, per-event git repo, verify
+  // offline with gitdone-verify) so the structured data stays honest.
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'SoftwareApplication',
+        name: 'signedreply',
+        alternateName: 'gitdone',
+        applicationCategory: 'BusinessApplication',
+        operatingSystem: 'Web, Email',
+        url: `${base}/`,
+        sameAs: 'https://github.com/hamr0/gitdone',
+        isAccessibleForFree: true,
+        offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+        description: 'Email-native multi-party workflow coordination with cryptographic proof of the reply sequence. No accounts, no API, no telemetry; proofs verify offline without the service.',
+      },
+      {
+        '@type': 'FAQPage',
+        mainEntity: [
+          {
+            '@type': 'Question',
+            name: 'Does signedreply require an account?',
+            acceptedAnswer: {
+              '@type': 'Answer',
+              text: 'No. It works entirely over email — no signup, no password, no REST API. You create an event and every participant just replies to a normal email.',
+            },
+          },
+          {
+            '@type': 'Question',
+            name: 'What does signedreply store, and what happens to attachments?',
+            acceptedAnswer: {
+              '@type': 'Answer',
+              text: 'Every reply is DKIM-verified, OpenTimestamped, and committed to a per-event git repository. Attachments are forwarded byte-for-byte to the event owner and never stored by the service. No accounts, no telemetry.',
+            },
+          },
+          {
+            '@type': 'Question',
+            name: 'Can I verify a proof without trusting the service?',
+            acceptedAnswer: {
+              '@type': 'Answer',
+              text: 'Yes. Every proof verifies offline with the open-source gitdone-verify CLI, which checks the DKIM signatures and OpenTimestamps against the git repository — you never have to trust or even reach signedreply.',
+            },
+          },
+        ],
+      },
+    ],
+  };
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(layout({
     title: 'signedreply — multi-party workflows over email, with cryptographic proof',
     description: 'Email-native multi-party workflow coordination with cryptographic proof of the reply sequence. No accounts, no API, no telemetry, open source.',
-    canonical: `${publicBaseUrl()}/`,
+    canonical: `${base}/`,
+    jsonLd,
     body,
   }));
 });
@@ -271,8 +324,20 @@ router.get('/', async (req, res) => {
 // the session-gated dashboard sit behind Disallow.
 router.get('/robots.txt', async (req, res) => {
   const base = publicBaseUrl();
-  res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=86400' });
-  res.end([
+  // The generic group keeps the gated surfaces out of crawl budget (they
+  // 303 to /manage anyway — the auth gate, not robots, is the real PII
+  // control). The named AI-crawler groups are an explicit, on-the-record
+  // decision (playbook tier 2.5): allow ALL of them — retrieval bots cite
+  // with a link back, and the training bots only ever see PII-free
+  // marketing copy that exists to spread. Verify the names against each
+  // vendor's published page before trusting them; they shift, and
+  // ClaudeBot is the *training* crawler (cite-live is Claude-User /
+  // Claude-SearchBot). A named group ignores the `*` group entirely, so
+  // these `Allow: /`-only stanzas deliberately give the bots the full
+  // public site; nothing they can reach is gated content.
+  const retrieval = ['Claude-User', 'Claude-SearchBot', 'OAI-SearchBot', 'ChatGPT-User', 'PerplexityBot'];
+  const training = ['ClaudeBot', 'GPTBot', 'CCBot'];
+  const lines = [
     'User-agent: *',
     'Allow: /',
     'Disallow: /manage/event/',
@@ -280,22 +345,75 @@ router.get('/robots.txt', async (req, res) => {
     'Disallow: /manage/verify',
     'Disallow: /events/',
     'Allow: /events/new',
-    `Sitemap: ${base}/sitemap.xml`,
     '',
-  ].join('\n'));
+    '# Retrieval / cite-live crawlers — they cite with a link back.',
+  ];
+  for (const ua of retrieval) lines.push(`User-agent: ${ua}`, 'Allow: /');
+  lines.push('', '# Training-corpus crawlers — public copy is meant to spread; every PII surface is auth-gated.');
+  for (const ua of training) lines.push(`User-agent: ${ua}`, 'Allow: /');
+  lines.push('', `Sitemap: ${base}/sitemap.xml`, '');
+  res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=86400' });
+  res.end(lines.join('\n'));
 });
 router.get('/sitemap.xml', async (req, res) => {
   const base = publicBaseUrl();
   const urls = ['/', '/events/new', '/crypto/new', '/manage'];
+  // <lastmod> as a YYYY-MM-DD proxy from this module's checkout mtime —
+  // git rewrites it on every deploy pull, so it advances when the routes
+  // (and thus the page copy) actually ship. Google uses <lastmod> to
+  // prioritise recrawls; <changefreq>/<priority> are documented no-ops, so
+  // they're omitted as noise (playbook tier 2).
+  let lastmod = '';
+  try { lastmod = `<lastmod>${fs.statSync(__filename).mtime.toISOString().slice(0, 10)}</lastmod>`; } catch {}
   const body = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-    ...urls.map((u) => `  <url><loc>${base}${u}</loc><changefreq>weekly</changefreq></url>`),
+    ...urls.map((u) => `  <url><loc>${base}${u}</loc>${lastmod}</url>`),
     '</urlset>',
     '',
   ].join('\n');
   res.writeHead(200, { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=86400' });
   res.end(body);
+});
+
+// Tier-2 discoverability: llms.txt — a curated, markdown, agent-facing
+// index (the privacy invariant up top, then links to the quote-worthy
+// pages). Low-cost include; major-crawler adoption is still partial.
+router.get('/llms.txt', async (req, res) => {
+  const base = publicBaseUrl();
+  res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=86400' });
+  res.end([
+    '# signedreply (gitdone)',
+    '',
+    '> Email-native multi-party workflow coordination with cryptographic proof of the reply sequence. No accounts, no API, no telemetry; every reply is DKIM-verified, OpenTimestamped, and committed to a per-event git repository, and proofs verify offline without the service.',
+    '',
+    '## Create',
+    `- [New workflow event](${base}/events/new): an auditable multi-party workflow — ordered, parallel, or a DAG of steps, each with a participant, a deadline, and dependencies.`,
+    `- [New crypto proof](${base}/crypto/new): a cryptographically timestamped signature — one declaration (single signer) or an attestation (N distinct signers).`,
+    '',
+    '## Manage',
+    `- [Manage your events](${base}/manage): sign in by email (magic link, no password) to manage existing events.`,
+    '',
+    '## Verify',
+    '- [gitdone-verify](https://github.com/hamr0/gitdone/tree/main/tools/gitdone-verify): offline CLI that verifies any event’s proofs (DKIM + OpenTimestamps) against its git repository, without touching the service.',
+    '',
+  ].join('\n'));
+});
+
+// RFC 9116 security.txt. Contact routes to the public issue tracker (no
+// email exposed); Expires is recomputed ~1y out on every request so it
+// never goes stale.
+router.get('/.well-known/security.txt', async (req, res) => {
+  const base = publicBaseUrl();
+  const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+  res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=86400' });
+  res.end([
+    'Contact: https://github.com/hamr0/gitdone/issues',
+    `Expires: ${expires}`,
+    'Preferred-Languages: en',
+    `Canonical: ${base}/.well-known/security.txt`,
+    '',
+  ].join('\n'));
 });
 
 // -------- event creation (workflow) --------

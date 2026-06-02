@@ -66,7 +66,7 @@ const THEME_COLOR = '#0d1117';
 const PUBLIC_BASE = (process.env.GITDONE_PUBLIC_URL || `https://${process.env.GITDONE_DOMAIN || 'signedreply.com'}`).replace(/\/+$/, '');
 const OG_IMAGE_URL = `${PUBLIC_BASE}/og.png`;
 
-function layout({ title, body, dev, devHUD, pageName, pageTagline, description, canonical, noindex }) {
+function layout({ title, body, dev, devHUD, pageName, pageTagline, description, canonical, noindex, jsonLd }) {
   // Auto-derive header from title when not explicitly given. Two title
   // shapes in the app:
   //   "<page> — signedreply" → name = "<page>",     no tagline (sub-pages)
@@ -103,6 +103,15 @@ function layout({ title, body, dev, devHUD, pageName, pageTagline, description, 
   seoTags.push(`<meta property="og:image:alt" content="${escapeHTML(SITE_NAME)} — ${escapeHTML(DEFAULT_DESCRIPTION.split('.')[0])}">`);
   seoTags.push(`<meta name="twitter:card" content="summary_large_image">`);
   seoTags.push(`<meta name="twitter:image" content="${escapeHTML(OG_IMAGE_URL)}">`);
+  // JSON-LD (schema.org) — pure declarative data, parsed not executed, so
+  // it stays on the open-web/no-tracker side. Highest-leverage signal for
+  // agent/LLM extraction. Routes that want it pass a plain object/array;
+  // we JSON.stringify and neutralise the only injection vector (`</script>`)
+  // by escaping `<` → <. Content here is static + trusted regardless.
+  if (jsonLd) {
+    const json = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
+    seoTags.push(`<script type="application/ld+json">${json}</script>`);
+  }
   return `<!doctype html>
 <html lang="en">
 <head>
