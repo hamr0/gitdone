@@ -72,9 +72,17 @@ SubDomains   yes
 `/etc/postfix/master.cf` — pipe transport:
 
 ```
-gitdone unix - n n - - pipe
-  flags=DRhu user=gitdone argv=/opt/gitdone/app/bin/receive.sh ${sender} ${recipient}
+gitdone unix - n n - 1 pipe
+  flags=R user=gitdone argv=/opt/gitdone/app/bin/receive.sh ${client_address} ${client_helo} ${sender} ${original_recipient}
 ```
+
+**The maxproc column MUST be `1`** (the `1` before `pipe`, not Postfix's default
+100). `receive.js` has no in-process locking around the per-event git repo or
+`events/<id>.json`; concurrency safety depends on Postfix serializing deliveries
+through this pipe. At `maxproc>1`, concurrent deliveries to the same event race
+the git `index.lock`/`nextSequence()` (lost replies, repo corruption) and the
+per-process 25 MB cap multiplies into a `maxproc*25 MB` memory ceiling. See the
+header comment in `app/bin/receive.sh`.
 
 `/etc/postfix/main.cf`:
 

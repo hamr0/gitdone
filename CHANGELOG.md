@@ -92,6 +92,33 @@ not the project name. Body prose, the `[signedreply]` proof-email subject
 lines, and every `signedreply.com` reference are unchanged — they describe
 the live product accurately. One-line change.
 
+### Security: outbound-header CRLF hardening + Postfix `maxproc=1` pinned (0.27.3)
+
+Hardening from a 2026-06-02 security review (integration-surface audit of the
+web server, inbound-mail pipeline, and storage/git layers). Two app/config fixes
+landed; the audit's lone Medium ("unbounded event creation") was re-confirmed as
+**already handled at the nginx edge** and needed no code (finding #52).
+
+- **CR/LF stripped from every outbound header value (`outbound.js`).**
+  `buildRawMessage` now sanitizes `From`/`To`/`Reply-To`, `In-Reply-To` /
+  `References` (which echo an inbound, attacker-controlled `Message-ID` on reply
+  acks), `Message-Id`, and `extraHeaders` — the same defense the `Subject` line
+  already had via `sanitizeSubject`. Not exploitable beforehand (`mailparser`
+  already drops CR/LF from parsed addresses), but the header path now carries its
+  own belt-and-braces instead of trusting an upstream guarantee. Test added.
+- **`maxproc=1` pinned in committed Postfix config.** `receive.js` has no
+  in-process locking around the per-event git repo / `events/<id>.json`;
+  correctness depends on Postfix serializing deliveries. The live box is correctly
+  `1`, but `receive.sh` and `deployment.md` both showed `-` (Postfix default 100)
+  — a rebuild from those would silently enable concurrent receivers (git
+  `index.lock` races, lost replies, a `maxproc×25 MB` memory ceiling). Both
+  references now pin and explain `1`.
+- **Rate-limiting — no change.** `POST /events`/`/crypto` are already per-IP
+  rate-limited at nginx (`limit_req rate=12r/m burst=6`, finding #42) and the
+  activation email runs through knowless's silent sham-work. An app-layer limiter
+  was prototyped and reverted as redundant, knob-heavy, and *less* stealthy than
+  nginx's opaque 429 — edge concerns stay at the edge.
+
 ### Fix: health checks no longer false-page on a shared-host load spike (0.26.9)
 
 **Reliability.** The pulselog health check ran every probe once with a 5s

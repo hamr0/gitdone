@@ -80,6 +80,19 @@ function sanitizeSubject(s) {
   return String(s == null ? '' : s).replace(/[\r\n]+/g, ' ');
 }
 
+// Strip CR/LF from a structured header value (addresses, message-id refs,
+// X-* extras) so no single emitted header line can be split into injected
+// ones. These values already arrive CR/LF-free in practice — addresses come
+// from Postfix-validated envelopes / mailparser addr-specs, ids are
+// server-generated — so this is defense-in-depth: the same boundary guarantee
+// sanitizeSubject gives the Subject line, applied to every other header that
+// interpolates non-constant data. Unlike subjects we remove (not space-fill):
+// a CR/LF in an addr-spec / msgid is corruption, and dropping it fails the
+// send loudly rather than silently widening the value.
+function sanitizeHeader(s) {
+  return String(s == null ? '' : s).replace(/[\r\n]+/g, '');
+}
+
 // Build a raw RFC-822 message from structured fields. Plaintext only.
 // NOTE: subjects are emitted as raw UTF-8 (no RFC 2047 encoded-words).
 // gitdone subjects routinely carry an em dash / middle dot (convention
@@ -98,25 +111,27 @@ function buildRawMessage({ from, to, subject, body, inReplyTo, references, autoS
     .replace(/\r\n/g, '\n')
     .replace(/\n/g, '\r\n');
   const lines = [];
-  lines.push(`From: ${from}`);
-  lines.push(`To: ${to}`);
-  if (replyTo) lines.push(`Reply-To: ${replyTo}`);
+  lines.push(`From: ${sanitizeHeader(from)}`);
+  lines.push(`To: ${sanitizeHeader(to)}`);
+  if (replyTo) lines.push(`Reply-To: ${sanitizeHeader(replyTo)}`);
   lines.push(`Subject: ${subject}`);
-  lines.push(`Message-Id: ${messageId || newMessageId(domain || 'signedreply.com')}`);
+  lines.push(`Message-Id: ${sanitizeHeader(messageId) || newMessageId(domain || 'signedreply.com')}`);
   lines.push(`Date: ${rfc5322Date()}`);
   if (autoSubmitted !== false) {
     // RFC 3834: auto-replied is the right value for a response to a
     // specific human message; auto-generated for pure notifications.
     lines.push(`Auto-Submitted: ${autoSubmitted || 'auto-replied'}`);
   }
-  if (inReplyTo) lines.push(`In-Reply-To: ${inReplyTo}`);
-  if (references) lines.push(`References: ${references}`);
+  // In-Reply-To / References echo the inbound message's Message-ID(s) — i.e.
+  // attacker-controlled on a reply ack — so strip CR/LF here too.
+  if (inReplyTo) lines.push(`In-Reply-To: ${sanitizeHeader(inReplyTo)}`);
+  if (references) lines.push(`References: ${sanitizeHeader(references)}`);
   lines.push('MIME-Version: 1.0');
   lines.push('Content-Type: text/plain; charset=utf-8');
   lines.push('Content-Transfer-Encoding: 8bit');
   if (extraHeaders) {
     for (const [name, value] of Object.entries(extraHeaders)) {
-      lines.push(`${name}: ${value}`);
+      lines.push(`${sanitizeHeader(name)}: ${sanitizeHeader(value)}`);
     }
   }
   lines.push(''); // header/body separator

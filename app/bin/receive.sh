@@ -2,9 +2,18 @@
 # Postfix pipe transport entry. Forwards envelope args to receive.js.
 # Configured in /etc/postfix/master.cf:
 #
-#   gitdone   unix - n n - - pipe
+#   gitdone   unix - n n - 1 pipe
 #     flags=R user=gitdone argv=/opt/gitdone/app/bin/receive.sh \
 #       ${client_address} ${client_helo} ${sender} ${original_recipient}
+#
+# SECURITY-CRITICAL: the maxproc column MUST be 1 (the `1` before `pipe`, not
+# the Postfix default of 100). receive.js has NO in-process locking around the
+# per-event git repo or events/<id>.json — concurrency safety relies entirely
+# on Postfix serializing deliveries one-at-a-time through this pipe. At
+# maxproc>1, two concurrent deliveries to the same event race nextSequence() and
+# the git index.lock (lost replies / repo corruption), and the per-process
+# 25 MB message cap multiplies into a ~maxproc*25 MB memory ceiling. Verified
+# live = 1; pinned here so a master.cf rebuild can't silently regress it.
 #
 # Resolves receive.js relative to this script so a rename/move of
 # /opt/gitdone -> /opt/gitdone.old doesn't silently break the pipe.

@@ -152,6 +152,15 @@ Live at **https://signedreply.com**. AlmaLinux 8 VPS at `104.129.2.254`;
 nginx `:443 → :3001`; Postfix pipe-transport `gitdone` user →
 `/opt/gitdone/app/bin/receive.sh`; opendkim selector `gd202606`.
 
+Two load-bearing edge/MTA security invariants (don't regress them): the
+Postfix `gitdone` pipe runs at **`maxproc=1`** — delivery serialization is
+what makes `receive.js`'s lock-free per-event git writes safe, so never raise
+it (pinned in `receive.sh`/`deployment.md`); and `POST /events`/`/crypto` are
+per-IP rate-limited **at nginx** (`limit_req zone=gitdone_create rate=12r/m
+burst=6`), the deliberate home for edge rate-limiting — not the app
+(PRD §10 findings #42/#52). The magic-link send itself stays silent via
+knowless's sham-work.
+
 Code lives at `/opt/gitdone/` as a git clone. App is under
 `/opt/gitdone/app/` (note the nested path; earlier deploys had files at
 the root). Data is separate at `/var/lib/gitdone/` — never in the code

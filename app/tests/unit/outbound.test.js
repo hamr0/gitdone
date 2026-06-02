@@ -44,6 +44,28 @@ test('buildRawMessage: emits required headers in CRLF', () => {
   assert.match(raw, /\r\nfeedback@signedreply\.com$/);
 });
 
+test('buildRawMessage: strips CR/LF from header values (no header injection)', () => {
+  const raw = buildRawMessage({
+    from: 'evil\r\nBcc: victim@example.com <a@signedreply.com>',
+    to: 'b@example.com\r\nBcc: leak@example.com',
+    replyTo: 'rt@x\r\nX-Injected: 1',
+    inReplyTo: '<id@x>\r\nX-Injected2: 2',
+    references: '<r@x>\r\nX-Injected3: 3',
+    subject: 'hi',
+    body: 'hello',
+    domain: 'signedreply.com',
+    extraHeaders: { 'X-GitDone-Evt': 'abc\r\nX-Injected4: 4' },
+  });
+  // None of the injected header names survive as their own header line.
+  for (const injected of ['Bcc:', 'X-Injected:', 'X-Injected2:', 'X-Injected3:', 'X-Injected4:']) {
+    assert.ok(!raw.includes(`\r\n${injected}`), `injected "${injected}" must not become a header line`);
+  }
+  // The header block (up to the blank separator) has exactly the lines we emit.
+  const headerBlock = raw.split('\r\n\r\n')[0];
+  assert.ok(!/\r\nBcc:/i.test(headerBlock));
+  assert.ok(headerBlock.includes('X-GitDone-Evt: abcX-Injected4: 4')); // CRLF removed, value collapsed
+});
+
 test('buildRawMessage: noSignature opt-out emits body verbatim', () => {
   const { buildRawMessage } = require('../../src/outbound');
   const raw = buildRawMessage({
