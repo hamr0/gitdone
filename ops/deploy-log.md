@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-06-02T11:15Z · `b7dcd82` · docs: record nginx conf.d backup cleanup (CHANGELOG 0.27.3 + PRD #52)
 - 2026-06-01T21:56Z · `570207a` · docs+fix(brand): centralize sender for sweep path; correct noreply routing notes
 - 2026-06-01T20:32Z · `b8e4501` · feat: rename git-done.com → signedreply.com (0.27.0)
 - 2026-06-01T12:52Z · `2963866` · fix(ops): health checks retry + 10s timeout, stop false-paging on load spikes (0.26.9)
