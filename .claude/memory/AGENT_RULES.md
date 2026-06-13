@@ -1,24 +1,40 @@
 # AI Agent Collaboration Guide
 
 ## Table of Contents
-1. [Communication Protocol](#communication-protocol)
-2. [Development Standards](#development-standards)
-3. [Testing Standards](#testing-standards)
-4. [Environment](#environment)
-5. [Development Workflow](#development-workflow)
-6. [Twelve-Factor Checklist](#twelve-factor-checklist)
-7. [CLAUDE.md Stub](#claudemd-stub)
-8. [AI Agent Instructions](#ai-agent-instructions)
+1. [Operating Flow](#operating-flow)
+2. [Communication Protocol](#communication-protocol)
+3. [Development Standards](#development-standards)
+4. [Testing Standards](#testing-standards)
+5. [Security & Robustness Invariants](#security--robustness-invariants)
+6. [Guardrails (Enforced, Not Requested)](#guardrails-enforced-not-requested)
+7. [Environment](#environment)
+8. [Development Workflow](#development-workflow)
+9. [Twelve-Factor Checklist](#twelve-factor-checklist)
+10. [CLAUDE.md Stub](#claudemd-stub)
+11. [AI Agent Instructions](#ai-agent-instructions)
+
+---
+
+## Operating Flow
+
+Every task runs through three layers. Do not skip ahead to code.
+
+1. **Spec — agree on intent before touching anything.** Interview me up front to surface the *real* goal and the context you can't see — prompt the **decision I'm trying to make**, not the literal task I typed. Break the scope into small buckets with checkpoints. **State the load-bearing structural and logic decisions and get my explicit sign-off *before* you execute.** A wrong assumption caught at spec stage costs a sentence; caught after building it costs the build.
+2. **Verify — define "good" up front, then prove it.** Write down what success looks like *before* changing code. Prove with measurement and tests, not assertion (see [*Prove, don't assert*](#validate-before-you-build)). Gate security-sensitive work with `/security` and pre-deploy with `/ship`; a second-model pass (`/code-review`) on non-trivial output is worth the round-trip. External signal — a real test run, a real deploy, a gold-standard reference — beats a confident paragraph every time.
+3. **Environment — the guardrails are enforced, not requested.** This file is the standing context that primes every session. Critical-path protections (secrets, auth, schema, CI) are enforced by a pre-tool hook on an **Always / Ask / Never** basis — see [Guardrails](#guardrails-enforced-not-requested). Where the hook isn't wired, the same rules still bind you.
+
+> The model is brilliant at execution and blind to intent. You can outsource the typing; you cannot outsource the understanding. Surface assumptions — don't bury them.
 
 ---
 
 ## Communication Protocol
 
 ### Core Rules
-- **Clarity First**: Always ask clarifying questions when requirements are ambiguous
-- **Fact-Based**: Base all recommendations on verified, current information
+- **Spec before build**: Don't wait for ambiguity to block you — interview me up front to extract the real goal and the context you can't see. Prompt the *decision*, not the literal task. Restate what you heard before building
+- **Checkpoint before executing**: State the load-bearing structural and logic decisions and get my explicit sign-off *before* you write code. Never run ahead on an unverified assumption — flag it and stop
+- **Fact-Based**: Base all recommendations on verified, current information. Prefer external signal (a real run, a real source) over a confident guess
 - **Simplicity Advocate**: Call out overcomplications and suggest simpler alternatives
-- **Safety First**: Never modify critical systems without explicit understanding and approval
+- **Safety First**: Never modify critical systems without explicit understanding and approval. Where the [guardrail hook](#guardrails-enforced-not-requested) is wired, this is enforced before the tool runs, not after
 
 ### User Profile
 - **Technical Level**: Non-coder but technically savvy
@@ -27,11 +43,13 @@
 - **Comfortable with**: Command-line operations and scripts
 - **Builds a lot of web apps** — assume any UI work will be consumed on phones as well as desktop
 
-### Required Safeguards
-- Always identify affected files before making changes
-- Never modify authentication systems without explicit permission
-- Never alter database schema without proper migration files
-- Explain what changes will be made and why
+### Required Safeguards (Always / Ask / Never)
+
+Not courtesies — where the [guardrail hook](#guardrails-enforced-not-requested) is wired these are enforced *before* the tool runs. When it isn't, they still bind you.
+
+- **Always** identify affected files before making changes, and explain what will change and why
+- **Ask first** — stop and get explicit sign-off — before modifying authentication systems, database schema or migrations, CI workflows, or `.claude/settings.json`
+- **Never** write secrets into the tree (`.env`/`*.env`, keys, credentials). They load from the environment at runtime; only a value-less `.env.example` is committed
 
 ---
 
@@ -40,8 +58,11 @@
 ### Validate Before You Build
 
 - **POC everything first.** Before committing to a design, build a quick proof-of-concept (~15 min) that validates the core logic. Keep it stupidly simple — manual steps are fine, hardcoded values are fine, no tests needed yet
-- **POC scope:** Cover the happy path and 2-3 common edge cases. If those work, the idea is sound
+- **POC scope:** Cover the happy path, 2-3 common edge cases, **and the riskiest assumption (see below) — not just the parts that are easy to check**. If those hold, the idea is sound
 - **Graduation criteria:** POC validates logic and covers most common scenarios → stop, design properly, then build with structure, tests, and error handling. Never ship the POC — rewrite it
+- **Aim the POC at the load-bearing claim — not the easy part.** Name the riskiest assumption first (does the cheap path actually run cheap? does the library really do X? does the perf hold?), then point the spike straight at *that*. A POC that confirms the happy-path shape while hand-waving the risky mechanism is theater. If you catch yourself writing "production would do X" instead of *doing* X in the spike, the POC has not validated X — go do X
+- **Prove, don't assert — a POC's output is evidence you ran, not prose you wrote.** Every claim the design rests on must be something the spike actually exercised and you actually observed. **Measure anything you call "cheap," "fast," "constant," or "negligible"** — never state a cost you didn't time; a guessed number is a bug with a confident voice. State conclusions only at the confidence the evidence supports: if you didn't test it, say so plainly instead of rounding up to "it works." Better a small honest finding than a big-mouthed claim that measurement later falsifies
+- **The test must be able to FAIL — pre-flight check, not an afterthought.** Before trusting a POC's numbers, confirm three things: **(1) Can the test produce the negative?** A fixture you authored to contain the phenomenon you're testing can only confirm it — prefer real, uncrafted data over synthetic inputs; if synthetic is unavoidable, construct it so it *could* show no effect. **(2) Is the harness free of confounds?** A surprising or degenerate result is often an artifact of the setup, not a real finding — when output looks wrong, debug the test before believing it. **(3) Did the test actually exercise the variable?** If two conditions that should differ produce identical output, the variable isn't wired in — that's a finding, not noise. Run this checklist every time, especially when a result confirms what you hoped
 - **Build incrementally.** After POC graduates, break the work into small, independent modules. Focus on one at a time. Each piece must work on its own before integrating with the next
 
 ### Dependency Hierarchy
@@ -84,6 +105,8 @@ Before adding any external dependency, all of these must be true:
 - Frameworks where a library or stdlib would suffice
 - Vendor-specific implementations when open alternatives exist
 - Skipping POC validation for unproven ideas
+- POC-ing only the easy part while hand-waving the risky mechanism, or claiming a cost ("cheap"/"fast"/"constant") you never measured
+- Authoring a fixture/corpus that *guarantees* the result (a test that can't return the negative), or trusting a degenerate-looking number without auditing the harness for confounds — use real uncrafted data; the test must be able to fail
 
 ---
 
@@ -197,6 +220,35 @@ Also hold the line on: input validation at every trust boundary (untrusted uploa
 
 ---
 
+## Guardrails (Enforced, Not Requested)
+
+A prompt rule is a request the model can rationalise past. For anything that actually matters — secrets, auth, schema — don't rely on soft instruction. Enforce it with a **pre-tool hook** that intercepts the call *before* it runs and decides on an **Always / Ask / Never** basis:
+
+- **Never** — writing `.env`/`*.env`, keys, or credential files is blocked outright (secrets load from the environment, never the tree). Destructive shell (`rm -rf` of a root-ish target, redirecting into a secret) is blocked too.
+- **Ask** — touching auth, DB schema/migrations, CI workflows, or `.claude/settings.json` forces a human confirmation. Same for force-push / push to a default branch.
+- **Always / allow** — everything else proceeds through the normal permission flow; the hook stays out of the way.
+
+The reference implementation ships in this repo at [`.claude/hooks/guardrails.py`](.claude/hooks/guardrails.py) — stdlib only, no deps, fails open on a malformed event so it can never wedge the agent. The Never/Ask lists are constants at the top; **tune them per project**. To wire it up, add to the project's `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          { "type": "command", "command": "python3 .claude/hooks/guardrails.py" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The hook is the hard line; the prose rules above are why it exists. Keep them in sync — when you tighten one, tighten the other.
+
+---
+
 ## Environment
 
 - **OS**: Fedora Linux (use `dnf` for packages, `systemctl` for services)
@@ -247,7 +299,7 @@ Copy this to any project's CLAUDE.md. These are mandatory rules, not suggestions
 ```markdown
 ## Dev Rules
 
-**POC first.** Always validate logic with a ~15min proof-of-concept before building. Cover happy path + common edges. POC works → design properly → build with tests. Never ship the POC.
+**POC first.** Always validate logic with a ~15min proof-of-concept before building. Cover happy path + common edges. POC works → design properly → build with tests. Never ship the POC. **Aim the spike at the riskiest assumption, not the easy part; prove, don't assert — measure anything you call "cheap"/"fast"/"constant," and claim only what the evidence supports (no big-mouthed conclusions measurement can falsify). The test must be able to FAIL: prefer real uncrafted data over a fixture you authored to contain the result, audit a degenerate number for harness confounds before believing it, and treat two should-differ conditions that match as a finding.**
 
 **Build incrementally.** Break work into small independent modules. One piece at a time, each must work on its own before integrating.
 
@@ -267,11 +319,11 @@ For full development and testing standards, see `.claude/memory/AGENT_RULES.md`.
 ## AI Agent Instructions
 
 When working with this user:
-1. **Always verify** you understand the requirements before proceeding
+1. **Interview before building** — extract the real goal and surface load-bearing decisions for sign-off before you execute (see [Operating Flow](#operating-flow))
 2. **Provide step-by-step** instructions with clear explanations
 3. **Include ready-to-run** scripts and commands
 4. **Explain the "why"** behind technical recommendations
-5. **Flag potential issues** before they become problems
+5. **Flag potential issues** before they become problems — name the assumption, don't bury it
 6. **Suggest simpler alternatives** when appropriate
-7. **Never modify** authentication or database schema without explicit permission
+7. **Ask first** before touching auth, DB schema/migrations, CI, or settings; **never** commit secrets — enforced by the [guardrail hook](#guardrails-enforced-not-requested) where wired
 8. **Always identify** which files will be affected by changes
