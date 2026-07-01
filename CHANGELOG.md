@@ -153,6 +153,24 @@ trackers, no scripts, consistent with §0.1.5 (no telemetry). Every change is a
 - Tests: +5 (named crawlers, lastmod, llms.txt, security.txt, JSON-LD shape);
   632 green.
 
+### Fix: two health checks false-paged — `ots-backlog` walk + `cert` TLS timeout (0.27.5)
+
+**Reliability.** Two pulselog checks in `ops/pulselog/pulselog.config.json`
+were false-alerting. Both were bugs in *our config*, not pulselog.
+
+- **`ots-backlog`** reported `exit 1 (timeout)`: its `find` walked every
+  per-event repo's `.git/objects/**`, so it blew pulselog's 10s command
+  default and got killed before finishing — a *false* backlog signal (there was
+  none; 53 repos). Now prunes `.git` (real `.ots` proofs only live in the
+  `ots_proofs/` working tree) and carries `timeoutMs: 30000`. The walk now runs
+  in ~0.03s and returns 0.
+- **`cert`** intermittently timed out on the 5s default during shared-host load
+  spikes (a real TLS handshake to the public host, out through nginx). Given
+  `timeoutMs: 15000`, consistent with the 0.26.9 anti-false-page intent.
+
+Deployed (166e7f7); full suite (632) + smoke passed; health check verified
+green on the box (`pulselog … → exit 0`).
+
 ### Fix: health checks no longer false-page on a shared-host load spike (0.26.9)
 
 **Reliability.** The pulselog health check ran every probe once with a 5s
