@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-07-01T20:32Z · `166e7f7` · fix(ops): stop false health pages — prune .git in ots-backlog walk, widen cert TLS timeout
 - 2026-06-02T13:14Z · `d445be8` · feat: agent/LLM discoverability — JSON-LD, named AI crawlers, llms.txt, security.txt
 - 2026-06-02T11:15Z · `b7dcd82` · docs: record nginx conf.d backup cleanup (CHANGELOG 0.27.3 + PRD #52)
 - 2026-06-01T21:56Z · `570207a` · docs+fix(brand): centralize sender for sweep path; correct noreply routing notes
