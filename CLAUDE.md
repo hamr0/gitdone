@@ -55,8 +55,9 @@ no telemetry, invisible beats correct, proofs outlive the service.
   Happy path + edges. POC works → design → build with tests. Never ship
   the POC.
 - **Incremental modules.** One small piece at a time, each working on
-  its own before integrating. Phase 1 tracks modules in
-  `docs/04-process/phase1-plan.md`.
+  its own before integrating. (Phase 1 is complete; its execution plan
+  has been retired — `CHANGELOG.md` + `docs/01-product/prd.md` are the
+  current record of what shipped.)
 - **Dependency hierarchy (strict):** vanilla JS → Node stdlib → external
   only when stdlib can't do it in <100 lines. External deps must be
   maintained, lightweight, widely adopted. Exception: always use vetted
@@ -112,7 +113,7 @@ tools/gitdone-verify/   # offline CLI
 docs/
   00-context/    # background
   01-product/    # prd.md, design/event-form-v1.md
-  04-process/    # phase1-plan.md
+  04-process/    # deploy.md, deployment.md
 poc/             # throwaway proofs-of-concept
 ```
 
@@ -233,9 +234,13 @@ running the `design-lab` skill:
 
 - Index: `docs/README.md`.
 - PRD: `docs/01-product/prd.md`.
-- Phase 1 plan: `docs/04-process/phase1-plan.md`.
 - Deployment + ops runbook: `docs/04-process/deployment.md`.
 - Home-server backup: `ops/homeserver/README.md` +
   `ops/homeserver/FEDERVER_INSTALL.md`.
 - Changelog: `CHANGELOG.md`.
 - Memory: `.claude/memory/MEMORY.md`.
+
+<!-- MEMORY:START -->
+@.claude/memory/MEMORY.md
+<!-- MEMORY:END -->
+

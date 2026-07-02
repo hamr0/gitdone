@@ -15,6 +15,27 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Docs: 5-tier documentation prune (housekeeping)
+
+Reorganised `docs/` down to the 14 files that carry current signal;
+removed pre-rewrite (v1) and pre-terminal-theme material describing an
+architecture GitDone no longer has (Express/Next/Postgres/Docker/JWT/
+SendGrid). No product or behaviour change — recover anything from git
+history.
+
+- Removed the 17-file `docs/archive/` tier, the three stale
+  `docs/04-process/{dev-workflow,definition-of-done,llm-prompts}.md`
+  (old stack), three never-used `03-logs` scaffold stubs, and
+  `phase1-plan.md` (Phase 1 complete; `CHANGELOG.md` + PRD are the
+  record now).
+- Merged the still-live form conventions (inline dropdown explanations,
+  the no-JS "+ add row" GET pattern, `datetime-local`, compact step
+  table, `.vf-errors` block) into
+  `docs/01-product/design/terminal-theme-v1.md`.
+- Marked PRD finding #41 (`ots upgrade` automation) **shipped** — points
+  at `app/bin/ots-upgrade.js` + `gitdone-ots-upgrade.timer`.
+- Updated `CLAUDE.md` and `docs/README.md` pointers to match.
+
 ### Change: domain rename git-done.com → signedreply.com (0.27.0)
 
 **Hard rename.** The service moved from `git-done.com` to **signedreply.com**;

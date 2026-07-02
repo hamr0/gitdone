@@ -67,6 +67,36 @@ they clash.
   small 82×82px accent. Don't repeat it on other pages — the landing
   earns it as the "entry" moment.
 
+## Form conventions
+
+Interaction/content patterns for forms — palette-independent, carried
+forward from the pre-theme Design Lab work (merged here from the retired
+`DESIGN_MEMORY.md`). All verified live in `app/bin/server.js` /
+`app/src/web/templates.js`.
+
+- **Inline dropdown explanations.** Every `<option>` carries an em-dash
+  description (`accumulating — every email counts`, `verified — strict
+  DKIM + DMARC`). Users repeatedly flagged this as what makes the form
+  self-explanatory — keep it on any new `<select>`.
+- **"+ add row" without JavaScript.** Repeated-row entry (the step table)
+  grows via `<button type="submit" formaction="/events/new"
+  formmethod="GET" name="_add_step" value="1">`; submitting GETs the same
+  page with all current values in the query string, so the server
+  re-renders with one more row (`_remove_step` removes one). No client JS.
+  Reuse this for any add/remove-row UI.
+- **`datetime-local`** for time-sensitive fields (deadlines), never bare
+  `date`.
+- **Compact step table.** Borderless inputs inside `vf-steps-table`; the
+  input border appears on focus and a row-hover tint reveals field edges —
+  avoids the visual weight of per-row `<fieldset>`s.
+- **Error block at the top.** `.vf-errors` — one block above the form
+  (`#0d1117` bg, `#f85149` left rule, `#f0b8b8` text), uppercase label,
+  bulleted one-line-per-error list. PRD §0.1.4: point at what to fix in
+  one line, no field-by-field wall.
+
+Dense-grid / segmented-control-mode-row / dim-in-place conditional-field
+patterns for short (~6-field) forms live in `landing-and-crypto-v1.md`.
+
 ## Motion
 
 - Transitions: 120ms on bg/color only. No transforms, no scale effects.

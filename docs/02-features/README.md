@@ -16,5 +16,3 @@ Most feature-level detail is in two places:
 
 This directory will fill as independent features (per-reply
 receipts, auto-reminders, trust-weighted completion) land in Phase 2.
-Pre-v2 feature-level docs from the earlier product shape live under
-`docs/archive/v1-*`.

@@ -20,20 +20,18 @@ docs/
 │   └── README.md            (empty until Phase 2 features land)
 ├── 03-logs/         MEMORY
 │   ├── decisions-log.md     architectural decisions + rationale
-│   ├── implementation-log.md milestones
-│   ├── bug-log.md
-│   ├── validation-log.md
 │   └── insights.md          lessons learned
 ├── 04-process/      HOW to work with the system
-│   ├── phase1-plan.md       Phase 1 execution plan
 │   ├── deploy.md            ops/deploy.sh contract — every check, why
-│   ├── deployment.md        VPS install + ops runbook
-│   ├── dev-workflow.md
-│   ├── definition-of-done.md
-│   └── llm-prompts.md       guidelines for AI agents
-└── archive/         v1-era docs preserved for reference
-    └── v1-*.md              (pre-rewrite product shape)
+│   └── deployment.md        VPS install + ops runbook
 ```
+
+> The day-to-day work log lives in `.claude/memory/` + `.claude/stash/`
+> and `CHANGELOG.md`, not in `03-logs/` — the empty milestone/bug/
+> validation scaffolds were removed. `03-logs/` keeps only the two
+> docs that carry real content (decisions + insights). Pre-rewrite
+> (v1) and pre-terminal-theme docs are no longer kept in-tree;
+> recover them from git history if ever needed.
 
 ## Quick links
 
@@ -45,14 +43,5 @@ docs/
 - Want to **operate the host**: `04-process/deployment.md` +
   `../ops/homeserver/README.md`.
 - Want to **contribute**: `../CLAUDE.md` (agent rules) +
-  `04-process/definition-of-done.md`.
+  `.claude/memory/AGENT_RULES.md` (full standards).
 - Want to **see what shipped**: `../CHANGELOG.md`.
-
-## About the archive
-
-Files under `archive/v1-*` describe GitDone *before* the Phase 1
-rewrite (magic-link-per-participant auth, Postgres, SMTP client,
-Playwright, React/Vite frontend). None of that is in the current
-product — the rewrite replaced it with email-native + DKIM + git +
-OTS. Archived rather than deleted so the history is recoverable if
-we ever re-explore one of those directions.
