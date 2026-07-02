@@ -74,3 +74,11 @@ app/dev-feedback.log
 # POC build artifacts (throwaway; app/package-lock.json stays tracked)
 poc/**/package-lock.json
 poc/**/node_modules/
+
+# Local tooling artifacts (regenerable / ephemeral; never committed)
+# - litectx SQLite index + WAL (multi-MB binary cache)
+# - raw session stashes and friction-analysis scratch; the durable
+#   record is the tracked .claude/memory/ consolidation, not these.
+.litectx/
+.claude/stash/
+.claude/friction/
