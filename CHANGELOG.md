@@ -171,6 +171,28 @@ were false-alerting. Both were bugs in *our config*, not pulselog.
 Deployed (166e7f7); full suite (632) + smoke passed; health check verified
 green on the box (`pulselog … → exit 0`).
 
+### Change: adopt `flightlog` 0.6.0 + `pulselog` 0.6.0 — fatal errors reach the journal (0.27.6)
+
+**Observability.** Pulled in the two upstream improvements the 0.27.5 incident
+review drove (see `docs/04-process/prd-upstream-observability-2026-07-01.md`).
+Version bumps only — no gitdone code change; API unchanged.
+
+- **`flightlog` `^0.3.0` → `^0.6.0`** (`app/`). A **fatal** uncaught exception or
+  rejection now also emits one line to **stderr** before `exit(1)`
+  (`flightlog: fatal <kind> — <name>: <message> (recorded to <file>)`), so the
+  cause shows up in `journalctl`/`docker logs` — not only in `errors.jsonl`. Fires
+  on `exitOnUncaught` (everywhere) and `exitOnRejection` (`receive.js`,
+  `ots-upgrade.js`); the long-lived server's log-only rejection path is untouched.
+  0.6.0 also neutralizes terminal control sequences in the breadcrumb (no forged
+  journal lines). The full record still lands in the JSONL sink.
+- **`pulselog` `^0.4.1` → `^0.6.0`** (`ops/pulselog/`). A `command` check killed by
+  timeout now reads `timeout after Ns` (matching `tcp`/`ssl`/`disk`/`service`)
+  instead of the misleading `exit 1 (timeout)`; a genuine non-zero exit is unchanged.
+
+Verified: app suite 632 green; fatal-breadcrumb + timeout-label smoke-tested
+locally. **Deploy note:** `flightlog` ships via `deploy.sh`'s app `npm ci`;
+`pulselog` under `ops/pulselog/` still needs a manual `npm ci` on the box.
+
 ### Fix: health checks no longer false-page on a shared-host load spike (0.26.9)
 
 **Reliability.** The pulselog health check ran every probe once with a 5s

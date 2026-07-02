@@ -190,8 +190,12 @@ logs-and-stays-up on stray rejections. NB: flightlog's boot writability
 probe is fatal *by default* — if `logs/` is unwritable at boot, `receive.js`
 exits non-zero and Postfix **defers** the message (queued/retried, not lost),
 self-healing once fixed. It self-creates under the already-owned data dir.
-flightlog 0.3.0 has a `bootCheck: false` knob to degrade instead of throw, but
+flightlog has a `bootCheck: false` knob to degrade instead of throw, but
 we keep the default: for a mail pipe defer-and-retry beats deliver-blind.
+Since `flightlog ^0.6.0` a **fatal** uncaught/rejection (the `exitOnUncaught`
+paths everywhere + `exitOnRejection` in `receive.js`/`ots-upgrade.js`) also
+emits one line to stderr before `exit(1)` — so the cause reaches `journalctl`,
+not only `errors.jsonl` (the full record still lands in the JSONL sink).
 
 Backup runs off-VPS on federver (daily 04:15 UTC) via
 `ops/homeserver/gitdone-backup.sh` — pulls events/repos/dkim/cert/env
