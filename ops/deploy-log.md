@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-07-02T06:52Z · `5699c61` · feat(ops): adopt flightlog 0.6.0 + pulselog 0.6.0 (fatal errors reach the journal)
 - 2026-07-01T20:32Z · `166e7f7` · fix(ops): stop false health pages — prune .git in ots-backlog walk, widen cert TLS timeout
 - 2026-06-02T13:14Z · `d445be8` · feat: agent/LLM discoverability — JSON-LD, named AI crawlers, llms.txt, security.txt
 - 2026-06-02T11:15Z · `b7dcd82` · docs: record nginx conf.d backup cleanup (CHANGELOG 0.27.3 + PRD #52)
