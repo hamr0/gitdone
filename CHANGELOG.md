@@ -15,6 +15,39 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Security
+
+- **`knowless` ^1.3.0 → ^1.3.4, and the repo-global `nodemailer` override
+  raised ^8.0.7 → ^9.0.3.** These two are one change, not two: an npm
+  `overrides` block applies to *every* consumer in the tree, so gitdone's
+  `nodemailer: ^8.0.7` pin — added in `0d8611c` to raise mailauth's
+  transitive floor when 8.0.7 *was* the fix — silently held knowless's own
+  `^9.0.3` range back down. The advisories have since widened to cover
+  `<=9.0.0`, so the line that used to raise the floor was now holding it
+  down. Bumping knowless without moving the override would have been a
+  no-op. Clears four High advisories (GHSA-p6gq-j5cr-w38f,
+  GHSA-268h-hp4c-crq3, GHSA-wqvq-jvpq-h66f, GHSA-r7g4-qg5f-qqm2). The
+  override stays — it is still load-bearing for mailauth, which pins
+  nodemailer exactly; dropping it would let the tree resolve back down.
+  **Not an incident:** gitdone injects its own sendmail-backed mailer
+  (`app/src/auth-mailer.js`), so knowless's nodemailer transport is never
+  exercised, and mailauth/mailparser touch nodemailer only for
+  `lib/addressparser` (still present in 9.0.3) — none of the four
+  advisories were reachable in gitdone's runtime. Hygiene, not a fix.
+- **knowless 1.3.4 hardening absorbed** (no API change): per-IP login rate
+  caps now bind under concurrency (check-and-reserve is atomic, so
+  concurrent `/manage` logins from one IP can no longer all read a stale
+  count), a failed SQLite `COMMIT` rolls back instead of wedging the
+  connection, and the sham-recipient path does equal DB work to the real
+  path (closing a faint timing/enumeration signal). gitdone's Mode A
+  (`bypassRateLimit: true`) is unaffected; Mode B now rate-limits as
+  documented.
+- Residual `npm audit`: 5 advisories (3 high) remain, all in mailauth /
+  mailparser transitives — `undici` (fixed in 7.28.0), `linkify-it` (fixed
+  via mailparser ≥3.9.9), `joi` (fixed in mailauth 4.13.3). Deliberately
+  out of scope for this pass; they touch DKIM/MIME parsing and are tracked
+  for a separate dependency-refresh commit.
+
 ### Changed
 
 - **Agent/IDE scratch gitignored and de-tracked.** `.gitignore` now default-denies every dot-directory (`.*/`), re-admitting only what ships (`.github/`). Per-machine agent/IDE state (`.claude/`, `.litectx/`, `.idea/`, …) regenerates locally and only added noise and churn; any already-committed copies are removed from tracking (local files kept on disk). Repo hygiene only.
