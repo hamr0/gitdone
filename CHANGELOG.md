@@ -42,11 +42,26 @@ internal refactors and commit-level churn stay in `git log`.
   path (closing a faint timing/enumeration signal). gitdone's Mode A
   (`bypassRateLimit: true`) is unaffected; Mode B now rate-limits as
   documented.
-- Residual `npm audit`: 5 advisories (3 high) remain, all in mailauth /
-  mailparser transitives — `undici` (fixed in 7.28.0), `linkify-it` (fixed
-  via mailparser ≥3.9.9), `joi` (fixed in mailauth 4.13.3). Deliberately
-  out of scope for this pass; they touch DKIM/MIME parsing and are tracked
-  for a separate dependency-refresh commit.
+- **`mailauth` ^4.6.0 → ^4.13.3, `mailparser` ^3.6.0 → ^3.9.14, `undici`
+  override ^7.23.0 → ^7.28.0** — the separate DKIM/MIME dependency-refresh
+  pass promised above. Clears the last 5 advisories (3 high), all
+  transitives: `undici` 7 highs (mailauth pinned 7.25.0, still in range;
+  7.28.0 is the same-major patched release), `linkify-it` high (via
+  mailparser's `linkify-it` 5.0.2), `joi` moderate (via mailauth's `joi`
+  18.2.1). `npm audit` is now **0 vulnerabilities**. Kept as its own commit
+  because it moves the DKIM verifier and MIME parser; gated on the full
+  632-test suite (which DKIM-signs a fixture, pipes it through `receive.js`,
+  and verifies the offline proof bundle) — all green, no behaviour change.
+  Stayed on undici 7.x rather than the 8.x major, which requires Node
+  ≥22.19 and is a larger surface than an advisory fix warrants.
+- **`GITDONE_SESSION_SECRET` rotation hazard documented at the check site**
+  (`app/src/auth.js`). knowless derives every stored identity as
+  `deriveHandle(email) = HMAC-SHA256(secret, email)`, and the *same* secret
+  signs session cookies — so rotating it like an ordinary cookie key
+  silently re-derives every handle and existing events stop resolving to
+  their owners, with no error. Comment only; no code change. It was already
+  "persist per-deploy" in CLAUDE.md — this pins *why* at the point someone
+  would be tempted to rotate it.
 
 ### Changed
 

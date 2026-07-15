@@ -63,8 +63,11 @@ test('npm overrides: nodemailer >= 9.0.3', () => {
     `nodemailer ${v} < 9.0.3 — security override leaked, restore overrides in app/package.json`);
 });
 
-test('npm overrides: undici >= 7.23.0', () => {
+// Floor raised 7.23.0 -> 7.28.0: mailauth 4.13.3 pins undici 7.25.0, which is
+// still in the advisory range (<=7.27.2); 7.28.0 is the same-major patched
+// release that clears it. Bumping mailauth alone doesn't reach it.
+test('npm overrides: undici >= 7.28.0', () => {
   const v = resolvedVersion('undici');
-  assert.ok(gte(v, '7.23.0'),
-    `undici ${v} < 7.23.0 — security override leaked, restore overrides in app/package.json`);
+  assert.ok(gte(v, '7.28.0'),
+    `undici ${v} < 7.28.0 — security override leaked, restore overrides in app/package.json`);
 });

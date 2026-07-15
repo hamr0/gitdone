@@ -35,6 +35,14 @@ async function _bootstrap() {
   // HMACs are only as strong as this key. The documented contract is 64
   // hex chars (32 bytes); knowless enforces ≥64 internally, so this just
   // surfaces the error at boot with an actionable message (audit M4).
+  //
+  // DO NOT ROTATE this like an ordinary cookie key. knowless derives every
+  // stored identity as deriveHandle(email) = HMAC-SHA256(secret, email)
+  // (knowless/src/handle.js). The same secret both signs session cookies AND
+  // keys that HMAC, so changing it silently re-derives every handle: existing
+  // events stop resolving to their owners and no error is raised. It must be
+  // persisted per-deploy (backed up at `pass gitdone/vps/session_secret`) and
+  // treated as permanent for the life of the data, not a rotatable credential.
   if (!/^[0-9a-f]{64}$/i.test(secret)) {
     throw new Error('GITDONE_SESSION_SECRET must be 64 hex chars (32 bytes)');
   }
