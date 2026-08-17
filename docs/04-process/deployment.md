@@ -235,6 +235,29 @@ sudo certbot --nginx -d signedreply.com
 sudo systemctl enable --now nginx
 ```
 
+> **Cert renewal MUST reload nginx — set the `renew_hook` (2026-08-17).**
+> certbot renews the cert *to disk*, but a long-running nginx keeps serving
+> the cert it loaded at its last start until something reloads it. With no
+> post-renewal hook, every silent renewal sat unused and the served cert went
+> stale while disk was fresh — the §10.1 health check reads the *served* cert
+> (`443`), so it paged "cert expires in 13d" even though certbot had already
+> renewed to 73d. Fix is a per-cert reload hook, **not** a re-issue:
+> ```bash
+> # one line under [renewalparams] in the renewal conf:
+> #   renew_hook = systemctl reload nginx
+> sudo sed -i '/^\[renewalparams\]/a renew_hook = systemctl reload nginx' \
+>   /etc/letsencrypt/renewal/signedreply.com.conf
+> sudo certbot renew --cert-name signedreply.com --dry-run   # expect "simulated renewals succeeded"
+> sudo systemctl reload nginx                                # picks up any already-renewed cert now
+> ```
+> This host is shared: the same hook is set on the co-tenant `ownsub.com`
+> renewal conf too (the only other certbot cert on the box). The hooks live
+> **only on the box** — they are not version-controlled — so **re-add them
+> after any host rebuild or `/etc/letsencrypt` restore**, or renewals will
+> silently stop reloading nginx again. `certbot renew` also applies a random
+> delay of up to ~12 min; add `--no-random-sleep-on-renew` for an immediate
+> manual dry-run.
+
 ## 10. Monitoring & alerts
 
 Local checks run every 15 min from a systemd timer; VPS-down detection
