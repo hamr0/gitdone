@@ -15,6 +15,28 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Ops
+
+- **TLS cert auto-reload gap closed — health-check false page fixed.** The
+  15-min health timer paged that signedreply.com's cert was "13d from expiry
+  (warn <14d)". certbot had in fact **already renewed** it — the cert on disk
+  was valid to Oct 29 (73d) — but nginx was still serving the stale cert it
+  loaded at its last start, because **no post-renewal reload hook existed**.
+  So every silent renewal went to disk and nginx never picked it up; the
+  health check (which reads the *served* cert, not the disk one) correctly
+  caught the drift. Fix, on the VPS (no repo/code change):
+  - Reloaded nginx → now serves the Oct 29 cert; alert clears on next run.
+  - Added `renew_hook = systemctl reload nginx` to **both** certbot renewal
+    confs on this shared host — `signedreply.com` **and** the co-tenant
+    `ownsub.com` (the only two certbot certs on the box; `plato`/`terribic`
+    don't terminate TLS here, so the box is now fully covered). Backups at
+    `*.conf.bak-prehook`. Chose per-cert hooks over a global
+    `renewal-hooks/deploy/` reload to avoid changing behaviour for anything
+    that isn't a real cert.
+  - Verified both with `certbot renew --dry-run` (staging): "all simulated
+    renewals succeeded" for signedreply.com (+mail,+www) and ownsub.com
+    (+www). Future renewals (~Sep 29) now reload nginx automatically.
+
 ### Security
 
 - **`knowless` ^1.3.0 → ^1.3.4, and the repo-global `nodemailer` override
