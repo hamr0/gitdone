@@ -189,12 +189,12 @@ We don't pretend there's zero trust; we try to make it visible.
 
 ## Docs
 
-- [PRD](docs/01-product/prd.md) — what it is, what it isn't, why.
-- [Email system](docs/01-product/emails.md) — every email signedreply
+- [PRD](docs/product/prd.md) — what it is, what it isn't, why.
+- [Email system](docs/product/emails.md) — every email signedreply
   sends, with full taxonomy tree, end-to-end.
-- [Design references](docs/01-product/design/) — terminal theme,
+- [Design references](docs/product/) — terminal theme,
   proof surfacing, frozen UI specs.
-- [Deploy](docs/04-process/deploy.md) — `ops/deploy.sh` contract.
+- [Deploy](docs/wiki/deploy.md) — `ops/deploy.sh` contract.
 - [Changelog](CHANGELOG.md) — what shipped, newest first.
 - Source: <https://github.com/hamr0/gitdone>.
 
