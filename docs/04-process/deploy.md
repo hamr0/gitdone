@@ -327,8 +327,8 @@ deps of `mailauth` past advisories that mailauth itself hadn't fixed:
 | Override | Pinned to | Reason |
 |---|---|---|
 | `fast-xml-parser` | `^5.7.3` | entity-expansion bypass (CVE-2026-26278 incomplete fix), CDATA injection |
-| `nodemailer` | `^8.0.7` | SMTP CRLF injection in `envelope.size` and EHLO/HELO |
-| `undici` | `^7.23.0` | WebSocket length overflow, `upgrade` CRLF injection, deduplication-handler memory DoS |
+| `nodemailer` | `^10.2.1` | nodemailer advisories (floor raised 8.0.7 → 9.0.3 → 10.2.1 as they widened; now covers ≤10.0.9). Repo-global: it also overrides `knowless`'s own range, so raise the floor together with a knowless bump (knowless 1.3.5 declares `^10.2.1`) |
+| `undici` | `^7.28.0` | WebSocket length overflow, `upgrade` CRLF injection, deduplication-handler memory DoS |
 
 Watch for: a mailauth release whose `dependencies` (per `npm view
 mailauth dependencies`) list versions that meet or exceed all three

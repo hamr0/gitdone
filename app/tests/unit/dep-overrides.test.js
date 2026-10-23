@@ -53,14 +53,14 @@ test('npm overrides: fast-xml-parser >= 5.7.3', () => {
     `fast-xml-parser ${v} < 5.7.3 — security override leaked, restore overrides in app/package.json`);
 });
 
-// Floor raised 8.0.7 -> 9.0.3: the nodemailer advisories widened to cover
-// <=9.0.0, so the old floor stopped clearing them. The override is repo-global,
-// so it also caps knowless (which declares ^9.0.3) — leaving it at ^8.0.7 would
-// silently hold knowless's own security bump down.
-test('npm overrides: nodemailer >= 9.0.3', () => {
+// Floor raised 8.0.7 -> 9.0.3 -> 10.2.1, each time because the nodemailer
+// advisories widened past the old floor (now <=10.0.9). The override is
+// repo-global, so it also caps knowless (1.3.5 declares ^10.2.1): a stale floor
+// silently holds knowless's own security bump down.
+test('npm overrides: nodemailer >= 10.2.1', () => {
   const v = resolvedVersion('nodemailer');
-  assert.ok(gte(v, '9.0.3'),
-    `nodemailer ${v} < 9.0.3 — security override leaked, restore overrides in app/package.json`);
+  assert.ok(gte(v, '10.2.1'),
+    `nodemailer ${v} < 10.2.1 — security override leaked, restore overrides in app/package.json`);
 });
 
 // Floor raised 7.23.0 -> 7.28.0: mailauth 4.13.3 pins undici 7.25.0, which is

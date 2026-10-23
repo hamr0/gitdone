@@ -15,6 +15,31 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Security: knowless 1.3.5 + nodemailer override ^10.2.1 (0.27.7)
+
+**Dependencies.** `knowless` `^1.3.4` → `^1.3.5` (`app/`) together with the
+repo-global `overrides.nodemailer` `^9.0.3` → `^10.2.1`. They had to move
+together: knowless 1.3.5 raises its own nodemailer range to `^10.2.1`, but our
+override outranks a dependency's range, so bumping knowless alone would have
+left nodemailer on 9.x. The `dep-overrides` test floor rises to 10.2.1 with them.
+
+- **Clears the nodemailer advisories (<=10.0.9).** None were reachable in
+  gitdone: it injects its own sendmail mailer, and `mailauth`/`mailparser` use
+  only `nodemailer/lib/addressparser`.
+- **nodemailer 10 is a TypeScript rewrite.** `require('nodemailer/lib/addressparser')`
+  still resolves, through an explicit `./lib/addressparser` export, to a plain
+  function. Full suite 632/632, including the DKIM-signed e2e proof and MIME
+  fixtures.
+- **knowless 1.3.5 changes nothing under `src/`** — only its nodemailer range moved.
+- **Behaviour note.** Quoted local parts and nested comments now parse correctly
+  instead of to garbage. A harmless improvement.
+- **Docs.** The override-floor table in `docs/04-process/deploy.md` is corrected
+  (nodemailer, plus the already-stale `undici` row).
+
+`npm audit` still reports pre-existing advisories this release doesn't touch:
+`simple-git` (critical), `undici`, `joi`, `deepmerge-ts`. A review judged them
+unreachable from gitdone; the `simple-git` 4.x bump is tracked separately.
+
 ### Ops
 
 - **TLS cert auto-reload gap closed — health-check false page fixed.** The
