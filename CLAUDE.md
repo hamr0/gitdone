@@ -46,7 +46,7 @@ inbound reply is DKIM-verified, OpenTimestamped, and committed to a
 per-event git repository. Proofs verify offline via `gitdone-verify`
 without the gitdone service.
 
-Principles (§0.1 of `docs/01-product/prd.md`): no accounts, no REST API,
+Principles (§0.1 of `docs/product/prd.md`): no accounts, no REST API,
 no telemetry, invisible beats correct, proofs outlive the service.
 
 ## Dev Rules
@@ -56,7 +56,7 @@ no telemetry, invisible beats correct, proofs outlive the service.
   the POC.
 - **Incremental modules.** One small piece at a time, each working on
   its own before integrating. (Phase 1 is complete; its execution plan
-  has been retired — `CHANGELOG.md` + `docs/01-product/prd.md` are the
+  has been retired — `CHANGELOG.md` + `docs/product/prd.md` are the
   current record of what shipped.)
 - **Dependency hierarchy (strict):** vanilla JS → Node stdlib → external
   only when stdlib can't do it in <100 lines. External deps must be
@@ -146,7 +146,7 @@ poc/             # throwaway proofs-of-concept
 Deploy with `ops/deploy.sh` — full pre-flight (clean tree, on main,
 pushed, lockfile, deps, Node compat, full test suite), then loads the
 SSH key from `pass gitdone/vps/ssh_key_federver` and ships. Tests are
-not skippable. See `docs/04-process/deploy.md` for the contract;
+not skippable. See `docs/wiki/deploy.md` for the contract;
 `deployment.md` is for host-level work the script doesn't automate.
 
 Live at **https://signedreply.com**. AlmaLinux 8 VPS at `104.129.2.254`;
@@ -209,7 +209,7 @@ The site-wide visual language is the retro-terminal theme — charcoal
 bg, JetBrains Mono, CRT green `#3fb950` for actions, amber `#ffb000`
 for emphasis/links, no border-radius on structural elements. Full
 palette tokens, typography rules, and five invariants:
-`docs/01-product/design/terminal-theme-v1.md`. Frozen references for
+`docs/product/terminal-theme-v1.md`. Frozen references for
 specific surfaces live alongside it:
 - `event-form-v1.md` (workflow form layout)
 - `landing-and-crypto-v1.md` (landing + crypto form; superseded
@@ -228,13 +228,13 @@ running the `design-lab` skill:
 - The server loads the lab on-demand at `/__design_lab` only when `--dev`
   is set AND `.claude-design/lab/` exists. Finalize by porting the chosen
   variant into the live route in `server.js`, writing a frozen reference
-  under `docs/01-product/design/`, deleting `.claude-design/`.
+  under `docs/product/`, deleting `.claude-design/`.
 
 ## Documentation
 
 - Index: `docs/README.md`.
-- PRD: `docs/01-product/prd.md`.
-- Deployment + ops runbook: `docs/04-process/deployment.md`.
+- PRD: `docs/product/prd.md`.
+- Deployment + ops runbook: `docs/wiki/deployment.md`.
 - Home-server backup: `ops/homeserver/README.md` +
   `ops/homeserver/FEDERVER_INSTALL.md`.
 - Changelog: `CHANGELOG.md`.
@@ -247,5 +247,10 @@ running the `design-lab` skill:
 <!-- AGENT_RULES:START -->
 Consult when building something new or adding a feature — a standards guide, not hot
 context like MEMORY.md above:
-@.claude/remember/AGENT_RULES.md
+.claude/remember/AGENT_RULES.md
 <!-- AGENT_RULES:END -->
+
+<!-- DOCS_INDEX:START -->
+Docs map: `docs/index.md` — every doc in this project, with line counts.
+Search this corpus instead of reading it whole: `/docs-builder search <query words>`
+<!-- DOCS_INDEX:END -->

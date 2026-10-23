@@ -7,10 +7,10 @@ sibling directories.
 
 Most feature-level detail is in two places:
 
-- **`docs/01-product/prd.md`** — authoritative spec. Sections 4–7
+- **`docs/product/prd.md`** — authoritative spec. Sections 4–7
   cover event types, participant experience, initiator experience,
   and cryptographic guarantees.
-- **`docs/01-product/design/`** — frozen UI references for specific
+- **`docs/product/`** — frozen UI references for specific
   surfaces (`terminal-theme-v1.md`, `event-form-v1.md`,
   `landing-and-crypto-v1.md`).
 

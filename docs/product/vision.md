@@ -50,5 +50,5 @@ offline, forever, with no gitdone server involved.
 ## Status
 
 Phase 1 shipped to production (https://git-done.com) on 2026-04-20.
-See `CHANGELOG.md` for what landed; see `docs/01-product/prd.md` for
+See `CHANGELOG.md` for what landed; see `docs/product/prd.md` for
 the authoritative specification.
