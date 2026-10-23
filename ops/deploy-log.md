@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-10-23T15:14Z · `6d9b891` · Merge pull request #3 from hamr0/deps/knowless-1.3.5
 - 2026-07-15T10:01Z · `2d2d8eb` · security(deps): mailauth 4.13.3 + mailparser 3.9.14 + undici override 7.28.0 — audit clean
 - 2026-07-14T11:35Z · `e5a1271` · security(deps): knowless 1.3.4 + move nodemailer override 8.0.7 -> 9.0.3
 - 2026-07-02T06:52Z · `5699c61` · feat(ops): adopt flightlog 0.6.0 + pulselog 0.6.0 (fatal errors reach the journal)
