@@ -122,13 +122,13 @@ change, then come back to the app deploy.
 cd app && npm test
 ```
 
-The same gate runs on every PR commit and every push to `main` in GitHub Actions
-(`.github/workflows/ci.yml`: `npm ci` → `npm audit --omit=dev
---audit-level=high` → `npm test` → `node --test
+A superset of this gate runs on every PR commit and every push to `main`
+in GitHub Actions (`.github/workflows/ci.yml`: `npm ci` → `npm audit
+--omit=dev --audit-level=high` → `npm test` → `node --test
 tools/gitdone-verify/tests/verify.test.js`), so a dependency bump (e.g. a
-Dependabot PR) fails before merge rather than at deploy. There is no
-branch protection on `main`, so CI is advisory until a branch rule
-requires it.
+Dependabot PR) shows red before merge rather than at deploy. `main` is
+protected (1 review, linear history, no force-push) but has no required
+status check, so a red CI run does not block merge.
 
 Final gate before anything touches the VPS. Output is captured to
 `/tmp/gitdone-deploy-tests.log`; on failure the script tails the last
