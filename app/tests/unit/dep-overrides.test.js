@@ -1,7 +1,7 @@
 'use strict';
 
 // Smoke test for the npm `overrides` block in app/package.json.
-// We pin floor versions of fast-xml-parser, nodemailer, and undici to
+// We pin floor versions of fast-xml-parser, joi, nodemailer, and undici to
 // clear advisories that mailauth's transitive deps drag in. If npm
 // resolves a lower version (e.g. someone removes the override before
 // upstream catches up), this test fails LOUDLY.
@@ -63,11 +63,20 @@ test('npm overrides: nodemailer >= 10.2.1', () => {
     `nodemailer ${v} < 10.2.1 — security override leaked, restore overrides in app/package.json`);
 });
 
-// Floor raised 7.23.0 -> 7.28.0: mailauth 4.13.3 pins undici 7.25.0, which is
-// still in the advisory range (<=7.27.2); 7.28.0 is the same-major patched
-// release that clears it. Bumping mailauth alone doesn't reach it.
-test('npm overrides: undici >= 7.28.0', () => {
+// Floor raised 7.23.0 -> 7.28.0 -> 7.30.1: mailauth 4.13.3 pins undici 7.25.0,
+// which is in the advisory range; 7.30.1 is the same-major patched release that
+// clears it. Bumping mailauth alone doesn't reach it.
+test('npm overrides: undici >= 7.30.1', () => {
   const v = resolvedVersion('undici');
-  assert.ok(gte(v, '7.28.0'),
-    `undici ${v} < 7.28.0 — security override leaked, restore overrides in app/package.json`);
+  assert.ok(gte(v, '7.30.1'),
+    `undici ${v} < 7.30.1 — security override leaked, restore overrides in app/package.json`);
+});
+
+// joi 18.0.0-18.3.0 is in the advisory range and arrives only transitively via
+// mailauth. 18.3.1 is the same-major patch; npm's suggested "fix" (downgrading
+// mailauth) is wrong, so the override is the floor.
+test('npm overrides: joi >= 18.3.1', () => {
+  const v = resolvedVersion('joi');
+  assert.ok(gte(v, '18.3.1'),
+    `joi ${v} < 18.3.1 — security override leaked, restore overrides in app/package.json`);
 });

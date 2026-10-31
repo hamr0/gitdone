@@ -1,0 +1,39 @@
+# PR / main gate: npm ci -> prod dependency audit -> test -> offline verifier tests.
+# Web-app variant of CI_TEMPLATE.md, minus typecheck/build: plain CommonJS, no tsc, no bundler.
+# Added after Dependabot PR #5 (simple-git 4) merged with no CI and broke 51 tests;
+# nothing ran before merge. All tests are hermetic (own tmp dirs and git identities,
+# env set in-test), so the workflow needs no extra env or secrets.
+# Triggers: push is limited to main and pull_request is unfiltered, so each PR commit gets
+# exactly one run (no push+PR double run) and main is re-checked after merge. A branch
+# therefore gets CI only once a PR is open.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+        working-directory: app
+      # Fails on high/critical advisories in prod deps (the simple-git RCE class that
+      # slipped through the Dependabot bump would have been caught here). Before the
+      # suite: cheapest failure first.
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: app
+      - run: npm test
+        working-directory: app
+      # tools/gitdone-verify is dependency-free and not covered by app's npm test.
+      - run: node --test tools/gitdone-verify/tests/verify.test.js

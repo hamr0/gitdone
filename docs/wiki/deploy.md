@@ -122,10 +122,18 @@ change, then come back to the app deploy.
 cd app && npm test
 ```
 
+A superset of this gate runs on every PR commit and every push to `main`
+in GitHub Actions (`.github/workflows/ci.yml`: `npm ci` → `npm audit
+--omit=dev --audit-level=high` → `npm test` → `node --test
+tools/gitdone-verify/tests/verify.test.js`), so a dependency bump (e.g. a
+Dependabot PR) shows red before merge rather than at deploy. `main` is
+protected (1 review, linear history, no force-push) but has no required
+status check, so a red CI run does not block merge.
+
 Final gate before anything touches the VPS. Output is captured to
 `/tmp/gitdone-deploy-tests.log`; on failure the script tails the last
-30 lines so you don't have to dig. The current suite is 393 cases and
-runs in ~14s — there is intentionally no skip flag because the cost
+30 lines so you don't have to dig. The current suite is 633 cases and
+runs in ~1 min — there is intentionally no skip flag because the cost
 of waiting is far less than the cost of shipping a regression.
 
 ### Deploy (remote)
@@ -328,10 +336,11 @@ deps of `mailauth` past advisories that mailauth itself hadn't fixed:
 |---|---|---|
 | `fast-xml-parser` | `^5.7.3` | entity-expansion bypass (CVE-2026-26278 incomplete fix), CDATA injection |
 | `nodemailer` | `^10.2.1` | nodemailer advisories (floor raised 8.0.7 → 9.0.3 → 10.2.1 as they widened; now covers ≤10.0.9). Repo-global: it also overrides `knowless`'s own range, so raise the floor together with a knowless bump (knowless 1.3.5 declares `^10.2.1`) |
-| `undici` | `^7.28.0` | WebSocket length overflow, `upgrade` CRLF injection, deduplication-handler memory DoS |
+| `joi` | `^18.3.1` | advisory range 18.0.0–18.3.0, arrives only via `mailauth`; npm's suggested fix (downgrade mailauth) is wrong, so the override is the floor |
+| `undici` | `^7.30.1` | WebSocket length overflow, `upgrade` CRLF injection, deduplication-handler memory DoS (floor raised 7.28.0 → 7.30.1; `mailauth` 4.13.3 pins 7.25.0) |
 
 Watch for: a mailauth release whose `dependencies` (per `npm view
-mailauth dependencies`) list versions that meet or exceed all three
+mailauth dependencies`) list versions that meet or exceed all four
 pins above. When that lands, **delete the `overrides` block** in
 `app/package.json` and run `npm install && npm audit && npm test`. If
 audit stays clean, ship the cleanup as a one-line commit.
