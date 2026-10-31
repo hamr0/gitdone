@@ -214,7 +214,7 @@ test('backfill script: stale repos get re-synced, idempotent on second run', asy
     assert.equal(afterB.completion.status, 'complete');
 
     // Second run: idempotent — no new commits.
-    const simpleGit = require('simple-git');
+    const { simpleGit } = require('simple-git');
     const logBeforeA = await simpleGit(path.join(tmp, 'repos', 'bfA')).log();
     const r2 = await runBackfill(tmp);
     assert.equal(r2.code, 0, r2.stderr);

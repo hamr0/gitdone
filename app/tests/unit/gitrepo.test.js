@@ -34,7 +34,7 @@ test('initRepoIfNeeded: creates fresh repo with event.json first commit', async 
     assert.equal((await fs.stat(path.join(r.root, d))).isDirectory(), true);
   }
   // a commit exists in git history
-  const simpleGit = require('simple-git');
+  const { simpleGit } = require('simple-git');
   const git = simpleGit(r.root);
   const log = await git.log();
   assert.equal(log.total, 1);
@@ -113,7 +113,7 @@ test('commitReply: writes commit-NNN.json (v2 schema) and creates a git commit',
   assert.match(r2.file, /^commits\/commit-002\.json$/);
 
   // Git log has 3 commits: initial + 2 replies
-  const simpleGit = require('simple-git');
+  const { simpleGit } = require('simple-git');
   const log = await simpleGit(r.repo_path).log();
   assert.equal(log.total, 3);
 });
@@ -264,7 +264,7 @@ test('syncEventJson: no commit when event.json bytes match HEAD', async () => {
   const { initRepoIfNeeded, syncEventJson, repoPath } = require('../../src/gitrepo');
   const event = { id: 'syncA', title: 'Sync A', steps: [] };
   await initRepoIfNeeded('syncA', event);
-  const simpleGit = require('simple-git');
+  const { simpleGit } = require('simple-git');
   const before = (await simpleGit(repoPath('syncA')).log()).total;
 
   // Same event object — bytes will match what initRepoIfNeeded wrote.
@@ -280,7 +280,7 @@ test('syncEventJson: commits when event content changes', async () => {
   const { initRepoIfNeeded, syncEventJson, repoPath } = require('../../src/gitrepo');
   const event = { id: 'syncB', title: 'Sync B', steps: [] };
   await initRepoIfNeeded('syncB', event);
-  const simpleGit = require('simple-git');
+  const { simpleGit } = require('simple-git');
   const before = (await simpleGit(repoPath('syncB')).log()).total;
 
   const updated = { ...event, title: 'Sync B (updated)', activated_at: '2026-05-06T00:00:00Z' };
@@ -340,7 +340,7 @@ test('syncEventJson: rejects bad event ids (path-traversal guard)', async () => 
 // byte-strict check with a content-strict one.
 test('syncEventJson: byte-strict — reordered keys serialize differently and commit', async () => {
   const { initRepoIfNeeded, syncEventJson, repoPath } = require('../../src/gitrepo');
-  const simpleGit = require('simple-git');
+  const { simpleGit } = require('simple-git');
   // Build two objects with the same content but different insertion order.
   const eventAB = { id: 'syncOrder', title: 'Order Test', steps: [] };
   const eventBA = { title: 'Order Test', id: 'syncOrder', steps: [] };

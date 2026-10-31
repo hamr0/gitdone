@@ -243,7 +243,7 @@ test('integration: 1.C — matched reply is committed to event git repo', async 
     assert.match(out.git_commit.file, /^commits\/commit-001\.json$/);
 
     // Inspect repo: should have 2 commits (init + reply)
-    const simpleGit = require('simple-git');
+    const { simpleGit } = require('simple-git');
     const repoDir = path.join(tmp, 'repos', 'demoA');
     const log = await simpleGit(repoDir).log();
     assert.equal(log.total, 2);
@@ -292,7 +292,7 @@ test('integration: 1.C — second reply increments sequence', async () => {
     assert.equal(o1.git_commit.sequence, 1);
     assert.equal(o2.git_commit.sequence, 2);
 
-    const simpleGit = require('simple-git');
+    const { simpleGit } = require('simple-git');
     const log = await simpleGit(path.join(tmp, 'repos', 'demoB')).log();
     assert.equal(log.total, 3); // init + 2 replies
   } finally {
