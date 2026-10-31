@@ -122,7 +122,7 @@ change, then come back to the app deploy.
 cd app && npm test
 ```
 
-The same gate runs on every push and PR in GitHub Actions
+The same gate runs on every PR commit and every push to `main` in GitHub Actions
 (`.github/workflows/ci.yml`: `npm ci` → `npm audit --omit=dev
 --audit-level=high` → `npm test` → `node --test
 tools/gitdone-verify/tests/verify.test.js`), so a dependency bump (e.g. a
@@ -132,8 +132,8 @@ requires it.
 
 Final gate before anything touches the VPS. Output is captured to
 `/tmp/gitdone-deploy-tests.log`; on failure the script tails the last
-30 lines so you don't have to dig. The current suite is 393 cases and
-runs in ~14s — there is intentionally no skip flag because the cost
+30 lines so you don't have to dig. The current suite is 633 cases and
+runs in ~1 min — there is intentionally no skip flag because the cost
 of waiting is far less than the cost of shipping a regression.
 
 ### Deploy (remote)

@@ -1,12 +1,16 @@
-# Push / PR gate: npm ci -> prod dependency audit -> test -> offline verifier tests.
+# PR / main gate: npm ci -> prod dependency audit -> test -> offline verifier tests.
 # Web-app variant of CI_TEMPLATE.md, minus typecheck/build: plain CommonJS, no tsc, no bundler.
 # Added after Dependabot PR #5 (simple-git 4) merged with no CI and broke 51 tests;
 # nothing ran before merge. All tests are hermetic (own tmp dirs and git identities,
 # env set in-test), so the workflow needs no extra env or secrets.
+# Triggers: push is limited to main and pull_request is unfiltered, so each PR commit gets
+# exactly one run (no push+PR double run) and main is re-checked after merge. A branch
+# therefore gets CI only once a PR is open.
 name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
