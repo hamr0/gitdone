@@ -15,6 +15,36 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Fix: simple-git 4 import + security floors, CI gate (0.27.8)
+
+**What broke.** Dependabot PR #5 (merged with no CI) bumped `simple-git`
+3.36.0 → 4.0.1, `mailparser` `^3.9.14` → `^3.14.1`, `deepmerge-ts` 7 → 8 and the
+`undici` override `^7.28.0` → `^7.30.1`. simple-git 4's `require()` returns an
+object, not a callable, so every per-event git write in `app/src/gitrepo.js`
+threw (51 of 632 tests red). It never deployed — prod stayed on v0.27.7. This
+release is the first to ship that bump, now working.
+
+- **Fix.** `gitrepo.js` uses the named import `{ simpleGit }`. `simple-git`
+  `^4.0.2` (with `@simple-git/argv-parser` 2.0.1) clears the two critical
+  advisories the 0.27.7 note left open.
+- **joi advisory.** New `overrides.joi` `^18.3.1` clears the high joi advisory
+  that arrives via `mailauth`. npm's suggested fix, downgrading `mailauth`,
+  was rejected. The `dep-overrides` test now floors joi ≥ 18.3.1 and undici
+  ≥ 7.30.1. `npm audit --omit=dev` reports 0.
+- **mailparser 3.14.1.** Changelog reviewed: hardening of untrusted-mail
+  parsing. RFC 2231 parameter handling changed in 3.12.3 (attachment
+  filenames); no fixture covers non-ASCII RFC 2231 filenames, so that path is
+  untested here.
+- **CI gate.** New `.github/workflows/ci.yml` (per `CI_TEMPLATE`): `npm ci` →
+  `npm audit --omit=dev --audit-level=high` → `npm test` → offline verifier
+  tests, `contents: read`, on push to `main` and every PR. `main` is protected
+  (review, linear history) but has no required status check yet, so CI warns
+  and does not block.
+- **Docs.** `docs/wiki/deploy.md`: override-floor table, CI gate, and suite
+  size (633 cases, about a minute).
+
+Full suite 633/633.
+
 ### Security: knowless 1.3.5 + nodemailer override ^10.2.1 (0.27.7)
 
 **Dependencies.** `knowless` `^1.3.4` → `^1.3.5` (`app/`) together with the
