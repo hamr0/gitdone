@@ -1,6 +1,6 @@
 # GitDone — Deployment Guide
 
-**Stack:** Fedora Linux, Node.js ≥18 (vanilla `node:http`), Postfix, opendkim,
+**Stack:** AlmaLinux 8, Node.js ≥22.12 (vanilla `node:http`), Postfix, opendkim,
 nginx, systemd. No PM2, no bundler, no frontend framework.
 
 **Topology:** one VPS, one environment (`signedreply.com`). Local laptop
@@ -15,7 +15,9 @@ Runbook at the bottom.
 
 ## 1. Prerequisites
 
-- VPS: Fedora 40+, 2 GB RAM, 20 GB disk. Current VPS IP: `104.129.2.254`.
+- VPS: AlmaLinux 8 (8.10 live; earlier drafts of this page said Fedora 40+ —
+  the commands are the same `dnf`/systemd ones), 1 vCPU / 1 GB shared host.
+  Current VPS IP: `104.129.2.254`.
 - DNS (Route 53, hosted zone `signedreply.com`):
   - `A   signedreply.com              → 104.129.2.254`
   - `MX  signedreply.com              10 mail.signedreply.com.`
@@ -26,7 +28,11 @@ Runbook at the bottom.
 
 ## 2. System packages
 
+On AlmaLinux 8, `opendkim`/`opendkim-tools` come from **EPEL** (enabled on the
+live box), not BaseOS/AppStream — enable it first. Node: see §11.4.
+
 ```bash
+sudo dnf install -y epel-release
 sudo dnf install -y \
   nodejs git \
   postfix opendkim opendkim-tools \
@@ -55,17 +61,45 @@ Production code is read-only to `gitdone`; data/logs are writable.
 
 ## 5. Outbound DKIM (opendkim)
 
-Selector `gd202606` already live. For reference:
+Selector `gd202606` already live. The box signs for **several domains**
+(signedreply.com plus co-tenants), so opendkim runs the multi-domain
+KeyTable/SigningTable form, not a single `Domain`/`Selector`/`KeyFile`.
+Live config (read from the box 2026-11-11):
 
 ```
-# /etc/opendkim.conf
-Domain       signedreply.com
-Selector     gd202606
-KeyFile      /etc/opendkim/keys/signedreply.com/gd202606.private
-Socket       inet:8891@localhost
-Mode         sv
-SubDomains   yes
+# /etc/opendkim.conf (relevant lines)
+Mode                sv
+Socket              inet:8891@127.0.0.1
+UserID              opendkim:opendkim
+Umask               002
+Canonicalization    relaxed/relaxed
+OversignHeaders     From
+SigningTable        refile:/etc/opendkim/SigningTable
+KeyTable            refile:/etc/opendkim/KeyTable
+ExternalIgnoreList  refile:/etc/opendkim/TrustedHosts
+InternalHosts       refile:/etc/opendkim/TrustedHosts
 ```
+
+```
+# /etc/opendkim/SigningTable  — one line per signing domain
+*@signedreply.com  gd202606._domainkey.signedreply.com
+
+# /etc/opendkim/KeyTable
+gd202606._domainkey.signedreply.com  signedreply.com:gd202606:/etc/opendkim/keys/signedreply.com/gd202606.private
+```
+
+Keys live under `/etc/opendkim/keys/<domain>/`, owned `opendkim:opendkim`,
+`.private` mode 0600; `/etc/opendkim/keys` is 0750. Adding a domain or
+rotating a selector = new KeyTable line + SigningTable mapping +
+`systemctl reload opendkim` (no `opendkim.conf` edit).
+
+**Signed headers.** No `SignHeaders` is set, so OpenDKIM's default list
+applies. A real outbound signature on this box (test 2026-11-11) was
+`h=From:To:Subject:Date:From` — **Message-ID, MIME-Version and
+Content-Type are not signed**; Date is; `From` appears twice because of
+`OversignHeaders From`. gitdone's proofs come from inbound replies' own
+signatures, so this doesn't affect them; set `SignHeaders` explicitly if
+outbound Message-ID ever needs to be bound.
 
 ## 6. Postfix
 
@@ -87,13 +121,38 @@ header comment in `app/bin/receive.sh`.
 `/etc/postfix/main.cf`:
 
 ```
-mydestination = localhost
-virtual_alias_domains =
+myhostname = mail.signedreply.com
+mydomain = signedreply.com
+myorigin = $mydomain
+mydestination = $myhostname, localhost
+inet_protocols = ipv4
+virtual_mailbox_domains = signedreply.com
+virtual_mailbox_maps = static:nothing     # catch-all: every recipient is "known"
 virtual_transport = gitdone
-smtpd_milters = inet:localhost:8891
-non_smtpd_milters = inet:localhost:8891
+virtual_alias_maps = hash:/etc/postfix/virtual   # §6.1, resolved before the pipe
+transport_maps = hash:/etc/postfix/transport
+smtpd_milters = inet:127.0.0.1:8891
+non_smtpd_milters = inet:127.0.0.1:8891
 milter_default_action = accept
+message_size_limit = 10485760
+smtpd_tls_security_level = may
+smtp_tls_security_level = may
 ```
+
+Notes (live box, 2026-11-11):
+- `mydestination` includes `localhost`, so mail to `root@localhost` is
+  delivered locally to `/var/mail/root` (root has no alias/forward) —
+  handy for on-box signing tests without touching the pipe.
+- `virtual_alias_domains` also lists co-tenant domains; that is the
+  co-tenants' config, not gitdone's.
+- `smtpd_tls_cert_file`/`key_file` point at `/etc/pki/tls/certs/postfix.pem`
+  / `/etc/pki/tls/private/postfix.key` (the distro path), **not** the
+  Let's Encrypt cert; certbot's renewal hooks reload only nginx. Opportunistic
+  inbound TLS still works; pointing Postfix at the LE cert would need a
+  deploy hook that also reloads Postfix.
+- No IPv6 address on the host; `inet_protocols = ipv4` keeps it that way.
+- `message_size_limit` is the outer bound; `receive.js` also caps stdin at
+  25 MB.
 
 ```bash
 sudo systemctl enable --now opendkim postfix
