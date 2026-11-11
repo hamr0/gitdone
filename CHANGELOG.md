@@ -15,6 +15,25 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Docs: deployment guide matches the live mail server
+
+`docs/wiki/deployment.md` drifted from the box. It now records what
+signedreply.com actually runs, read from the box on 2026-11-11:
+
+- **OS.** AlmaLinux 8 (was "Fedora 40+"); opendkim comes from EPEL.
+- **OpenDKIM.** The multi-domain KeyTable/SigningTable/TrustedHosts form
+  (was a single-key `Domain`/`Selector`/`KeyFile` example), key ownership
+  and modes, and selector rotation as a table edit plus reload.
+- **Signed headers.** The default list signs `From:To:Subject:Date` (From
+  oversigned); Message-ID, MIME-Version and Content-Type are not signed.
+  Proofs rely on inbound replies' own signatures, so nothing changes for them.
+- **Postfix `main.cf`.** The real catch-all (`virtual_mailbox_domains` +
+  `virtual_mailbox_maps = static:nothing`), `mydestination = $myhostname,
+  localhost`, milters on `127.0.0.1:8891`, IPv4-only, and a note that Postfix
+  serves the distro TLS certificate, not the Let's Encrypt one.
+
+No code or config changed.
+
 ### Fix: simple-git 4 import + security floors, CI gate (0.27.8)
 
 **What broke.** Dependabot PR #5 (merged with no CI) bumped `simple-git`
