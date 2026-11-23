@@ -25,3 +25,11 @@ security@signedreply.com         avoidaccess@gmail.com
 # User-feedback inbox — published in the standard outbound signature
 # (see SIGNATURE in app/src/outbound.js).
 feedback@signedreply.com         avoidaccess@gmail.com
+
+# ownsub.com (co-tenant; listed in virtual_alias_domains) — role address.
+postmaster@ownsub.com            avoidaccess@gmail.com
+
+# DMARC aggregate (rua) reports for both domains → local Maildir via
+# /etc/postfix/aliases-dmarc (see ops/postfix/README.md). Not forwarded.
+dmarc@signedreply.com            dmarc@localhost
+dmarc@ownsub.com                 dmarc@localhost

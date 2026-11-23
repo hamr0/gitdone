@@ -13,10 +13,12 @@ Run on the VPS after deploying the repo.
 sudo install -d -m 0700 -o gitdone -g gitdone /var/lib/gitdone/dmarc \
   /var/lib/gitdone/dmarc/new /var/lib/gitdone/dmarc/cur /var/lib/gitdone/dmarc/tmp
 
-# 2. Route the rua addresses to the local alias (append to /etc/postfix/virtual;
-#    keep the existing entries), then rebuild the map
-printf 'dmarc@signedreply.com dmarc@localhost\ndmarc@ownsub.com dmarc@localhost\n' \
-  | sudo tee -a /etc/postfix/virtual
+# 2. Route the rua addresses to the local alias. ops/postfix/virtual is the
+#    source of truth (matches the box as of 2026-11-23, plus the two dmarc@
+#    lines); diff before installing, then rebuild the map
+sudo diff /etc/postfix/virtual /opt/gitdone/ops/postfix/virtual   # expect only the dmarc@ lines (+ ordering/comments)
+sudo cp -a /etc/postfix/virtual /etc/postfix/virtual.bak-$(date +%Y%m%d-%H%M%S)
+sudo install -m 0644 /opt/gitdone/ops/postfix/virtual /etc/postfix/virtual
 sudo postmap /etc/postfix/virtual
 
 # 3. Alias file OWNED BY gitdone, then build the .db and chown it too.
