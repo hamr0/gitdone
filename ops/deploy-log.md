@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-11-23T20:27Z · `ccd3392` · Merge pull request #14 from hamr0/feat/dmarc-pulselog
 - 2026-11-23T08:35Z · `6c14f09` · Merge pull request #10 from hamr0/chore/fast-xml-parser-5.12
 - 2026-10-31T21:52Z · `6d2bb65` · Merge pull request #6 from hamr0/fix/simple-git-4
 - 2026-10-23T15:14Z · `6d9b891` · Merge pull request #3 from hamr0/deps/knowless-1.3.5

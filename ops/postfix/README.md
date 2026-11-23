@@ -26,7 +26,9 @@ sudo postmap /etc/postfix/virtual
 #    privileges; a root-owned DB means default_privs=nobody, which cannot write
 #    into the 0750 gitdone data dir.
 sudo install -m 0644 -o gitdone -g gitdone /opt/gitdone/ops/postfix/aliases-dmarc /etc/postfix/aliases-dmarc
-sudo postalias /etc/postfix/aliases-dmarc
+# -o: as root, postalias otherwise drops to the SOURCE file's owner (gitdone),
+#     who can't create the .db in /etc/postfix -> 'Permission denied'.
+sudo postalias -o /etc/postfix/aliases-dmarc
 sudo chown gitdone:gitdone /etc/postfix/aliases-dmarc.db
 
 # 4. Enable and reload
@@ -38,4 +40,10 @@ postmap -q dmarc@signedreply.com hash:/etc/postfix/virtual   # -> dmarc@localhos
 postalias -q dmarc hash:/etc/postfix/aliases-dmarc            # -> /var/lib/gitdone/dmarc/
 ```
 
-Rerun `postalias` + `chown` whenever `aliases-dmarc` changes.
+Rerun `postalias -o` + `chown` whenever `aliases-dmarc` changes.
+
+**Live since 2026-11-23** (backups `*.bak-20261123-152747` for `main.cf`,
+`virtual`, `virtual.db`, and the stats-weekly unit). DNS `rua=` points at
+`dmarc@<domain>` for signedreply.com and ownsub.com; ownsub's `ruf` was dropped.
+Undo: restore those backups, `postmap`/reload, `systemctl disable --now
+gitdone-dmarc.timer`, and set `rua` back to `postmaster@<domain>`.
