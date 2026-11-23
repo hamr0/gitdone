@@ -157,7 +157,7 @@ router.get('/og.png', async (req, res) => {
 // Design Lab winner — landing page (variant F: retro-terminal hybrid).
 // CRT-green + amber phosphor, monospace, oversized wordmark with slash,
 // two heavy cells (second inverted green → amber on hover).
-// Reference: docs/01-product/design/landing-and-crypto-v1.md
+// Reference: docs/product/landing-and-crypto-v1.md
 const LANDING_CSS = `
 .vF { font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
       background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 0;
@@ -421,7 +421,7 @@ router.get('/.well-known/security.txt', async (req, res) => {
 // Design Lab variant F (synthesis winner, iteration 2): What+Who on one
 // row, How on a second row, compact step table with datetime-local
 // deadlines, explained dropdowns, numbered section headers.
-// Reference: docs/01-product/design/event-form-v1.md
+// Reference: docs/product/event-form-v1.md
 const WORKFLOW_FORM_CSS = `
 .vf-form h2 { font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.12em; color: #8b949e; margin: 1.2rem 0 0.45rem; font-weight: 600; }
 .vf-form h2 .num { display: inline-block; width: 1.4em; height: 1.4em; background: #0d1117; color: #3fb950; border: 1px solid #3fb950; border-radius: 0; text-align: center; font-weight: 600; margin-right: 0.5rem; font-size: 0.8em; line-height: 1.35em; }
@@ -1362,7 +1362,7 @@ function renderCheckYourInboxPage({ event, kind }) {
 // Design Lab variant F: dense one-page grid, no numbered sections. Mode
 // picker (declaration | attestation) is a segmented row; fields that don't
 // apply to the picked mode stay on screen but dim. Reference:
-// docs/01-product/design/landing-and-crypto-v1.md
+// docs/product/landing-and-crypto-v1.md
 const CRYPTO_FORM_CSS = `
 .vf-errors { background:#0d1117; border:1px solid #f85149; border-left-width:3px; color:#f0b8b8; padding:0.7rem 0.95rem; margin-bottom:1rem; font-size:0.92em; }
 .vf-errors strong { color:#f85149; text-transform:uppercase; letter-spacing:0.08em; font-size:0.8em; display:block; margin-bottom:0.35rem; }

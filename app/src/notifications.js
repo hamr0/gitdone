@@ -253,7 +253,7 @@ async function notifyDeclarationSigner(event) {
 // ([{ to, ok, message_id?, reason? }, ...]), and owns the edge-specific
 // side effects that were previously copy-pasted across call sites.
 //
-// Edges (match the per-event taxonomy in docs/01-product/emails.md and
+// Edges (match the per-event taxonomy in docs/product/emails.md and
 // the resolver in email-recipients.js):
 //   completed  → threshold reached / all steps done   (proof email)
 //   closed     → closed early by initiator             (proof email + redaction)

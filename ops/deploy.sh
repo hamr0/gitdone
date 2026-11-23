@@ -5,7 +5,7 @@
 #   ops/deploy.sh                # deploys origin/main
 #   ops/deploy.sh <sha-or-tag>   # deploys a specific revision
 #
-# What it does, in order — see docs/04-process/deploy.md for the why
+# What it does, in order — see docs/wiki/deploy.md for the why
 # behind each check:
 #
 #   Pre-flight (local):

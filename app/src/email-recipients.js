@@ -13,7 +13,7 @@
 // getRecipients(event, edge) → Map<email, role>
 //
 // Roles match the email taxonomy tree
-// (docs/01-product/emails.md):
+// (docs/product/emails.md):
 //   organiser | participant | signer | attestor
 //
 // Edges match the per-event (B) taxonomy:

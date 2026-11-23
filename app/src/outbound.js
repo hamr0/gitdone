@@ -96,7 +96,7 @@ function sanitizeHeader(s) {
 // Build a raw RFC-822 message from structured fields. Plaintext only.
 // NOTE: subjects are emitted as raw UTF-8 (no RFC 2047 encoded-words).
 // gitdone subjects routinely carry an em dash / middle dot (convention
-// #4 in docs/01-product/emails.md), and Gmail/MSN — our real receivers —
+// #4 in docs/product/emails.md), and Gmail/MSN — our real receivers —
 // accept 8-bit subjects over the OS MTA's 8BITMIME path; this has shipped
 // since the 0.25.x lifecycle emails. If a stricter receiver ever mangles
 // them, the fix is to RFC 2047-encode here (and re-baseline the subject

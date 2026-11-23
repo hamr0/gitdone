@@ -2,7 +2,7 @@
 //
 // The body/subject catalogue for per-event (B-axis) lifecycle emails.
 // One named template per (edge, event-kind, role), following the tree
-// in docs/01-product/emails.md. Senders (notifications.js) never
+// in docs/product/emails.md. Senders (notifications.js) never
 // compose body text inline — they resolve recipients (email-recipients.js),
 // pick the template by (edge, kind, role), and hand the result to sendOne.
 //
