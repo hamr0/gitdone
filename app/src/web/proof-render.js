@@ -10,7 +10,7 @@
 //     (gradient: signals "those checks would also pass").
 //   - Every rung ABOVE achieved is dim grey (out of reach).
 //
-// Visual reference: docs/01-product/design/proof-surfacing-v1.md.
+// Visual reference: docs/product/proof-surfacing-v1.md.
 
 'use strict';
 
