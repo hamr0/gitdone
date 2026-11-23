@@ -41,7 +41,13 @@
       { "name": "open" },
       { "name": "completed" },
       { "name": "steps_done" },
-      { "name": "attest_replies" }
+      { "name": "attest_replies" },
+      { "name": "dmarc_sr_msgs", "command": "/usr/bin/node", "args": ["/opt/gitdone/ops/pulselog/node_modules/pulselog/examples/dmarc.mjs", "metric", "/var/lib/gitdone/logs/dmarc.jsonl", "signedreply.com", "msgs"] },
+      { "name": "dmarc_sr_pass_pct", "command": "/usr/bin/node", "args": ["/opt/gitdone/ops/pulselog/node_modules/pulselog/examples/dmarc.mjs", "metric", "/var/lib/gitdone/logs/dmarc.jsonl", "signedreply.com", "pass-pct"] },
+      { "name": "dmarc_sr_unknown_ips", "command": "/usr/bin/node", "args": ["/opt/gitdone/ops/pulselog/node_modules/pulselog/examples/dmarc.mjs", "metric", "/var/lib/gitdone/logs/dmarc.jsonl", "signedreply.com", "unknown-ips", "--expected", "104.129.2.254"] },
+      { "name": "dmarc_os_msgs", "command": "/usr/bin/node", "args": ["/opt/gitdone/ops/pulselog/node_modules/pulselog/examples/dmarc.mjs", "metric", "/var/lib/gitdone/logs/dmarc.jsonl", "ownsub.com", "msgs"] },
+      { "name": "dmarc_os_pass_pct", "command": "/usr/bin/node", "args": ["/opt/gitdone/ops/pulselog/node_modules/pulselog/examples/dmarc.mjs", "metric", "/var/lib/gitdone/logs/dmarc.jsonl", "ownsub.com", "pass-pct"] },
+      { "name": "dmarc_os_unknown_ips", "command": "/usr/bin/node", "args": ["/opt/gitdone/ops/pulselog/node_modules/pulselog/examples/dmarc.mjs", "metric", "/var/lib/gitdone/logs/dmarc.jsonl", "ownsub.com", "unknown-ips", "--expected", "104.129.2.254"] }
     ],
     "flightlog": { "file": "/var/lib/gitdone/logs/errors.jsonl", "flagAtLeast": 10 }
   },

@@ -10,6 +10,9 @@ Group=gitdone
 # one pass, appends one ISO-week snapshot line to digest.history, and emails the
 # WoW table. EnvironmentFile carries GITDONE_DATA_DIR through to the metrics
 # command (stats.js defaults to /var/lib/gitdone if unset).
+# Refresh dmarc.jsonl so the dmarc_* metrics are current. "-": a DMARC hiccup
+# must never block the digest (the daily gitdone-dmarc.service surfaces it).
+ExecStartPre=-/usr/bin/node /opt/gitdone/ops/pulselog/node_modules/pulselog/examples/dmarc.mjs ingest /var/lib/gitdone/dmarc /var/lib/gitdone/logs/dmarc.jsonl
 ExecStart=/usr/bin/node /opt/gitdone/ops/pulselog/node_modules/pulselog/bin/pulselog.js --digest --config /opt/gitdone/ops/pulselog/pulselog.config.json
 EnvironmentFile=-/etc/default/gitdone-web
 TimeoutStartSec=60

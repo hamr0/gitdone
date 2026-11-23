@@ -1,0 +1,18 @@
+{
+  "output": {
+    "file": "/var/lib/gitdone/logs/dmarc-health.jsonl",
+    "maxBytes": 5000000,
+    "heartbeat": false
+  },
+  "alert": {
+    "email": "avoidaccess@gmail.com",
+    "from": "alerts@signedreply.com",
+    "app": "gitdone-dmarc",
+    "logTail": "/var/lib/gitdone/logs/errors.jsonl"
+  },
+  "retry": { "retries": 1, "retryDelayMs": 1000 },
+  "checks": [
+    { "type": "command", "name": "dmarc", "enabled": true, "timeoutMs": 30000, "command": "/usr/bin/node", "args": ["/opt/gitdone/ops/pulselog/node_modules/pulselog/examples/dmarc.mjs", "check", "/var/lib/gitdone/logs/dmarc.jsonl", "--domains", "signedreply.com,ownsub.com", "--expected", "104.129.2.254", "--days", "2"] },
+    { "type": "command", "name": "dmarc-bad", "enabled": true, "command": "sh", "args": ["-c", "test -z \"$(ls -A /var/lib/gitdone/dmarc/bad 2>/dev/null)\""] }
+  ]
+}

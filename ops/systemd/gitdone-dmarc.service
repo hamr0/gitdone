@@ -1,0 +1,18 @@
+[Unit]
+Description=GitDone DMARC aggregate-report ingest + check via pulselog
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=gitdone
+Group=gitdone
+# Postfix delivers rua mail into the Maildir /var/lib/gitdone/dmarc/ (see
+# ops/postfix/README.md). Ingest parses it into dmarc.jsonl first; no "-" prefix:
+# ingest exits 1 only when it cannot move a processed message, and that must
+# surface as a failed unit (the same failure repeats every run until fixed).
+ExecStartPre=/usr/bin/node /opt/gitdone/ops/pulselog/node_modules/pulselog/examples/dmarc.mjs ingest /var/lib/gitdone/dmarc /var/lib/gitdone/logs/dmarc.jsonl
+# Health checks (dmarc, dmarc-bad) live in the separate dmarc.config.json: health
+# alerts are stateless and repeat every run, so they run daily, not every 15 min.
+ExecStart=/usr/bin/node /opt/gitdone/ops/pulselog/node_modules/pulselog/bin/pulselog.js --config /opt/gitdone/ops/pulselog/dmarc.config.json
+TimeoutStartSec=120
+Nice=10

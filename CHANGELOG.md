@@ -15,6 +15,16 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Ops: DMARC aggregate-report monitoring (pulselog 0.9.0)
+
+`pulselog` bumps `^0.6.0` -> `^0.9.0` (host watchers only; no app change) to use
+its bundled DMARC example. `rua` reports for signedreply.com and ownsub.com land
+in a Postfix Maildir (`ops/postfix/aliases-dmarc`), a daily
+`gitdone-dmarc.timer` ingests them and runs `ops/pulselog/dmarc.config.json`
+(alerts on DMARC fail from the box IP, mail from unexpected IPs, or unparseable
+reports), and the Monday digest gains six `dmarc_*` metrics. Server steps:
+`ops/postfix/README.md`; flow and DNS values: `docs/wiki/deployment.md` §10.1d.
+
 ### Security: fast-xml-parser override floor ^5.12.0
 
 Dependabot alert #34 (low): `fast-xml-parser` <=5.11.2 burns quadratic CPU on
