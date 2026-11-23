@@ -47,10 +47,10 @@ function gte(actual, floor) {
   return true;
 }
 
-test('npm overrides: fast-xml-parser >= 5.7.3', () => {
+test('npm overrides: fast-xml-parser >= 5.12.0', () => {
   const v = resolvedVersion('fast-xml-parser');
-  assert.ok(gte(v, '5.7.3'),
-    `fast-xml-parser ${v} < 5.7.3 — security override leaked, restore overrides in app/package.json`);
+  assert.ok(gte(v, '5.12.0'),
+    `fast-xml-parser ${v} < 5.12.0 — security override leaked, restore overrides in app/package.json`);
 });
 
 // Floor raised 8.0.7 -> 9.0.3 -> 10.2.1, each time because the nodemailer

@@ -15,6 +15,13 @@ internal refactors and commit-level churn stay in `git log`.
 
 ## [Unreleased]
 
+### Security: fast-xml-parser override floor ^5.12.0
+
+Dependabot alert #34 (low): `fast-xml-parser` <=5.11.2 burns quadratic CPU on
+unterminated stop-node tags. It is transitive via `mailauth` (BIMI/VMC
+parsing). The npm override floor moves `^5.7.3` -> `^5.12.0` and its guard in
+`dep-overrides.test.js` moves with it.
+
 ### Ops: Postfix serves the Let's Encrypt cert; OpenDKIM trusted hosts trimmed
 
 Live mail-server changes on signedreply.com (2026-11-23), recorded in
