@@ -459,6 +459,45 @@ emails `avoidaccess@gmail.com`. Retention: `keepLast 7` ∪ `keepDays 30`.
 > + a `file-age` dead-man's-switch. Until then, both run — off-host coverage is
 > uninterrupted.
 
+### 10.1d DMARC aggregate reports (pulselog example)
+
+Receivers (Google, Microsoft, Yahoo...) mail `rua` aggregate reports for
+`signedreply.com` and co-tenant `ownsub.com` to `dmarc@<domain>`. Flow: Postfix
+local alias -> Maildir `/var/lib/gitdone/dmarc/` -> `gitdone-dmarc.service`
+(daily ~12:00 UTC) runs pulselog's bundled `examples/dmarc.mjs ingest` ->
+`/var/lib/gitdone/logs/dmarc.jsonl` -> health checks from
+`ops/pulselog/dmarc.config.json` (alerts to `alert.email`):
+
+- `dmarc` — `check --days 2 --expected 104.129.2.254`: alerts on DMARC fail from
+  the box IP ("signing broke") or any other source IP ("unexpected source").
+- `dmarc-bad` — alerts while `/var/lib/gitdone/dmarc/bad/` is non-empty
+  (unparseable mail; inspect and delete it to clear).
+
+Separate config + daily timer because health alerts are stateless and repeat
+every run: on the 15-min health timer one bad report would page for its whole
+window. The Monday digest (`pulselog.config.json`) also carries six
+`dmarc_{sr,os}_{msgs,pass_pct,unknown_ips}` metrics, and its service runs the
+same ingest first (`ExecStartPre=-`, so a DMARC hiccup never blocks the digest).
+
+```bash
+cd /opt/gitdone/ops/pulselog && npm ci            # pulselog ^0.9.0
+# mailbox + alias: ops/postfix/README.md (alias file/.db must be owned by gitdone —
+# local(8) delivers dir targets as the alias DB owner; root-owned => nobody => EACCES)
+sudo install -m 0644 /opt/gitdone/ops/systemd/gitdone-dmarc.service /etc/systemd/system/
+sudo install -m 0644 /opt/gitdone/ops/systemd/gitdone-dmarc.timer   /etc/systemd/system/
+sudo install -m 0644 /opt/gitdone/ops/systemd/gitdone-stats-weekly.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now gitdone-dmarc.timer
+```
+
+DNS TXT records (`_dmarc.<domain>`):
+
+- `signedreply.com`: `v=DMARC1; p=none; rua=mailto:dmarc@signedreply.com; aspf=s; adkim=s`
+- `ownsub.com`: `v=DMARC1; p=quarantine; rua=mailto:dmarc@ownsub.com; pct=100`
+
+`postmaster@` is unchanged and still forwards to Gmail (§6.1). The report
+address is public: treat numbers as signals, not proof.
+
 ### 10.2 External liveness (VPS down)
 
 Self-monitoring can't detect the box being off. Use UptimeRobot free tier

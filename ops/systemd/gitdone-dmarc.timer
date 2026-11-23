@@ -1,0 +1,10 @@
+[Unit]
+Description=Run gitdone DMARC ingest + check daily
+
+[Timer]
+OnCalendar=*-*-* 12:00:00 UTC
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

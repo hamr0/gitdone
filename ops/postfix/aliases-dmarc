@@ -1,0 +1,3 @@
+# DMARC aggregate (rua) reports -> Maildir read by gitdone-dmarc.service.
+# The trailing slash means Maildir delivery. See ops/postfix/README.md.
+dmarc: /var/lib/gitdone/dmarc/
