@@ -93,6 +93,16 @@ Keys live under `/etc/opendkim/keys/<domain>/`, owned `opendkim:opendkim`,
 rotating a selector = new KeyTable line + SigningTable mapping +
 `systemctl reload opendkim` (no `opendkim.conf` edit).
 
+**TrustedHosts.** Hosts listed in `/etc/opendkim/TrustedHosts` (used as both
+`InternalHosts` and `ExternalIgnoreList`) get their mail signed without
+SMTP auth. Live entries (2026-11-23): `127.0.0.1`, `::1`, `localhost`, the
+box public IP `104.129.2.254`, and the hostname `gitdone`. The retired
+`git-done.com` / `mail.git-done.com` entries were removed 2026-11-23. Keep
+the loopback entries — local Postfix submissions depend on them. Use
+`systemctl reload opendkim` (USR1), not restart: with
+`milter_default_action = accept`, mail sent while the milter is down goes
+out **unsigned**.
+
 **Signed headers.** No `SignHeaders` is set, so OpenDKIM's default list
 applies. A real outbound signature on this box (test 2026-11-11) was
 `h=From:To:Subject:Date:From` — **Message-ID, MIME-Version and
@@ -145,11 +155,11 @@ Notes (live box, 2026-11-11):
   handy for on-box signing tests without touching the pipe.
 - `virtual_alias_domains` also lists co-tenant domains; that is the
   co-tenants' config, not gitdone's.
-- `smtpd_tls_cert_file`/`key_file` point at `/etc/pki/tls/certs/postfix.pem`
-  / `/etc/pki/tls/private/postfix.key` (the distro path), **not** the
-  Let's Encrypt cert; certbot's renewal hooks reload only nginx. Opportunistic
-  inbound TLS still works; pointing Postfix at the LE cert would need a
-  deploy hook that also reloads Postfix.
+- `smtpd_tls_cert_file`/`key_file` point at the Let's Encrypt cert
+  (`/etc/letsencrypt/live/signedreply.com/fullchain.pem` / `privkey.pem`,
+  SANs include `mail.signedreply.com`) since 2026-11-23; before that they
+  used the distro `/etc/pki/tls/certs/postfix.pem`. Postfix only reads the
+  cert at (re)load, so a certbot deploy hook reloads it — see §9.
 - No IPv6 address on the host; `inet_protocols = ipv4` keeps it that way.
 - `message_size_limit` is the outer bound; `receive.js` also caps stdin at
   25 MB.
@@ -316,6 +326,21 @@ sudo systemctl enable --now nginx
 > silently stop reloading nginx again. `certbot renew` also applies a random
 > delay of up to ~12 min; add `--no-random-sleep-on-renew` for an immediate
 > manual dry-run.
+>
+> **Postfix also uses this cert (2026-11-23)**, so renewals must reload it
+> too. That is a global deploy hook, filtered to this lineage so the
+> co-tenant `ownsub.com` renewal doesn't bounce Postfix:
+> ```bash
+> # /etc/letsencrypt/renewal-hooks/deploy/reload-postfix.sh  (0755)
+> #!/bin/sh
+> case "$RENEWED_LINEAGE" in
+>   */live/signedreply.com) systemctl reload postfix ;;
+> esac
+> ```
+> `--dry-run` skips deploy hooks; test it by hand with
+> `sudo RENEWED_LINEAGE=/etc/letsencrypt/live/signedreply.com <hook>` and
+> check for a `postfix/master … reload` line in `/var/log/maillog`. Like the
+> nginx hook, it lives only on the box — re-add after a rebuild/restore.
 
 ## 10. Monitoring & alerts
 

@@ -4,7 +4,7 @@ All notable changes to GitDone are recorded here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 GitDone is pre-launch; versions are **phase-based** rather than semver
-until a public release cuts v1.0 (tracked in `docs/01-product/prd.md`
+until a public release cuts v1.0 (tracked in `docs/product/prd.md`
 §10). Newest first.
 
 **Entry scope:** user-visible or principle-visible changes. A reader
@@ -14,6 +14,19 @@ internal refactors and commit-level churn stay in `git log`.
 ---
 
 ## [Unreleased]
+
+### Ops: Postfix serves the Let's Encrypt cert; OpenDKIM trusted hosts trimmed
+
+Live mail-server changes on signedreply.com (2026-11-23), recorded in
+`docs/wiki/deployment.md`:
+
+- **Postfix TLS.** Inbound STARTTLS now presents the Let's Encrypt cert
+  for `mail.signedreply.com` instead of the distro self-signed one. A
+  certbot deploy hook reloads Postfix whenever that cert renews.
+- **OpenDKIM TrustedHosts.** Removed the retired `git-done.com` names
+  (hosts listed there get signed without authenticating). Signing was
+  checked afterwards with a test message to Gmail (`d=signedreply.com`,
+  accepted).
 
 ### Docs: deployment guide matches the live mail server
 
@@ -2553,7 +2566,7 @@ management URLs) — with one knowless flow.
   dashboard. The dashboard's first-visit handler activates the
   event server-side and fires participant notifications. Knowless's
   GUIDE.md calls this "Mode A — do the thing, confirm by email";
-  see `docs/01-product/prd.md` §6.5.
+  see `docs/product/prd.md` §6.5.
 - **No `/activate/:token` route any more.** Old links from in-flight
   pre-deploy emails 404; gracefully degraded since this branch
   hasn't shipped yet.
