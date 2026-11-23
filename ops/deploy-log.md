@@ -2,6 +2,7 @@
 
 One line per successful production deploy. Newest first.
 
+- 2026-11-23T08:35Z · `6c14f09` · Merge pull request #10 from hamr0/chore/fast-xml-parser-5.12
 - 2026-10-31T21:52Z · `6d2bb65` · Merge pull request #6 from hamr0/fix/simple-git-4
 - 2026-10-23T15:14Z · `6d9b891` · Merge pull request #3 from hamr0/deps/knowless-1.3.5
 - 2026-07-15T10:01Z · `2d2d8eb` · security(deps): mailauth 4.13.3 + mailparser 3.9.14 + undici override 7.28.0 — audit clean
